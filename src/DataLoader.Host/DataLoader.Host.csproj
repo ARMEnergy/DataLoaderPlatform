@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.Host</RootNamespace>
+    <AssemblyName>DataLoader.Host</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+    <!-- Reference loader plugin projects here to deploy them with the host.
+         Adding a new loader = adding a ProjectReference here. -->
+    <ProjectReference Include="..\DataLoader.EnergyAspects\DataLoader.EnergyAspects.csproj" />
+    <ProjectReference Include="..\DataLoader.CsvExample\DataLoader.CsvExample.csproj" />
+    <ProjectReference Include="..\DataLoader.FtpExample\DataLoader.FtpExample.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

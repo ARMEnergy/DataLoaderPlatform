@@ -1,0 +1,15 @@
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\bin\Debug\net8.0\DataLoader.FtpExample.deps.json
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\bin\Debug\net8.0\DataLoader.FtpExample.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\bin\Debug\net8.0\DataLoader.FtpExample.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\bin\Debug\net8.0\DataLoader.Core.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\bin\Debug\net8.0\DataLoader.Core.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoader.FtpExample.csproj.AssemblyReference.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoader.FtpExample.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoader.FtpExample.AssemblyInfoInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoader.FtpExample.AssemblyInfo.cs
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoader.FtpExample.csproj.CoreCompileInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoad.D749A0A4.Up2Date
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoader.FtpExample.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\refint\DataLoader.FtpExample.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\DataLoader.FtpExample.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.FtpExample\obj\Debug\net8.0\ref\DataLoader.FtpExample.dll
