@@ -1136,6 +1136,19 @@
         "runtime": {
           "bin/placeholder/DataLoader.FtpExample.dll": {}
         }
+      },
+      "DataLoader.Vulcan/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.Vulcan.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.Vulcan.dll": {}
+        }
       }
     }
   },
@@ -3087,6 +3100,11 @@
       "type": "project",
       "path": "../DataLoader.FtpExample/DataLoader.FtpExample.csproj",
       "msbuildProject": "../DataLoader.FtpExample/DataLoader.FtpExample.csproj"
+    },
+    "DataLoader.Vulcan/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.Vulcan/DataLoader.Vulcan.csproj",
+      "msbuildProject": "../DataLoader.Vulcan/DataLoader.Vulcan.csproj"
     }
   },
   "projectFileDependencyGroups": {
@@ -3095,6 +3113,7 @@
       "DataLoader.CsvExample >= 1.0.0",
       "DataLoader.EnergyAspects >= 1.0.0",
       "DataLoader.FtpExample >= 1.0.0",
+      "DataLoader.Vulcan >= 1.0.0",
       "Microsoft.Extensions.Configuration.EnvironmentVariables >= 8.0.0",
       "Microsoft.Extensions.Configuration.Json >= 8.0.0",
       "Microsoft.Extensions.DependencyInjection >= 8.0.0",
@@ -3137,6 +3156,9 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.FtpExample\\DataLoader.FtpExample.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.FtpExample\\DataLoader.FtpExample.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj"
             }
           }
         }

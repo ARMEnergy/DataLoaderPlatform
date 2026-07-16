@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.FtpExample")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+79e5743bc646e1c93b3bbca093b5ea03a4859cc6")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.FtpExample")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.FtpExample")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

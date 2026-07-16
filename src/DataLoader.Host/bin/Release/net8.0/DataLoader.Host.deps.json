@@ -12,6 +12,7 @@
           "DataLoader.CsvExample": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
           "DataLoader.FtpExample": "1.0.0",
+          "DataLoader.Vulcan": "1.0.0",
           "Microsoft.Extensions.Configuration.EnvironmentVariables": "8.0.0",
           "Microsoft.Extensions.Configuration.Json": "8.0.0",
           "Microsoft.Extensions.DependencyInjection": "8.0.0",
@@ -736,6 +737,17 @@
             "fileVersion": "1.0.0.0"
           }
         }
+      },
+      "DataLoader.Vulcan/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.Vulcan.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
       }
     }
   },
@@ -1167,6 +1179,11 @@
       "sha512": ""
     },
     "DataLoader.FtpExample/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.Vulcan/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

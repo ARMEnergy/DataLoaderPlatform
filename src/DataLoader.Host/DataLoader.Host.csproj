@@ -22,6 +22,7 @@
     <ProjectReference Include="..\DataLoader.EnergyAspects\DataLoader.EnergyAspects.csproj" />
     <ProjectReference Include="..\DataLoader.CsvExample\DataLoader.CsvExample.csproj" />
     <ProjectReference Include="..\DataLoader.FtpExample\DataLoader.FtpExample.csproj" />
+    <ProjectReference Include="..\DataLoader.Vulcan\DataLoader.Vulcan.csproj" />
   </ItemGroup>
 
   <ItemGroup>

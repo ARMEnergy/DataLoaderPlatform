@@ -176,3 +176,5 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\obj
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\obj\Release\net8.0\DataLoader.Host.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\obj\Release\net8.0\DataLoader.Host.genruntimeconfig.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\obj\Release\net8.0\ref\DataLoader.Host.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.Vulcan.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.Vulcan.pdb
