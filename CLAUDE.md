@@ -94,6 +94,7 @@ The host and `DataLoader.Core` never change when adding a loader.
 **Reference implementations:**
 - `DataLoader.EnergyAspects/` — REST/JSON loader (most complete example)
 - `DataLoader.CsvExample/` — local file-drop loader
+- `DataLoader.Vulcan/` — incremental REST loader (POST SQL to SynMax query_datalinks; 5 tables via 5 closed pipelines; watermark-based resume)
 
 ## Agents
 

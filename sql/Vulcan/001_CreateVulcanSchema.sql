@@ -3,6 +3,12 @@
 -- Vulcan loader tables (dbo schema) + incremental watermark table.
 -- Runs against the Vulcan database (Loaders:Vulcan:ConnectionString).
 -- =============================================================================
+-- Provisioning (before the first run):
+--   1. Create the Vulcan database.
+--   2. Run sql/Vulcan/001_, 002_, 003_ in order.
+--   3. Set the API key env var: DATALOADER_Loaders__Vulcan__ApiKey=<key>
+--   4. Run DataLoader.Host.exe Vulcan
+-- =============================================================================
 
 -- Incremental resume state: one row per source table.
 IF OBJECT_ID('dbo.LoadWatermark', 'U') IS NULL
