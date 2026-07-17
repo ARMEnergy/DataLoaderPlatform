@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using DataLoader.Core.Sources;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -15,6 +16,11 @@ namespace DataLoader.Vulcan;
 public sealed class VulcanQuerySourceReader<TRow> : HttpJsonSourceReaderBase<VulcanWorkUnit, TRow>
 {
     private readonly VulcanSettings _settings;
+
+    private static readonly JsonSerializerOptions RowJsonOptions = new(DefaultJsonOptions)
+    {
+        NumberHandling = JsonNumberHandling.AllowReadingFromString
+    };
 
     public VulcanQuerySourceReader(HttpClient httpClient, IOptions<VulcanSettings> settings, ILogger logger)
         : base(httpClient, logger)
@@ -59,7 +65,7 @@ public sealed class VulcanQuerySourceReader<TRow> : HttpJsonSourceReaderBase<Vul
         else
             return Array.Empty<TRow>();
 
-        var rows = JsonSerializer.Deserialize<List<TRow>>(arrayElement.GetRawText(), DefaultJsonOptions);
+        var rows = arrayElement.Deserialize<List<TRow>>(RowJsonOptions);
         return rows ?? new List<TRow>();
     }
 }

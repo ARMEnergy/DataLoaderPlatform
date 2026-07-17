@@ -124,6 +124,10 @@ public sealed class VulcanModule : ILoaderModule
             .Where(p => enabled.Contains(p.TableId))
             .ToList();
 
+        var known = services.GetServices<IVulcanTablePipeline>().Select(p => p.TableId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in settings.EnabledTables.Where(t => !known.Contains(t)))
+            logger.LogWarning("Enabled Vulcan table '{Table}' has no matching pipeline and will be skipped", t);
+
         if (pipelines.Count == 0)
         {
             logger.LogWarning("No Vulcan tables enabled");

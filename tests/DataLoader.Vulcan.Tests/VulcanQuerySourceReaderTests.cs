@@ -40,4 +40,13 @@ public class VulcanQuerySourceReaderTests
         var rows = VulcanQuerySourceReader<ProjectRankingRow>.ParseRows("""{ "error": "nope" }""");
         Assert.Empty(rows);
     }
+
+    [Fact]
+    public void ParseRows_NumbersAsStrings_AreTolerated()
+    {
+        var json = """{ "data": [ { "synmax_id": "R1", "plant_id": "55123", "final_rank": "6.5" } ] }""";
+        var row = Assert.Single(VulcanQuerySourceReader<DataLoader.Vulcan.Models.ProjectRankingRow>.ParseRows(json));
+        Assert.Equal(55123L, row.PlantId);
+        Assert.Equal(6.5, row.FinalRank);
+    }
 }

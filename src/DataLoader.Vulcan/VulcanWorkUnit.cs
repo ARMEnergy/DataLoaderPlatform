@@ -26,6 +26,9 @@ public static class VulcanQueryBuilder
 {
     public static string Build(VulcanTableSpec spec, DateOnly? watermark)
     {
+        // SECURITY: every interpolated identifier below (SourceTable, WatermarkColumn,
+        // DedupPartitionColumn) is a compile-time constant from VulcanTableSpec, and the
+        // watermark is an invariant-formatted DateOnly. Never interpolate user/config input here.
         var where = watermark is null
             ? string.Empty
             : $" WHERE {spec.WatermarkColumn} >= '{watermark.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}'";
