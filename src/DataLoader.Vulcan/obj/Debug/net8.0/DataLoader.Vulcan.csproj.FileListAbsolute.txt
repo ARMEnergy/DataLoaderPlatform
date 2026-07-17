@@ -1,0 +1,15 @@
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\bin\Debug\net8.0\DataLoader.Vulcan.deps.json
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\bin\Debug\net8.0\DataLoader.Vulcan.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\bin\Debug\net8.0\DataLoader.Vulcan.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\bin\Debug\net8.0\DataLoader.Core.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\bin\Debug\net8.0\DataLoader.Core.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.csproj.AssemblyReference.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.AssemblyInfoInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.AssemblyInfo.cs
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.csproj.CoreCompileInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoad.D8A1827B.Up2Date
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\refint\DataLoader.Vulcan.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\ref\DataLoader.Vulcan.dll

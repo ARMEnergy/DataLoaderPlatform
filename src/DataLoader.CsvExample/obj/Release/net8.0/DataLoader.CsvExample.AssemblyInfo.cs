@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.CsvExample")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+79e5743bc646e1c93b3bbca093b5ea03a4859cc6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7c313be89796cfcd8feb905a4c39a751eead9d4d")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.CsvExample")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.CsvExample")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
