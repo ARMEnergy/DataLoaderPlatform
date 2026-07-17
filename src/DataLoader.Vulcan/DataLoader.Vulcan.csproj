@@ -9,4 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.Vulcan.Tests" />
+  </ItemGroup>
 </Project>
