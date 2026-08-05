@@ -36,7 +36,9 @@ public sealed class VulcanWorkUnitProvider : IWorkUnitProvider<VulcanWorkUnit>
             {
                 TableId = _spec.TableId,
                 RunDate = DateOnly.FromDateTime(context.StartedAtUtc),
-                Query = query
+                Query = query,
+                Spec = _spec,
+                Watermark = watermark
             }
         };
     }

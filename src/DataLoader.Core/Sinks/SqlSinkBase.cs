@@ -1,5 +1,6 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
+using DataLoader.Core.Concurrency;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
@@ -48,6 +49,11 @@ public abstract class SqlSinkBase<TRow> : ISink<TRow>
 
         try
         {
+            // Serialize concurrent MERGE/upsert calls against the same target
+            // (database + proc) to avoid parallel-run deadlocks and insert races.
+            var key = SqlWriteGate.KeyFor(GetConnectionString(), StoredProcedureName);
+            using var gate = await SqlWriteGate.AcquireAsync(key, cancellationToken).ConfigureAwait(false);
+
             await using var conn = new SqlConnection(GetConnectionString());
             await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
 

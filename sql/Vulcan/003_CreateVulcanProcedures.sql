@@ -3,11 +3,12 @@
 -- Watermark accessors + per-table bulk-merge procedures.
 -- Each merge proc: MERGE into the target, SELECT the merged row count,
 -- then advance dbo.LoadWatermark to MAX(watermark column) of the incoming rows.
+-- Procedures use CREATE OR ALTER so the script is re-runnable.
+-- The MERGE INSERT lists omit Id and DateCreated: those are populated by the
+-- table's IDENTITY and DEFAULT.
 -- =============================================================================
 
-IF OBJECT_ID('dbo.usp_GetVulcanWatermark', 'P') IS NOT NULL DROP PROCEDURE dbo.usp_GetVulcanWatermark;
-GO
-CREATE PROCEDURE dbo.usp_GetVulcanWatermark @TableName NVARCHAR(100)
+CREATE OR ALTER PROCEDURE dbo.usp_GetVulcanWatermark @TableName NVARCHAR(100)
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -16,9 +17,7 @@ END
 GO
 
 -- Helper used by every merge proc to advance a table's watermark.
-IF OBJECT_ID('dbo.usp_SetVulcanWatermark', 'P') IS NOT NULL DROP PROCEDURE dbo.usp_SetVulcanWatermark;
-GO
-CREATE PROCEDURE dbo.usp_SetVulcanWatermark @TableName NVARCHAR(100), @Value DATE
+CREATE OR ALTER PROCEDURE dbo.usp_SetVulcanWatermark @TableName NVARCHAR(100), @Value DATE
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -34,9 +33,7 @@ END
 GO
 
 -- ---- UnderConstruction (watermark: DateImage) ----
-IF OBJECT_ID('dbo.usp_BulkMergeUnderConstruction', 'P') IS NOT NULL DROP PROCEDURE dbo.usp_BulkMergeUnderConstruction;
-GO
-CREATE PROCEDURE dbo.usp_BulkMergeUnderConstruction @Records dbo.UnderConstructionTvp READONLY
+CREATE OR ALTER PROCEDURE dbo.usp_BulkMergeUnderConstruction @Records dbo.UnderConstructionTvp READONLY
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -57,15 +54,15 @@ BEGIN
                 src.ProjectRank, src.DateVulcanEarliestOnline, src.DateVulcanLatestOnline, src.StateCode,
                 src.BalancingAuthority, src.Latitude, src.Longitude, src.DateVulcanStatusChange, src.DateImage);
     DECLARE @merged INT = @@ROWCOUNT;
-    EXEC dbo.usp_SetVulcanWatermark @TableName = N'under_construction', @Value = (SELECT MAX(DateImage) FROM @Records);
+    DECLARE @Value DATE
+    SET @Value = (SELECT MAX(DateImage) FROM @Records)
+    EXEC dbo.usp_SetVulcanWatermark @TableName = N'under_construction', @Value = @Value;
     SELECT @merged AS RecordsProcessed;
 END
 GO
 
 -- ---- DataCenters (watermark: ModifiedAt) ----
-IF OBJECT_ID('dbo.usp_BulkMergeDataCenters', 'P') IS NOT NULL DROP PROCEDURE dbo.usp_BulkMergeDataCenters;
-GO
-CREATE PROCEDURE dbo.usp_BulkMergeDataCenters @Records dbo.DataCentersTvp READONLY
+CREATE OR ALTER PROCEDURE dbo.usp_BulkMergeDataCenters @Records dbo.DataCentersTvp READONLY
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -73,26 +70,59 @@ BEGIN
     USING @Records AS src ON tgt.SynmaxId = src.SynmaxId
     WHEN MATCHED THEN UPDATE SET
         PlantId = src.PlantId, PlantName = src.PlantName, UnitId = src.UnitId, UnitName = src.UnitName,
-        OwnerName = src.OwnerName, DataCenterType = src.DataCenterType, UnitCapacity = src.UnitCapacity,
-        VulcanStatus = src.VulcanStatus, StateCode = src.StateCode, BalancingAuthority = src.BalancingAuthority,
-        DateVulcanEarliestOnline = src.DateVulcanEarliestOnline, DateVulcanLatestOnline = src.DateVulcanLatestOnline,
-        ModifiedAt = src.ModifiedAt, LoadedAtUtc = SYSUTCDATETIME()
+        OwnerName = src.OwnerName, StateCode = src.StateCode, BalancingAuthority = src.BalancingAuthority,
+        Country = src.Country, MarketRegion = src.MarketRegion, DataCenterType = src.DataCenterType,
+        UnitCapacity = src.UnitCapacity, UnitStatus = src.UnitStatus, PlantStatus = src.PlantStatus,
+        VulcanStatus = src.VulcanStatus, Source = src.Source, BtmGeneration = src.BtmGeneration,
+        BtmClassification = src.BtmClassification, Observation = src.Observation,
+        DatePlannedOperation = src.DatePlannedOperation, DateVulcanStatusChange = src.DateVulcanStatusChange,
+        DateImage = src.DateImage, DateImageReviewed = src.DateImageReviewed,
+        DateConstructionStart = src.DateConstructionStart, DateLandCleared = src.DateLandCleared,
+        DateFirstStructures = src.DateFirstStructures,
+        DateConstruction50PercentComplete = src.DateConstruction50PercentComplete,
+        DateConstructionCompleted = src.DateConstructionCompleted,
+        DateVulcanEarliestPlus7 = src.DateVulcanEarliestPlus7, DateVulcanEarliestOnline = src.DateVulcanEarliestOnline,
+        DateVulcanLatestOnline = src.DateVulcanLatestOnline, DateVulcanMedianOnline = src.DateVulcanMedianOnline,
+        DaysIirMinusVulcanEarliestOnline = src.DaysIirMinusVulcanEarliestOnline,
+        DaysIirMinusVulcanLatestOnline = src.DaysIirMinusVulcanLatestOnline,
+        DateProjectedEarliestLandClear = src.DateProjectedEarliestLandClear,
+        DateProjectedMedianLandClear = src.DateProjectedMedianLandClear,
+        DateProjectedEarliestFirstStructures = src.DateProjectedEarliestFirstStructures,
+        DateProjectedMedianFirstStructures = src.DateProjectedMedianFirstStructures,
+        WeeklyProgressIndicator = src.WeeklyProgressIndicator, TotalWpi = src.TotalWpi,
+        WpiOnlineDate = src.WpiOnlineDate, CreatedAt = src.CreatedAt, ModifiedAt = src.ModifiedAt,
+        LoadedAtUtc = SYSUTCDATETIME()
     WHEN NOT MATCHED BY TARGET THEN
-        INSERT (SynmaxId, PlantId, PlantName, UnitId, UnitName, OwnerName, DataCenterType, UnitCapacity,
-                VulcanStatus, StateCode, BalancingAuthority, DateVulcanEarliestOnline, DateVulcanLatestOnline, ModifiedAt)
-        VALUES (src.SynmaxId, src.PlantId, src.PlantName, src.UnitId, src.UnitName, src.OwnerName, src.DataCenterType,
-                src.UnitCapacity, src.VulcanStatus, src.StateCode, src.BalancingAuthority,
-                src.DateVulcanEarliestOnline, src.DateVulcanLatestOnline, src.ModifiedAt);
+        INSERT (SynmaxId, PlantId, PlantName, UnitId, UnitName, OwnerName, StateCode, BalancingAuthority,
+                Country, MarketRegion, DataCenterType, UnitCapacity, UnitStatus, PlantStatus, VulcanStatus,
+                Source, BtmGeneration, BtmClassification, Observation, DatePlannedOperation,
+                DateVulcanStatusChange, DateImage, DateImageReviewed, DateConstructionStart, DateLandCleared,
+                DateFirstStructures, DateConstruction50PercentComplete, DateConstructionCompleted,
+                DateVulcanEarliestPlus7, DateVulcanEarliestOnline, DateVulcanLatestOnline, DateVulcanMedianOnline,
+                DaysIirMinusVulcanEarliestOnline, DaysIirMinusVulcanLatestOnline, DateProjectedEarliestLandClear,
+                DateProjectedMedianLandClear, DateProjectedEarliestFirstStructures, DateProjectedMedianFirstStructures,
+                WeeklyProgressIndicator, TotalWpi, WpiOnlineDate, CreatedAt, ModifiedAt)
+        VALUES (src.SynmaxId, src.PlantId, src.PlantName, src.UnitId, src.UnitName, src.OwnerName, src.StateCode,
+                src.BalancingAuthority, src.Country, src.MarketRegion, src.DataCenterType, src.UnitCapacity,
+                src.UnitStatus, src.PlantStatus, src.VulcanStatus, src.Source, src.BtmGeneration,
+                src.BtmClassification, src.Observation, src.DatePlannedOperation, src.DateVulcanStatusChange,
+                src.DateImage, src.DateImageReviewed, src.DateConstructionStart, src.DateLandCleared,
+                src.DateFirstStructures, src.DateConstruction50PercentComplete, src.DateConstructionCompleted,
+                src.DateVulcanEarliestPlus7, src.DateVulcanEarliestOnline, src.DateVulcanLatestOnline,
+                src.DateVulcanMedianOnline, src.DaysIirMinusVulcanEarliestOnline, src.DaysIirMinusVulcanLatestOnline,
+                src.DateProjectedEarliestLandClear, src.DateProjectedMedianLandClear,
+                src.DateProjectedEarliestFirstStructures, src.DateProjectedMedianFirstStructures,
+                src.WeeklyProgressIndicator, src.TotalWpi, src.WpiOnlineDate, src.CreatedAt, src.ModifiedAt);
     DECLARE @merged INT = @@ROWCOUNT;
-    EXEC dbo.usp_SetVulcanWatermark @TableName = N'datacenters', @Value = (SELECT MAX(ModifiedAt) FROM @Records);
+    DECLARE @Value DATE
+    SET @Value = (SELECT MAX(ModifiedAt) FROM @Records)
+    EXEC dbo.usp_SetVulcanWatermark @TableName = N'datacenters', @Value = @Value;
     SELECT @merged AS RecordsProcessed;
 END
 GO
 
 -- ---- LngProjects (watermark: ModifiedAt; natural key PlantName+PhaseNumber) ----
-IF OBJECT_ID('dbo.usp_BulkMergeLngProjects', 'P') IS NOT NULL DROP PROCEDURE dbo.usp_BulkMergeLngProjects;
-GO
-CREATE PROCEDURE dbo.usp_BulkMergeLngProjects @Records dbo.LngProjectsTvp READONLY
+CREATE OR ALTER PROCEDURE dbo.usp_BulkMergeLngProjects @Records dbo.LngProjectsTvp READONLY
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -113,15 +143,15 @@ BEGIN
                 src.Trains, src.VulcanStatus, src.DateVulcanEarliestOnline, src.DateVulcanLatestOnline, src.Latitude,
                 src.Longitude, src.Observation, src.DateVulcanStatusChange, src.DateImage, src.ModifiedAt);
     DECLARE @merged INT = @@ROWCOUNT;
-    EXEC dbo.usp_SetVulcanWatermark @TableName = N'lng_projects', @Value = (SELECT MAX(ModifiedAt) FROM @Records);
+    DECLARE @Value DATE
+    SET @Value = (SELECT MAX(ModifiedAt) FROM @Records)
+    EXEC dbo.usp_SetVulcanWatermark @TableName = N'lng_projects', @Value = @Value;
     SELECT @merged AS RecordsProcessed;
 END
 GO
 
 -- ---- ProjectRankings (watermark: DateUpdated) ----
-IF OBJECT_ID('dbo.usp_BulkMergeProjectRankings', 'P') IS NOT NULL DROP PROCEDURE dbo.usp_BulkMergeProjectRankings;
-GO
-CREATE PROCEDURE dbo.usp_BulkMergeProjectRankings @Records dbo.ProjectRankingsTvp READONLY
+CREATE OR ALTER PROCEDURE dbo.usp_BulkMergeProjectRankings @Records dbo.ProjectRankingsTvp READONLY
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -136,15 +166,15 @@ BEGIN
         VALUES (src.SynmaxId, src.PlantId, src.GeneratorId, src.FinalRank, src.DateVulcanProposedV2Online,
                 src.DateVulcanProposedOnline, src.DateUpdated);
     DECLARE @merged INT = @@ROWCOUNT;
-    EXEC dbo.usp_SetVulcanWatermark @TableName = N'project_rankings', @Value = (SELECT MAX(DateUpdated) FROM @Records);
+    DECLARE @Value DATE
+    SET @Value = (SELECT MAX(DateUpdated) FROM @Records)
+    EXEC dbo.usp_SetVulcanWatermark @TableName = N'project_rankings', @Value = @Value;
     SELECT @merged AS RecordsProcessed;
 END
 GO
 
 -- ---- MetadataHistory (watermark: DateEiaUpdated) ----
-IF OBJECT_ID('dbo.usp_BulkMergeMetadataHistory', 'P') IS NOT NULL DROP PROCEDURE dbo.usp_BulkMergeMetadataHistory;
-GO
-CREATE PROCEDURE dbo.usp_BulkMergeMetadataHistory @Records dbo.MetadataHistoryTvp READONLY
+CREATE OR ALTER PROCEDURE dbo.usp_BulkMergeMetadataHistory @Records dbo.MetadataHistoryTvp READONLY
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -166,7 +196,9 @@ BEGIN
                 src.DaysPlannedOperationMinusFirstSeenPlannedOperation, src.Latitude, src.Longitude,
                 src.BalancingAuthorityCode, src.SectorName);
     DECLARE @merged INT = @@ROWCOUNT;
-    EXEC dbo.usp_SetVulcanWatermark @TableName = N'metadata_history', @Value = (SELECT MAX(DateEiaUpdated) FROM @Records);
+    DECLARE @Value DATE
+    SET @Value = (SELECT MAX(DateEiaUpdated) FROM @Records)
+    EXEC dbo.usp_SetVulcanWatermark @TableName = N'metadata_history', @Value = @Value;
     SELECT @merged AS RecordsProcessed;
 END
 GO

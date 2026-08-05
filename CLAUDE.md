@@ -24,11 +24,15 @@ DataLoader.Host.exe
 
 Exit codes: `0` = success or skipped (overlap guard), `1` = error, `2` = cancelled.
 
-There are no automated test projects in this solution.
+Automated tests live under `tests/` (xUnit): `DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, and `DataLoader.Platts.Tests`. Run them with:
+
+```bash
+dotnet test DataLoaderPlatform.sln -c Release
+```
 
 ## Architecture
 
-This is a plugin-based ETL platform. One host executable discovers and runs independent loader plugins. The platform owns all cross-cutting concerns (DI, logging, retry, parallelism, audit logging, overlap protection); each loader plugin owns its source, transform, sink, and database schema.
+This is a plugin-based ETL platform. One host executable discovers and runs independent loader plugins. The platform owns all cross-cutting concerns (DI, logging, retry, parallelism, audit logging, overlap protection, deadlock-safe write serialization); each loader plugin owns its source, transform, sink, and database schema.
 
 **Dependency direction:** `DataLoader.<Vendor>` → `DataLoader.Core` ← `DataLoader.Host`
 
@@ -70,10 +74,14 @@ Bounded concurrency via `ParallelRunner` (semaphore). HTTP retry via `RetryPolic
 
 `SqlLoaderOverlapGuard` acquires a SQL Server app lock named `DataLoader:<LoaderId>` at run start. If held by another process, the new invocation logs a warning and exits `0`. Safe to over-schedule.
 
+### Concurrent Writes
+
+`ParallelRunner` runs work units concurrently, so several `MERGE`/upsert procs can hit the same table at once — a deadlock (and NOT-MATCHED insert-race) risk. `SqlWriteGate` (`src/DataLoader.Core/Concurrency/`) is a process-wide, per-target keyed lock (`{server}/{db}::{proc}`) that serializes those calls. `SqlSinkBase.WriteAsync` acquires it automatically, so every TVP-merge sink is covered; direct proc callers (e.g. the Platts `arm.usp_UpsertFileLog` writer and the EnergyAspects sink) acquire it too. It is **in-process only** — cross-process serialization is the overlap guard's job. `core.LoadLog` bookkeeping is intentionally *not* gated (keyed per work unit, so it rarely contends).
+
 ### Database Layout
 
 - **Platform DB** (`core` schema): `core.LoaderRun` (one per host invocation) and `core.LoadLog` (one per work unit attempt, keyed by `LoaderId` + `WorkUnitKey`). Scripts in `sql/Core/`.
-- **Per-loader DB**: each loader owns its own schema (e.g., `ea`, `csv`). Scripts in `sql/<Vendor>/`. Connection string comes from `Loaders:<LoaderId>:ConnectionString`.
+- **Per-loader DB**: each loader owns its own schema (e.g., `ea`, `csv`, `ftp`, `arm` for Platts). Scripts in `sql/<Vendor>/`. Connection string comes from `Loaders:<LoaderId>:ConnectionString`.
 
 ## Adding a New Loader
 
@@ -95,13 +103,49 @@ The host and `DataLoader.Core` never change when adding a loader.
 - `DataLoader.EnergyAspects/` — REST/JSON loader (most complete example)
 - `DataLoader.CsvExample/` — local file-drop loader
 - `DataLoader.Vulcan/` — incremental REST loader (POST SQL to SynMax query_datalinks; 5 tables via 5 closed pipelines; watermark-based resume)
+- `DataLoader.Ftp/` — FTP/FTPS pull loader (file-based via `IFileSystemDriver`; `FtpWebRequest`)
+- `DataLoader.Platts/` — SFTP loader (SSH.NET; one module, two closed pipelines — daily `.ftp` market files → `arm.SymbolData` and reference CSVs → `arm.Symbol`; work-unit `Key` embeds the SFTP `LastModified` so a file is reprocessed only when it changes; `arm.FileLog` audit)
 
 ## Agents
 
 This repo ships specialist subagents in `.claude/agents/` that automate an
 end-to-end loader build. `MANAGER` coordinates; the others each own one stage
-and hand off to the next. Invoke `MANAGER` first for any multi-stage loader
-build or change; invoke a single specialist directly for a scoped task.
+and hand off to the next.
+
+### Agent use is MANDATORY, not optional
+
+**You MUST use these agents for any work that touches a loader. Do NOT do this
+work directly in the main thread, even when the change looks small or you are
+confident you can do it yourself.** Skipping the agents skips the requirements
+gathering, design, review, and validation that they enforce — which is how
+fields, columns, edge cases, and regressions get missed.
+
+Apply this decision rule BEFORE writing any code or SQL:
+
+- **Any change spanning ≥2 stages** (e.g. new/changed API fields → SQL → C# →
+  tests, or "add a loader", "add/change columns", "fix the mapping",
+  "the endpoint returns more fields") → invoke **`MANAGER` FIRST**. Let it plan
+  and sequence the specialists. Do not pre-empt it by editing files yourself.
+- **A change cleanly scoped to one stage** (only SQL, only a code-review pass,
+  only tests) → invoke that single specialist directly (`DATABASE_DEVELOPER`,
+  `CODE_REVIEWER`, `CODE_TESTER`, …).
+- **Genuinely trivial, zero-design edits** (a typo, a comment, a log string, a
+  one-line config value) → you may do it directly. When in doubt, use the
+  agents; do not rationalize a multi-file change into "trivial".
+
+Non-negotiable requirements the agents exist to enforce — you own these
+regardless of who does the typing:
+
+- When an API/endpoint is involved, its **full field set** must be documented
+  (via `API_DOCUMENTATION_EXPERT`) and every field mapped end-to-end (model →
+  sink → TVP → table → merge proc). Never ship a partial column set.
+- SQL changes go through `DATABASE_DEVELOPER`; C# through `CODER`; both are
+  reviewed (`CODE_REVIEWER`) and tested (`CODE_TESTER`) before you report done.
+- After a load, data is validated (`DATA_QUALITY_VALIDATOR`).
+
+If the user explicitly tells you to skip the agents for a given task, honor
+that — but say which stages/requirements are being bypassed so the choice is
+deliberate.
 
 | Agent | Stage | Writes | Model |
 |-------|-------|--------|-------|
@@ -114,9 +158,11 @@ build or change; invoke a single specialist directly for a scoped task.
 | `CODE_TESTER` | Writes and runs `dotnet test` with HTTP/SQL test doubles | test project | opus |
 | `DATA_QUALITY_VALIDATOR` | Validates the loaded data (reconciliation, nulls, ranges, anomalies) | findings report (read-only on data) | sonnet |
 
-**Default sequence:** documentation → design → database → code → review (loops
-back to `CODER`) → test (loops back to `CODER`) → data validation (loops back to
-`CODER`).
+**Required sequence** (skip a stage only when it plainly does not apply — e.g. no
+API change means no documentation stage — and say so): documentation → design →
+database → code → review (loops back to `CODER`) → test (loops back to `CODER`) →
+data validation (loops back to `CODER`). Do not report a task complete until the
+review and test stages have run and passed.
 
 Note: these agents assume some conventions that differ from the rest of this
 file — they read/write loader specs under `docs/apis|db|design|quality/` and
@@ -151,6 +197,9 @@ Double underscore is .NET's section separator; prefix is `DATALOADER_`.
 - `src/DataLoader.Core/Pipeline/LoaderPipelineBase.cs` — the standard ETL loop
 - `src/DataLoader.Core/Sinks/SqlSinkBase.cs` — TVP bulk merge helper
 - `src/DataLoader.Core/Sources/HttpJsonSourceReaderBase.cs` — HTTP + Polly base
+- `src/DataLoader.Core/Sources/IFileSystemDriver.cs` — file-source abstraction (local / FTP / SFTP; `RemoteFile` carries `LastModifiedUtc` + `Size`)
+- `src/DataLoader.Core/Concurrency/SqlWriteGate.cs` — per-target write lock guarding parallel `MERGE`s from deadlocks
 - `src/DataLoader.Host/Program.cs` — bootstrap and discovery entry point
 - `sql/Core/` — platform database scripts (run these first, in order, before any loader scripts)
+- `tests/` — xUnit test projects (`DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`)
 - `docs/ARCHITECTURE.md` — design rationale

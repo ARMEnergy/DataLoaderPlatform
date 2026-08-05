@@ -20,27 +20,36 @@ public sealed class VulcanTableSpec
     /// <summary>When set, wrap with ROW_NUMBER() PARTITION BY this column to keep the latest row per id.</summary>
     public string? DedupPartitionColumn { get; init; }
 
+    /// <summary>Columns forming a deterministic TOTAL order for OFFSET/FETCH paging, applied to the
+    /// OUTERMOST query. Compile-time constants only (same security invariant as SourceTable).</summary>
+    public required IReadOnlyList<string> OrderByColumns { get; init; }
+
     public static readonly VulcanTableSpec UnderConstruction = new()
     {
-        TableId = "under_construction", SourceTable = "vdl.under_construction", WatermarkColumn = "date_image"
+        TableId = "under_construction", SourceTable = "vdl.under_construction", WatermarkColumn = "date_image",
+        OrderByColumns = new[] { "synmax_id" }
     };
     public static readonly VulcanTableSpec DataCenters = new()
     {
         TableId = "datacenters", SourceTable = "vdl.datacenters", WatermarkColumn = "modified_at",
-        DedupPartitionColumn = "synmax_id"
+        DedupPartitionColumn = "synmax_id",
+        OrderByColumns = new[] { "synmax_id" }
     };
     public static readonly VulcanTableSpec LngProjects = new()
     {
-        TableId = "lng_projects", SourceTable = "vdl.lng_projects", WatermarkColumn = "modified_at"
+        TableId = "lng_projects", SourceTable = "vdl.lng_projects", WatermarkColumn = "modified_at",
+        OrderByColumns = new[] { "plant_name", "phase_number" }
     };
     public static readonly VulcanTableSpec ProjectRankings = new()
     {
         TableId = "project_rankings", SourceTable = "vdl.project_rankings", WatermarkColumn = "date_updated",
-        DedupPartitionColumn = "synmax_id"
+        DedupPartitionColumn = "synmax_id",
+        OrderByColumns = new[] { "synmax_id" }
     };
     public static readonly VulcanTableSpec MetadataHistory = new()
     {
         TableId = "metadata_history", SourceTable = "vdl.metadata_history", WatermarkColumn = "date_eia_updated",
-        DedupPartitionColumn = "synmax_id"
+        DedupPartitionColumn = "synmax_id",
+        OrderByColumns = new[] { "synmax_id" }
     };
 }

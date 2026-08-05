@@ -21,8 +21,9 @@
          Adding a new loader = adding a ProjectReference here. -->
     <ProjectReference Include="..\DataLoader.EnergyAspects\DataLoader.EnergyAspects.csproj" />
     <ProjectReference Include="..\DataLoader.CsvExample\DataLoader.CsvExample.csproj" />
-    <ProjectReference Include="..\DataLoader.FtpExample\DataLoader.FtpExample.csproj" />
+    <ProjectReference Include="..\DataLoader.Ftp\DataLoader.Ftp.csproj" />
     <ProjectReference Include="..\DataLoader.Vulcan\DataLoader.Vulcan.csproj" />
+    <ProjectReference Include="..\DataLoader.Platts\DataLoader.Platts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

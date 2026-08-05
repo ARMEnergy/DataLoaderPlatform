@@ -1,11 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "qmxG+4FxY5g=",
+  "dgSpecHash": "YnFlpS8G2To=",
   "success": true,
   "projectFilePath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Host\\DataLoader.Host.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\azure.core\\1.38.0\\azure.core.1.38.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\azure.identity\\1.11.3\\azure.identity.1.11.3.nupkg.sha512",
+    "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\bouncycastle.cryptography\\2.4.0\\bouncycastle.cryptography.2.4.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.bcl.asyncinterfaces\\1.1.1\\microsoft.bcl.asyncinterfaces.1.1.1.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.csharp\\4.5.0\\microsoft.csharp.4.5.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.data.sqlclient\\5.2.1\\microsoft.data.sqlclient.5.2.1.nupkg.sha512",
@@ -46,6 +47,7 @@
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\polly\\8.3.1\\polly.8.3.1.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\polly.core\\8.3.1\\polly.core.8.3.1.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\polly.extensions.http\\3.0.0\\polly.extensions.http.3.0.0.nupkg.sha512",
+    "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\ssh.net\\2024.2.0\\ssh.net.2024.2.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\system.clientmodel\\1.0.0\\system.clientmodel.1.0.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\system.configuration.configurationmanager\\8.0.0\\system.configuration.configurationmanager.8.0.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\system.diagnostics.diagnosticsource\\8.0.0\\system.diagnostics.diagnosticsource.8.0.0.nupkg.sha512",

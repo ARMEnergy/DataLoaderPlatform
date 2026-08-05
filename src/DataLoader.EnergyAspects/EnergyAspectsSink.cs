@@ -1,5 +1,6 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
+using DataLoader.Core.Concurrency;
 using DataLoader.Core.Sinks;
 using DataLoader.EnergyAspects.Models;
 using Microsoft.Data.SqlClient;
@@ -88,6 +89,10 @@ public sealed class EnergyAspectsSink : ISink<TimeseriesBatch>
 
     public async Task LogApiResponseAsync(int mappingId, int responseCode, CancellationToken ct)
     {
+        // Serialize concurrent writes to this append-only log per target.
+        using var gate = await SqlWriteGate.AcquireAsync(
+            SqlWriteGate.KeyFor(_settings.ConnectionString, "dbo.usp_LogApiResponse"), ct).ConfigureAwait(false);
+
         await using var conn = new SqlConnection(_settings.ConnectionString);
         await conn.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("dbo.usp_LogApiResponse", conn) { CommandType = CommandType.StoredProcedure };
@@ -102,6 +107,10 @@ public sealed class EnergyAspectsSink : ISink<TimeseriesBatch>
     {
         try
         {
+            // Serialize concurrent MERGE calls against the same target proc.
+            using var gate = await SqlWriteGate.AcquireAsync(
+                SqlWriteGate.KeyFor(_settings.ConnectionString, procName), ct).ConfigureAwait(false);
+
             await using var conn = new SqlConnection(_settings.ConnectionString);
             await conn.OpenAsync(ct).ConfigureAwait(false);
             await using var cmd = new SqlCommand(procName, conn) { CommandType = CommandType.StoredProcedure };
@@ -122,6 +131,10 @@ public sealed class EnergyAspectsSink : ISink<TimeseriesBatch>
     {
         try
         {
+            // Serialize concurrent upsert calls against the same target proc.
+            using var gate = await SqlWriteGate.AcquireAsync(
+                SqlWriteGate.KeyFor(_settings.ConnectionString, procName), ct).ConfigureAwait(false);
+
             await using var conn = new SqlConnection(_settings.ConnectionString);
             await conn.OpenAsync(ct).ConfigureAwait(false);
             await using var cmd = new SqlCommand(procName, conn) { CommandType = CommandType.StoredProcedure };

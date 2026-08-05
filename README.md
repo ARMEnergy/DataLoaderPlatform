@@ -21,7 +21,7 @@ C:\DataLoaderPlatform\
 ├── DataLoader.Core.dll
 ├── DataLoader.EnergyAspects.dll
 ├── DataLoader.CsvExample.dll
-├── DataLoader.FtpExample.dll
+├── DataLoader.Ftp.dll
 ├── DataLoader.<Vendor>.dll      ← one DLL per loader; drop in new ones here
 ├── appsettings.json             ← every loader's config in one file
 └── … (transitive .NET DLLs)
@@ -50,12 +50,12 @@ DataLoaderPlatform.sln
 │   ├── DataLoader.EnergyAspects/  ← REST/JSON loader (migrated from
 │   │                                 the original EnergyAspectsETL)
 │   ├── DataLoader.CsvExample/     ← local-disk CSV-drop loader (demo)
-│   └── DataLoader.FtpExample/     ← FTP feed loader (demo)
+│   └── DataLoader.Ftp/            ← FTP/FTPS feed loader
 ├── sql/
 │   ├── Core/                      ← platform DB scripts (LoaderRun, LoadLog, overlap guard)
 │   ├── EnergyAspects/             ← ea schema
 │   ├── CsvExample/                ← csv schema
-│   └── FtpExample/                ← ftp schema
+│   └── Ftp/                       ← ftp schema
 └── docs/ARCHITECTURE.md
 ```
 
@@ -83,10 +83,10 @@ Action:      Program/script:  C:\DataLoaderPlatform\DataLoader.Host.exe
              Add arguments:   CsvExample
              Start in:        C:\DataLoaderPlatform
 
-Task name:   DataLoader-FtpExample
+Task name:   DataLoader-Ftp
 Trigger:     Daily at 02:00
 Action:      Program/script:  C:\DataLoaderPlatform\DataLoader.Host.exe
-             Add arguments:   FtpExample
+             Add arguments:   Ftp
              Start in:        C:\DataLoaderPlatform
 ```
 
@@ -98,7 +98,7 @@ in parallel.** The platform's overlap guard (see below) makes that safe.
 ```
 */30 *  * * *   cd /opt/dataloader && ./DataLoader.Host EnergyAspects
 */5  *  * * *   cd /opt/dataloader && ./DataLoader.Host CsvExample
-0    2  * * *   cd /opt/dataloader && ./DataLoader.Host FtpExample
+0    2  * * *   cd /opt/dataloader && ./DataLoader.Host Ftp
 ```
 
 ### Running multiple loaders concurrently
@@ -163,7 +163,7 @@ C:\DataLoaderPlatform\
 ├── DataLoader.Core.dll
 ├── DataLoader.EnergyAspects.dll
 ├── DataLoader.CsvExample.dll
-├── DataLoader.FtpExample.dll
+├── DataLoader.Ftp.dll
 ├── appsettings.json
 └── (transitive DLLs)
 ```
@@ -183,7 +183,7 @@ Before the first run:
    ```
    sql/EnergyAspects/001_…sql, 002_…sql, 003_…sql
    sql/CsvExample/001_…sql
-   sql/FtpExample/001_…sql
+   sql/Ftp/001_…sql
    ```
 3. **Edit `appsettings.json`** with real connection strings, API keys, FTP
    credentials. Replace every `REPLACE-…` placeholder.
@@ -191,7 +191,7 @@ Before the first run:
    JSON for production):
    ```
    set DATALOADER_Loaders__EnergyAspects__ApiKey=actualkey
-   set DATALOADER_Loaders__FtpExample__FtpPassword=actualpwd
+   set DATALOADER_Loaders__Ftp__FtpPassword=actualpwd
    ```
    The double underscore is .NET's section separator. Variables override
    anything in `appsettings.json`.
@@ -322,7 +322,7 @@ never change. The new loader's DLL drops in alongside the others.
 Secrets should come from environment variables, not the JSON file:
 ```
 DATALOADER_Loaders__EnergyAspects__ApiKey=…
-DATALOADER_Loaders__FtpExample__FtpPassword=…
+DATALOADER_Loaders__Ftp__FtpPassword=…
 ```
 
 ---

@@ -12,6 +12,8 @@ public sealed class VulcanSettings : LoaderSettingsBase
     public string BaseUrl { get; set; } = "https://hyperion.api.synmax.com";
     public string QueryEndpoint { get; set; } = "/v4/beta/query_datalinks";
     public int HttpTimeoutSeconds { get; set; } = 60;
+    public int PageSize { get; set; } = 50000;
+    public int MaxPages { get; set; } = 10000;
     public List<string> EnabledTables { get; set; } = new()
     {
         "under_construction", "datacenters", "lng_projects", "project_rankings", "metadata_history"

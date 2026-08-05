@@ -1,0 +1,15 @@
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\bin\Release\net8.0\DataLoader.Platts.deps.json
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\bin\Release\net8.0\DataLoader.Platts.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\bin\Release\net8.0\DataLoader.Platts.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\bin\Release\net8.0\DataLoader.Core.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\bin\Release\net8.0\DataLoader.Core.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.csproj.AssemblyReference.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.AssemblyInfoInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.AssemblyInfo.cs
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.csproj.CoreCompileInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoad.D399704F.Up2Date
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\refint\DataLoader.Platts.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\ref\DataLoader.Platts.dll

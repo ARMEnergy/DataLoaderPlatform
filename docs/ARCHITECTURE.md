@@ -49,9 +49,9 @@
               │                   │                         │
 ┌───────────────────────┐ ┌───────────────────────┐ ┌──────────────────────┐
 │ DataLoader.           │ │ DataLoader.           │ │ DataLoader.          │
-│   EnergyAspects       │ │   FtpExample          │ │   CsvExample         │
+│   EnergyAspects       │ │   Ftp                 │ │   CsvExample         │
 │                       │ │                       │ │                      │
-│ - EnergyAspectsModule │ │ - FtpExampleModule    │ │ - CsvExampleModule   │
+│ - EnergyAspectsModule │ │ - FtpModule           │ │ - CsvExampleModule   │
 │ - REST source reader  │ │ - FTP source reader   │ │ - Local CSV reader   │
 │ - SQL sink            │ │ - CSV parser          │ │ - SQL sink           │
 │ - Loader-specific     │ │ - SQL sink            │ │ - Loader-specific    │
@@ -137,7 +137,7 @@ This lets two loaders share one physical database without colliding, or run agai
   },
   "Loaders": {
     "EnergyAspects": { /* energy aspects-specific settings */ },
-    "FtpExample":    { /* ftp loader-specific settings */ },
+    "Ftp":           { /* ftp loader-specific settings */ },
     "CsvExample":    { /* csv loader-specific settings */ }
   },
   "Logging": { … }
@@ -177,8 +177,8 @@ Contracts (`ILoaderModule`, `ILoaderPipeline<T>`, `ISourceReader<T>`, `ISink<T>`
 ### `DataLoader.EnergyAspects`
 `EnergyAspectsModule`, `EnergyAspectsSettings`, `EnergyAspectsApiSource` (refactored from the old `EnergyAspectsApiService`), `EnergyAspectsSqlSink` (refactored from the old `DataRepository`), `EnergyAspectsMappingProvider` (work-unit provider that lists mapping × date-window units), plus the existing models. All of the original Energy Aspects behavior is preserved.
 
-### `DataLoader.FtpExample`
-Stub plugin that demonstrates an FTP-driven loader. Pulls files from an FTP server, parses each as CSV, writes to its own SQL schema.
+### `DataLoader.Ftp`
+FTP/FTPS pull loader. Pulls files from an FTP server, parses each as CSV, writes to its own SQL schema.
 
 ### `DataLoader.CsvExample`
 Stub plugin that demonstrates a local-drop CSV loader. Watches a directory, parses each new file, writes to its own SQL schema.

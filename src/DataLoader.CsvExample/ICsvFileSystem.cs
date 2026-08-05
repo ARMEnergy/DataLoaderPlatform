@@ -9,7 +9,7 @@ namespace DataLoader.CsvExample;
 /// shared platform abstraction; if both CSV and FTP loaders registered it
 /// globally with different implementations, the second registration would
 /// silently win. Each loader instead registers its own loader-local
-/// interface (this one for CSV, <see cref="FtpExample.IFtpFileSystem"/> for
+/// interface (this one for CSV, <see cref="Ftp.IFtpFileSystem"/> for
 /// FTP), wrapping its choice of driver.
 ///
 /// At swap-time — if the CSV loader needs to read from S3 instead of local
