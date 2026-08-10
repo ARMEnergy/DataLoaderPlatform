@@ -9,6 +9,10 @@
       "DataLoader.Core.Tests/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0",
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.DependencyInjection": "8.0.0",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Options": "8.0.0",
           "Microsoft.NET.Test.Sdk": "17.11.1",
           "xunit": "2.9.2",
           "xunit.runner.visualstudio": "2.8.2"

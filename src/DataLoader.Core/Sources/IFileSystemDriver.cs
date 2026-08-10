@@ -4,9 +4,9 @@ namespace DataLoader.Core.Sources;
 /// Pluggable filesystem driver — local disk, FTP, SFTP, S3, Azure Blob, …
 ///
 /// Loaders that consume files from anywhere depend on this interface, not on
-/// a specific protocol. The platform ships
-/// <see cref="LocalFileSystemDriver"/> and a stub <see cref="Ftp.FtpFileSystemDriver"/>;
-/// new drivers can be added without touching loaders.
+/// a specific protocol. The platform ships <see cref="LocalFileSystemDriver"/>;
+/// loaders supply their own drivers for remote protocols (e.g. the Platts SFTP
+/// driver), added without touching this interface.
 /// </summary>
 public interface IFileSystemDriver
 {

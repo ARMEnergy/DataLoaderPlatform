@@ -1127,19 +1127,6 @@
           "bin/placeholder/DataLoader.Core.dll": {}
         }
       },
-      "DataLoader.CsvExample/1.0.0": {
-        "type": "project",
-        "framework": ".NETCoreApp,Version=v8.0",
-        "dependencies": {
-          "DataLoader.Core": "1.0.0"
-        },
-        "compile": {
-          "bin/placeholder/DataLoader.CsvExample.dll": {}
-        },
-        "runtime": {
-          "bin/placeholder/DataLoader.CsvExample.dll": {}
-        }
-      },
       "DataLoader.EnergyAspects/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -1151,19 +1138,6 @@
         },
         "runtime": {
           "bin/placeholder/DataLoader.EnergyAspects.dll": {}
-        }
-      },
-      "DataLoader.Ftp/1.0.0": {
-        "type": "project",
-        "framework": ".NETCoreApp,Version=v8.0",
-        "dependencies": {
-          "DataLoader.Core": "1.0.0"
-        },
-        "compile": {
-          "bin/placeholder/DataLoader.Ftp.dll": {}
-        },
-        "runtime": {
-          "bin/placeholder/DataLoader.Ftp.dll": {}
         }
       },
       "DataLoader.Platts/1.0.0": {
@@ -1178,6 +1152,19 @@
         },
         "runtime": {
           "bin/placeholder/DataLoader.Platts.dll": {}
+        }
+      },
+      "DataLoader.StormVista/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.StormVista.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.StormVista.dll": {}
         }
       },
       "DataLoader.Vulcan/1.0.0": {
@@ -3174,25 +3161,20 @@
       "path": "../DataLoader.Core/DataLoader.Core.csproj",
       "msbuildProject": "../DataLoader.Core/DataLoader.Core.csproj"
     },
-    "DataLoader.CsvExample/1.0.0": {
-      "type": "project",
-      "path": "../DataLoader.CsvExample/DataLoader.CsvExample.csproj",
-      "msbuildProject": "../DataLoader.CsvExample/DataLoader.CsvExample.csproj"
-    },
     "DataLoader.EnergyAspects/1.0.0": {
       "type": "project",
       "path": "../DataLoader.EnergyAspects/DataLoader.EnergyAspects.csproj",
       "msbuildProject": "../DataLoader.EnergyAspects/DataLoader.EnergyAspects.csproj"
     },
-    "DataLoader.Ftp/1.0.0": {
-      "type": "project",
-      "path": "../DataLoader.Ftp/DataLoader.Ftp.csproj",
-      "msbuildProject": "../DataLoader.Ftp/DataLoader.Ftp.csproj"
-    },
     "DataLoader.Platts/1.0.0": {
       "type": "project",
       "path": "../DataLoader.Platts/DataLoader.Platts.csproj",
       "msbuildProject": "../DataLoader.Platts/DataLoader.Platts.csproj"
+    },
+    "DataLoader.StormVista/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.StormVista/DataLoader.StormVista.csproj",
+      "msbuildProject": "../DataLoader.StormVista/DataLoader.StormVista.csproj"
     },
     "DataLoader.Vulcan/1.0.0": {
       "type": "project",
@@ -3203,10 +3185,9 @@
   "projectFileDependencyGroups": {
     "net8.0": [
       "DataLoader.Core >= 1.0.0",
-      "DataLoader.CsvExample >= 1.0.0",
       "DataLoader.EnergyAspects >= 1.0.0",
-      "DataLoader.Ftp >= 1.0.0",
       "DataLoader.Platts >= 1.0.0",
+      "DataLoader.StormVista >= 1.0.0",
       "DataLoader.Vulcan >= 1.0.0",
       "Microsoft.Extensions.Configuration.EnvironmentVariables >= 8.0.0",
       "Microsoft.Extensions.Configuration.Json >= 8.0.0",
@@ -3242,20 +3223,17 @@
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj"
             },
-            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CsvExample\\DataLoader.CsvExample.csproj": {
-              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CsvExample\\DataLoader.CsvExample.csproj"
-            },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EnergyAspects\\DataLoader.EnergyAspects.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EnergyAspects\\DataLoader.EnergyAspects.csproj"
             },
-            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Ftp\\DataLoader.Ftp.csproj": {
-              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Ftp\\DataLoader.Ftp.csproj"
+            "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj": {
+              "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj"
             },
-            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj": {
-              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj"
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.StormVista\\DataLoader.StormVista.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.StormVista\\DataLoader.StormVista.csproj"
             },
-            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
-              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj"
+            "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
+              "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj"
             }
           }
         }

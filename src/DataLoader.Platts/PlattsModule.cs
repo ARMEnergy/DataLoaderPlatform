@@ -1,4 +1,5 @@
 using DataLoader.Core.Abstractions;
+using DataLoader.Core.Hosting;
 using DataLoader.Core.Pipeline;
 using DataLoader.Core.Transforms;
 using Microsoft.Extensions.Configuration;
@@ -49,7 +50,7 @@ public sealed class PlattsModule : ILoaderModule
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<PlattsSettings>(configuration.GetSection($"Loaders:{Id}"));
+        services.AddLoaderSettings<PlattsSettings>(configuration, Id);
 
         services.AddSingleton<IPlattsSftp, PlattsSftpFileSystem>();
         services.AddSingleton<IPlattsFileLog, PlattsFileLogWriter>();

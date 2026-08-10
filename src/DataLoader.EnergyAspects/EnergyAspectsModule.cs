@@ -1,5 +1,6 @@
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Hosting;
 using DataLoader.Core.Pipeline;
 using DataLoader.Core.Resilience;
 using DataLoader.Core.Transforms;
@@ -37,9 +38,8 @@ public sealed class EnergyAspectsModule : ILoaderModule
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        // -- settings binding --
-        var sectionPath = $"Loaders:{Id}";
-        services.Configure<EnergyAspectsSettings>(configuration.GetSection(sectionPath));
+        // -- settings binding (resolves any "SEE_DB" sentinel from core.Param) --
+        services.AddLoaderSettings<EnergyAspectsSettings>(configuration, Id);
 
         // -- HTTP client with Polly retry policy --
         services.AddHttpClient<EnergyAspectsApiSource>((sp, client) =>

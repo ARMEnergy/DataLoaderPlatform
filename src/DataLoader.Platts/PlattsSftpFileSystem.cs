@@ -22,9 +22,8 @@ public interface IPlattsSftp : IFileSystemDriver
 }
 
 /// <summary>
-/// SFTP driver built on SSH.NET (Renci.SshNet). SSH SFTP — not FTP/FTPS — so the
-/// <see cref="DataLoader.Ftp.FtpFileSystem"/> (which uses FtpWebRequest)
-/// cannot serve this feed.
+/// SFTP driver built on SSH.NET (Renci.SshNet). SSH SFTP — not FTP/FTPS — so an
+/// FtpWebRequest-based FTP/FTPS driver cannot serve this feed.
 ///
 /// <para>
 /// <b>Thread-safety:</b> <see cref="SftpClient"/> is not safe for concurrent

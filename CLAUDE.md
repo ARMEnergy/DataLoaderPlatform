@@ -16,7 +16,7 @@ cd src/DataLoader.Host/bin/Release/net8.0
 DataLoader.Host.exe EnergyAspects
 
 # Run multiple loaders in one process
-DataLoader.Host.exe EnergyAspects CsvExample
+DataLoader.Host.exe EnergyAspects Vulcan
 
 # Run all loaders in Platform:EnabledLoaders
 DataLoader.Host.exe
@@ -24,7 +24,7 @@ DataLoader.Host.exe
 
 Exit codes: `0` = success or skipped (overlap guard), `1` = error, `2` = cancelled.
 
-Automated tests live under `tests/` (xUnit): `DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, and `DataLoader.Platts.Tests`. Run them with:
+Automated tests live under `tests/` (xUnit): `DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`, and `DataLoader.StormVista.Tests`. Run them with:
 
 ```bash
 dotnet test DataLoaderPlatform.sln -c Release
@@ -76,12 +76,12 @@ Bounded concurrency via `ParallelRunner` (semaphore). HTTP retry via `RetryPolic
 
 ### Concurrent Writes
 
-`ParallelRunner` runs work units concurrently, so several `MERGE`/upsert procs can hit the same table at once — a deadlock (and NOT-MATCHED insert-race) risk. `SqlWriteGate` (`src/DataLoader.Core/Concurrency/`) is a process-wide, per-target keyed lock (`{server}/{db}::{proc}`) that serializes those calls. `SqlSinkBase.WriteAsync` acquires it automatically, so every TVP-merge sink is covered; direct proc callers (e.g. the Platts `arm.usp_UpsertFileLog` writer and the EnergyAspects sink) acquire it too. It is **in-process only** — cross-process serialization is the overlap guard's job. `core.LoadLog` bookkeeping is intentionally *not* gated (keyed per work unit, so it rarely contends).
+`ParallelRunner` runs work units concurrently, so several `MERGE`/upsert procs can hit the same table at once — a deadlock (and NOT-MATCHED insert-race) risk. `SqlWriteGate` (`src/DataLoader.Core/Concurrency/`) is a process-wide, per-target keyed lock (`{server}/{db}::{proc}`) that serializes those calls. `SqlSinkBase.WriteAsync` acquires it automatically, so every TVP-merge sink is covered; direct proc callers (e.g. the Platts `arm.usp_UpsertFileLog` writer, the StormVista `dbo.usp_UpsertFileLog` writer, and the EnergyAspects sink) acquire it too. It is **in-process only** — cross-process serialization is the overlap guard's job. `core.LoadLog` bookkeeping is intentionally *not* gated (keyed per work unit, so it rarely contends).
 
 ### Database Layout
 
-- **Platform DB** (`core` schema): `core.LoaderRun` (one per host invocation) and `core.LoadLog` (one per work unit attempt, keyed by `LoaderId` + `WorkUnitKey`). Scripts in `sql/Core/`.
-- **Per-loader DB**: each loader owns its own schema (e.g., `ea`, `csv`, `ftp`, `arm` for Platts). Scripts in `sql/<Vendor>/`. Connection string comes from `Loaders:<LoaderId>:ConnectionString`.
+- **Platform DB** (`core` schema): `core.LoaderRun` (one per host invocation), `core.LoadLog` (one per work unit attempt, keyed by `LoaderId` + `WorkUnitKey`), and `core.Param` (key/value config store keyed by `LoaderName` + `ParamName`, read by `core.usp_GetParam` for the `SEE_DB` indirection). Scripts in `sql/Core/` (run `001`–`004` in order).
+- **Per-loader DB**: each loader owns its own schema (e.g., `ea` for EnergyAspects, `arm` for Platts) — though `StormVista` deliberately uses the default **`dbo`** schema rather than a vendor prefix, per the `DATABASE_DEVELOPER` agent's own standing convention ("target schema is `dbo` unless the task says otherwise"). Scripts in `sql/<Vendor>/`. Connection string comes from `Loaders:<LoaderId>:ConnectionString`.
 
 ## Adding a New Loader
 
@@ -101,10 +101,9 @@ The host and `DataLoader.Core` never change when adding a loader.
 
 **Reference implementations:**
 - `DataLoader.EnergyAspects/` — REST/JSON loader (most complete example)
-- `DataLoader.CsvExample/` — local file-drop loader
 - `DataLoader.Vulcan/` — incremental REST loader (POST SQL to SynMax query_datalinks; 5 tables via 5 closed pipelines; watermark-based resume)
-- `DataLoader.Ftp/` — FTP/FTPS pull loader (file-based via `IFileSystemDriver`; `FtpWebRequest`)
 - `DataLoader.Platts/` — SFTP loader (SSH.NET; one module, two closed pipelines — daily `.ftp` market files → `arm.SymbolData` and reference CSVs → `arm.Symbol`; work-unit `Key` embeds the SFTP `LastModified` so a file is reprocessed only when it changes; `arm.FileLog` audit)
+- `DataLoader.StormVista/` — HTTP+CSV hybrid loader (StormVista Wx Models weighted-degree-day API; one module, two closed pipelines — Daily national and Regional/weekly, `EnabledFeeds` toggle). Custom windowed `ILoaderPipeline` (not `LoaderPipelineBase` directly) chunks each run's date range so a multi-year backfill never materializes its whole unit list at once; each chunk still runs through a real `LoaderPipelineBase` internally. Two-zone resume key: a settled init date (older than `SettledAfterDays`) gets a **stable** key (skipped forever once loaded); a hot/recent one gets a key that varies every run (always re-pulled) — because the API gives no per-file change signal to key on, unlike Platts' SFTP `LastModified`. DB schema is `dbo` (see Database Layout) with `dbo.FileLog` as a normalized **hub table**: every fact row (`DailyWdd`/`RegionalWdd`) carries only a `FileLogId` and reaches model/cycle/type/init-date/endpoint through it — no repeated dimension columns on the facts.
 
 ## Agents
 
@@ -191,6 +190,21 @@ DATALOADER_Loaders__EnergyAspects__ApiKey=…
 ```
 Double underscore is .NET's section separator; prefix is `DATALOADER_`.
 
+**Config from the database (`SEE_DB`):** any loader string setting whose value is the
+sentinel `"SEE_DB"` is resolved at run time from the platform DB via
+`core.usp_GetParam(<LoaderId>, <SettingName>)` (backed by `core.Param`, `sql/Core/004`).
+The shared helper `LoaderServiceCollectionExtensions.AddLoaderSettings<TSettings>(configuration, loaderId)`
+(which every loader uses in place of `services.Configure<TSettings>(…)`) binds the section
+and registers a post-configure resolver (`SeeDbSettingsResolver<T>` over `ISeeDbParamStore`)
+that reflects over the settings' string properties and swaps any `SEE_DB` value for the
+DB value. It resolves lazily (only loaders that run), fails fast if a `SEE_DB` setting has
+no `core.Param` row, and never logs the resolved secret. Resolution uses
+`Platform:LoadLogConnectionString` — which therefore cannot itself be `SEE_DB`.
+The shipped `appsettings.json` defaults every sensitive field (API keys, usernames,
+passwords) to `"SEE_DB"` so real secrets live in `core.Param` (or env-var overrides),
+never in the file; connection strings use Integrated Security and stay in the file.
+A new loader should follow this convention for its own secret fields.
+
 ## Key Files
 
 - `src/DataLoader.Core/Abstractions/` — all contracts a plugin author needs
@@ -201,5 +215,5 @@ Double underscore is .NET's section separator; prefix is `DATALOADER_`.
 - `src/DataLoader.Core/Concurrency/SqlWriteGate.cs` — per-target write lock guarding parallel `MERGE`s from deadlocks
 - `src/DataLoader.Host/Program.cs` — bootstrap and discovery entry point
 - `sql/Core/` — platform database scripts (run these first, in order, before any loader scripts)
-- `tests/` — xUnit test projects (`DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`)
+- `tests/` — xUnit test projects (`DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`, `DataLoader.StormVista.Tests`)
 - `docs/ARCHITECTURE.md` — design rationale

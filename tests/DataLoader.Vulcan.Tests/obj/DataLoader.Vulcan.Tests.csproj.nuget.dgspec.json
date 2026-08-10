@@ -123,14 +123,14 @@
         }
       }
     },
-    "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
+    "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
+        "projectUniqueName": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
         "projectName": "DataLoader.Vulcan",
-        "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
+        "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
         "packagesPath": "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\obj\\",
+        "outputPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\yaroslav.chekhuta\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -222,8 +222,8 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
-                "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj"
+              "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
+                "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj"
               }
             }
           }

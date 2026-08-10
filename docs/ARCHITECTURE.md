@@ -63,6 +63,11 @@
 └───────────────────────┘ └───────────────────────┘ └──────────────────────┘
 ```
 
+The plugin boxes in the diagram are illustrative of the plugin *shape*, not the
+current roster. The platform's loaders today are `DataLoader.EnergyAspects`
+(REST/JSON), `DataLoader.Vulcan` (REST), `DataLoader.Platts` (SFTP), and
+`DataLoader.StormVista` (HTTP+CSV) — see "What Each Project Contains" below for each.
+
 ---
 
 ## Plugin Contract: `ILoaderModule`
@@ -118,7 +123,7 @@ Each loader owns its own schema. The platform reserves the `core` schema for the
 - `core.LoaderRun`        — one row per host run (start, end, status)
 - `core.LoadLog`          — one row per work unit (loader id, run id, key, status, records, error)
 
-A loader's own schema (e.g. `ea` for Energy Aspects) is created by SQL scripts shipped with that loader's project. The platform does not know or care what tables exist in `ea`.
+A loader's own schema (e.g. `ea` for Energy Aspects, `arm` for Platts) is created by SQL scripts shipped with that loader's project. The platform does not know or care what tables exist there. `StormVista` deliberately uses the default `dbo` schema instead of a vendor prefix, and normalizes further than the others: its fact tables don't repeat dimension columns (model, cycle, date, type) — they carry a single `FileLogId` and reach those dimensions through a `dbo.FileLog` hub table (one row per downloaded file). This is a per-loader design choice, not a platform rule; other loaders are free to keep denormalized fact tables.
 
 This lets two loaders share one physical database without colliding, or run against entirely separate databases — each loader has its own connection-string setting.
 
@@ -131,14 +136,14 @@ This lets two loaders share one physical database without colliding, or run agai
 ```jsonc
 {
   "Platform": {
-    "EnabledLoaders": [ "EnergyAspects", "CsvExample" ],
+    "EnabledLoaders": [ "EnergyAspects", "Vulcan" ],
     "MaxConcurrentLoaders": 2,
     "LoadLogConnectionString": "Server=…;Database=Platform;…"
   },
   "Loaders": {
     "EnergyAspects": { /* energy aspects-specific settings */ },
-    "Ftp":           { /* ftp loader-specific settings */ },
-    "CsvExample":    { /* csv loader-specific settings */ }
+    "Vulcan":        { /* vulcan loader-specific settings */ },
+    "Platts":        { /* platts loader-specific settings */ }
   },
   "Logging": { … }
 }
@@ -177,8 +182,11 @@ Contracts (`ILoaderModule`, `ILoaderPipeline<T>`, `ISourceReader<T>`, `ISink<T>`
 ### `DataLoader.EnergyAspects`
 `EnergyAspectsModule`, `EnergyAspectsSettings`, `EnergyAspectsApiSource` (refactored from the old `EnergyAspectsApiService`), `EnergyAspectsSqlSink` (refactored from the old `DataRepository`), `EnergyAspectsMappingProvider` (work-unit provider that lists mapping × date-window units), plus the existing models. All of the original Energy Aspects behavior is preserved.
 
-### `DataLoader.Ftp`
-FTP/FTPS pull loader. Pulls files from an FTP server, parses each as CSV, writes to its own SQL schema.
+### `DataLoader.Vulcan`
+Incremental REST loader against SynMax's `query_datalinks` endpoint — it POSTs a SQL query and paginates the JSON response. Five independent tables loaded via five closed pipelines in one module (`VulcanModule`), each resumed by its own persisted watermark rather than a fixed date window, so a rerun continues from wherever each table last left off.
 
-### `DataLoader.CsvExample`
-Stub plugin that demonstrates a local-drop CSV loader. Watches a directory, parses each new file, writes to its own SQL schema.
+### `DataLoader.Platts`
+SFTP pull loader (SSH.NET) with two closed pipelines in one module: daily `.ftp` market-data files → `arm.SymbolData`, and reference CSVs → `arm.Symbol`. A work unit's `Key` embeds the SFTP file's `Size` and `LastModified`, so a file is reprocessed only when it actually changes on the server — idempotency driven by a real change signal from the source, rather than a date window. `arm.FileLog` audits every file's outcome.
+
+### `DataLoader.StormVista`
+An HTTP source that returns CSV bodies (not JSON, not files) — a hybrid between the REST and file-based patterns above. One module, two closed pipelines (Daily national / Regional weekly) behind an `EnabledFeeds` toggle. The API gives no per-file change signal to key on (no mtime, no reliable ETag), so instead of Platts' approach it uses a **two-zone resume key**: an init date older than a configurable age (`SettledAfterDays`) gets a *stable* key — skipped forever once loaded, which makes a multi-year backfill cheap to resume — while a recent/"hot" init date gets a key that *varies every run*, so it's always re-pulled to catch newly published cycles. Because that backfill can span tens of thousands of work units, `StormVista` implements a custom windowed `ILoaderPipeline` (allowed per `CLAUDE.md`) that chunks the date range and processes one window at a time — each window still delegates to a real `LoaderPipelineBase` internally, so the vetted per-unit loop (skip/retry/timeout logic) is reused rather than duplicated. Its database is fully normalized (see Database Layout above): `dbo.FileLog` is a hub table that every fact row references by `FileLogId`.

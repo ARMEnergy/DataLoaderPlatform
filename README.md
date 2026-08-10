@@ -20,8 +20,9 @@ C:\DataLoaderPlatform\
 ├── DataLoader.Host.exe          ← the single binary
 ├── DataLoader.Core.dll
 ├── DataLoader.EnergyAspects.dll
-├── DataLoader.CsvExample.dll
-├── DataLoader.Ftp.dll
+├── DataLoader.Vulcan.dll
+├── DataLoader.Platts.dll
+├── DataLoader.StormVista.dll
 ├── DataLoader.<Vendor>.dll      ← one DLL per loader; drop in new ones here
 ├── appsettings.json             ← every loader's config in one file
 └── … (transitive .NET DLLs)
@@ -33,7 +34,7 @@ The host's invocation mode is controlled by command-line arguments:
 | --------------------------------------------------------------- | ------------------------------------------------------------ |
 | `DataLoader.Host.exe`                                           | Every loader in `Platform:EnabledLoaders` (parallel in-process up to `MaxConcurrentLoaders`) |
 | `DataLoader.Host.exe EnergyAspects`                             | Just that loader, overriding config                          |
-| `DataLoader.Host.exe EnergyAspects CsvExample`                  | Just those, in parallel in-process                           |
+| `DataLoader.Host.exe EnergyAspects Vulcan`                      | Just those, in parallel in-process                           |
 
 The scheduler should use the **second** form: one scheduled task per loader,
 each invoking the same `.exe` with a different loader id.
@@ -49,13 +50,19 @@ DataLoaderPlatform.sln
 │   ├── DataLoader.Host/           ← the one executable
 │   ├── DataLoader.EnergyAspects/  ← REST/JSON loader (migrated from
 │   │                                 the original EnergyAspectsETL)
-│   ├── DataLoader.CsvExample/     ← local-disk CSV-drop loader (demo)
-│   └── DataLoader.Ftp/            ← FTP/FTPS feed loader
+│   ├── DataLoader.Vulcan/         ← incremental REST loader (SynMax query_datalinks;
+│   │                                 5 tables via 5 closed pipelines, watermark resume)
+│   ├── DataLoader.Platts/         ← SFTP feed loader (SSH.NET; two closed pipelines;
+│   │                                 work-unit key embeds the file's mtime)
+│   └── DataLoader.StormVista/     ← HTTP+CSV hybrid loader (StormVista Wx Models;
+│                                     two closed pipelines; two-zone resume key)
 ├── sql/
 │   ├── Core/                      ← platform DB scripts (LoaderRun, LoadLog, overlap guard)
 │   ├── EnergyAspects/             ← ea schema
-│   ├── CsvExample/                ← csv schema
-│   └── Ftp/                       ← ftp schema
+│   ├── Vulcan/                    ← Vulcan schema
+│   ├── Platts/                    ← arm schema
+│   └── StormVista/                ← dbo schema (own StormVista database)
+├── tests/                         ← xUnit test projects (Core, Vulcan, Platts, StormVista)
 └── docs/ARCHITECTURE.md
 ```
 
@@ -76,19 +83,11 @@ Trigger:     Every 30 minutes
 Action:      Program/script:  C:\DataLoaderPlatform\DataLoader.Host.exe
              Add arguments:   EnergyAspects
              Start in:        C:\DataLoaderPlatform
-
-Task name:   DataLoader-CsvExample
-Trigger:     Every 5 minutes
-Action:      Program/script:  C:\DataLoaderPlatform\DataLoader.Host.exe
-             Add arguments:   CsvExample
-             Start in:        C:\DataLoaderPlatform
-
-Task name:   DataLoader-Ftp
-Trigger:     Daily at 02:00
-Action:      Program/script:  C:\DataLoaderPlatform\DataLoader.Host.exe
-             Add arguments:   Ftp
-             Start in:        C:\DataLoaderPlatform
 ```
+
+The same one-task-per-loader pattern applies to every loader added since,
+including `Vulcan`, `Platts`, and `StormVista` — just point `Add arguments`
+at the loader id.
 
 For each task, set "If the task is already running" → **Run a new instance
 in parallel.** The platform's overlap guard (see below) makes that safe.
@@ -97,15 +96,14 @@ in parallel.** The platform's overlap guard (see below) makes that safe.
 
 ```
 */30 *  * * *   cd /opt/dataloader && ./DataLoader.Host EnergyAspects
-*/5  *  * * *   cd /opt/dataloader && ./DataLoader.Host CsvExample
-0    2  * * *   cd /opt/dataloader && ./DataLoader.Host Ftp
+0    2  * * *   cd /opt/dataloader && ./DataLoader.Host Platts
 ```
 
 ### Running multiple loaders concurrently
 
 This is the default behaviour. Each scheduled task is a separate OS process
 with its own memory, threads, DB connections, and logs. `EnergyAspects`
-running at the same moment as `CsvExample` doesn't share anything except
+running at the same moment as `Platts` doesn't share anything except
 the platform DB's load-log writes, which are concurrent-safe.
 
 ### Overlap protection (same loader scheduled twice)
@@ -162,8 +160,9 @@ C:\DataLoaderPlatform\
 ├── DataLoader.Host.exe
 ├── DataLoader.Core.dll
 ├── DataLoader.EnergyAspects.dll
-├── DataLoader.CsvExample.dll
-├── DataLoader.Ftp.dll
+├── DataLoader.Vulcan.dll
+├── DataLoader.Platts.dll
+├── DataLoader.StormVista.dll
 ├── appsettings.json
 └── (transitive DLLs)
 ```
@@ -176,22 +175,30 @@ Before the first run:
    sql/Core/001_CreateCoreSchema.sql
    sql/Core/002_CreateCoreProcedures.sql
    sql/Core/003_CreateOverlapGuard.sql
+   sql/Core/004_CreateParamStore.sql
    ```
+   (`004` adds `core.Param` + `core.usp_GetParam`, the key/value store behind the
+   `SEE_DB` config indirection — see "Storing config in the database" below.)
 2. **Create each loader's database.** For every loader you plan to enable,
    run its scripts against the database named in
    `Loaders:<LoaderId>:ConnectionString`:
    ```
    sql/EnergyAspects/001_…sql, 002_…sql, 003_…sql
-   sql/CsvExample/001_…sql
-   sql/Ftp/001_…sql
+   sql/Vulcan/001_…sql, 002_…sql, 003_…sql
+   sql/Platts/001_…sql, 002_…sql, 003_…sql
+   sql/StormVista/001_…sql, 002_…sql, 003_…sql
    ```
-3. **Edit `appsettings.json`** with real connection strings, API keys, FTP
-   credentials. Replace every `REPLACE-…` placeholder.
+   `StormVista`'s scripts also contain a `CREATE DATABASE StormVista` guard,
+   since (unlike the others) it isn't assumed to pre-exist.
+3. **Edit `appsettings.json`** connection strings as needed. Sensitive fields
+   (API keys, usernames, passwords) default to `SEE_DB` — supply them via
+   `core.Param` (see "Storing config in the database" below) or env vars,
+   rather than editing the file.
 4. **Set secrets via environment variables** (preferred over editing the
    JSON for production):
    ```
    set DATALOADER_Loaders__EnergyAspects__ApiKey=actualkey
-   set DATALOADER_Loaders__Ftp__FtpPassword=actualpwd
+   set DATALOADER_Loaders__Platts__SftpPassword=actualpwd
    ```
    The double underscore is .NET's section separator. Variables override
    anything in `appsettings.json`.
@@ -206,7 +213,7 @@ DataLoader.Host.exe EnergyAspects
 
 **Ad-hoc, several loaders together (in one process):**
 ```
-DataLoader.Host.exe EnergyAspects CsvExample
+DataLoader.Host.exe EnergyAspects Vulcan
 ```
 
 **Ad-hoc, every loader in `EnabledLoaders`:**
@@ -322,8 +329,30 @@ never change. The new loader's DLL drops in alongside the others.
 Secrets should come from environment variables, not the JSON file:
 ```
 DATALOADER_Loaders__EnergyAspects__ApiKey=…
-DATALOADER_Loaders__Ftp__FtpPassword=…
+DATALOADER_Loaders__Platts__SftpPassword=…
 ```
+
+### Storing config in the database (`SEE_DB`)
+
+Any loader string setting can be sourced from the platform database instead of
+`appsettings.json` / env vars. Set the value to the sentinel `"SEE_DB"`, and at
+startup the loader resolves it via `core.usp_GetParam(<LoaderId>, <SettingName>)`:
+
+```jsonc
+"Loaders": {
+  "StormVista": { "ApiKey": "SEE_DB", … }   // ← resolved from core.Param at run time
+}
+```
+```sql
+INSERT INTO core.Param (LoaderName, ParamName, [Value])
+VALUES ('StormVista', 'ApiKey', '<the real key>');
+```
+
+Resolution runs against `Platform:LoadLogConnectionString` (where `core.Param` lives),
+only for loaders that actually run, and fails fast if a `SEE_DB` setting has no matching
+`core.Param` row. Applies to any string setting — API keys, passwords, and even a
+loader's own `ConnectionString`. The one value that **cannot** be `SEE_DB` is
+`Platform:LoadLogConnectionString` itself (it's the connection used to resolve the rest).
 
 ---
 
@@ -333,4 +362,5 @@ DATALOADER_Loaders__Ftp__FtpPassword=…
 - `DataLoader.Core/Abstractions/` — every interface a plugin author needs.
 - `DataLoader.Core/Pipeline/LoaderPipelineBase.cs` — the standard ETL loop.
 - `DataLoader.EnergyAspects/EnergyAspectsModule.cs` — example REST/JSON loader.
-- `DataLoader.CsvExample/CsvExampleModule.cs` — example file-based loader.
+- `DataLoader.Platts/PlattsModule.cs` — example SFTP loader with a change-signal (mtime) resume key.
+- `DataLoader.StormVista/StormVistaModule.cs` — example HTTP+CSV hybrid loader with a two-zone resume key and a normalized, FileLog-hub database schema.

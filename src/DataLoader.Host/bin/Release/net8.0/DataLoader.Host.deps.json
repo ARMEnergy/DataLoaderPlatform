@@ -9,10 +9,9 @@
       "DataLoader.Host/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0",
-          "DataLoader.CsvExample": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
-          "DataLoader.Ftp": "1.0.0",
           "DataLoader.Platts": "1.0.0",
+          "DataLoader.StormVista": "1.0.0",
           "DataLoader.Vulcan": "1.0.0",
           "Microsoft.Extensions.Configuration.EnvironmentVariables": "8.0.0",
           "Microsoft.Extensions.Configuration.Json": "8.0.0",
@@ -725,34 +724,12 @@
           }
         }
       },
-      "DataLoader.CsvExample/1.0.0": {
-        "dependencies": {
-          "DataLoader.Core": "1.0.0"
-        },
-        "runtime": {
-          "DataLoader.CsvExample.dll": {
-            "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0"
-          }
-        }
-      },
       "DataLoader.EnergyAspects/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0"
         },
         "runtime": {
           "DataLoader.EnergyAspects.dll": {
-            "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0"
-          }
-        }
-      },
-      "DataLoader.Ftp/1.0.0": {
-        "dependencies": {
-          "DataLoader.Core": "1.0.0"
-        },
-        "runtime": {
-          "DataLoader.Ftp.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -765,6 +742,17 @@
         },
         "runtime": {
           "DataLoader.Platts.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "DataLoader.StormVista/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.StormVista.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1214,22 +1202,17 @@
       "serviceable": false,
       "sha512": ""
     },
-    "DataLoader.CsvExample/1.0.0": {
-      "type": "project",
-      "serviceable": false,
-      "sha512": ""
-    },
     "DataLoader.EnergyAspects/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DataLoader.Ftp/1.0.0": {
+    "DataLoader.Platts/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DataLoader.Platts/1.0.0": {
+    "DataLoader.StormVista/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

@@ -1,4 +1,5 @@
 using DataLoader.Core.Abstractions;
+using DataLoader.Core.Hosting;
 using DataLoader.Core.Pipeline;
 using DataLoader.Core.Resilience;
 using DataLoader.Core.Transforms;
@@ -45,7 +46,7 @@ public sealed class VulcanModule : ILoaderModule
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<VulcanSettings>(configuration.GetSection($"Loaders:{Id}"));
+        services.AddLoaderSettings<VulcanSettings>(configuration, Id);
 
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
