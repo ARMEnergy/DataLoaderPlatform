@@ -65,8 +65,9 @@
 
 The plugin boxes in the diagram are illustrative of the plugin *shape*, not the
 current roster. The platform's loaders today are `DataLoader.EnergyAspects`
-(REST/JSON), `DataLoader.Vulcan` (REST), `DataLoader.Platts` (SFTP), and
-`DataLoader.StormVista` (HTTP+CSV) — see "What Each Project Contains" below for each.
+(REST/JSON), `DataLoader.Vulcan` (REST), `DataLoader.Platts` (SFTP),
+`DataLoader.StormVista` (HTTP+CSV), and `DataLoader.CWG` (HTTP+CSV, descriptor-driven)
+— see "What Each Project Contains" below for each.
 
 ---
 
@@ -190,3 +191,6 @@ SFTP pull loader (SSH.NET) with two closed pipelines in one module: daily `.ftp`
 
 ### `DataLoader.StormVista`
 An HTTP source that returns CSV bodies (not JSON, not files) — a hybrid between the REST and file-based patterns above. One module, two closed pipelines (Daily national / Regional weekly) behind an `EnabledFeeds` toggle. The API gives no per-file change signal to key on (no mtime, no reliable ETag), so instead of Platts' approach it uses a **two-zone resume key**: an init date older than a configurable age (`SettledAfterDays`) gets a *stable* key — skipped forever once loaded, which makes a multi-year backfill cheap to resume — while a recent/"hot" init date gets a key that *varies every run*, so it's always re-pulled to catch newly published cycles. Because that backfill can span tens of thousands of work units, `StormVista` implements a custom windowed `ILoaderPipeline` (allowed per `CLAUDE.md`) that chunks the date range and processes one window at a time — each window still delegates to a real `LoaderPipelineBase` internally, so the vetted per-unit loop (skip/retry/timeout logic) is reused rather than duplicated. Its database is fully normalized (see Database Layout above): `dbo.FileLog` is a hub table that every fact row references by `FileLogId`.
+
+### `DataLoader.CWG`
+HTTP+CSV **descriptor-driven** loader for Commodity Weather Group (`https://api.commoditywx.com/v1/<file>?apikey=`, 404-tolerant GET). One module fans out to **15 closed per-endpoint pipelines** (city forecasts/observations, gas-day forecast, daily normals, solar/wind forecasts + changes + sub-regions, hourly actuals, national degree-days, wind total-capacity ×3, station reference), each driven by a per-endpoint **descriptor** (filename template, region/geography enums, date-token rule, parse shape, target table/TVP/proc). The shared HTTP+FileLog reader and **5 CSV parse shapes** are written once — A (tabular), B (wide-region unpivot), C (pivoted hour×forecast-day matrix), D (stacked sub-region blocks), E (region-row summary with Current/Yesterday/Change blocks) — so only the per-endpoint row type, its `From(...)` factory, and its `SqlSinkBase` sink repeat. It is **go-forward only** (no backfill): a **hot trailing-window** resume key re-pulls the last `DaysBack` days each run (dated units) or the single latest file (undated), upserting idempotently on each fact's natural key with `FileLogId` as provenance. DB schema is `arm` (DB `CWG`) with `arm.FileLog` as the audit hub. Full field/design detail: `docs/apis/CWG.md`, `docs/design/CWG.md`, scripts in `sql/CWG/`.

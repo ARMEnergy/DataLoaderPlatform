@@ -51,5 +51,10 @@ Review against both general quality and this project's specific conventions.
   severity (Blocking / Should-fix / Nice-to-have), and a concrete suggested fix.
 - Lead with blocking issues (security, correctness, data-integrity) before style.
 - If the code is sound in an area, say so briefly rather than inventing issues.
+- **Keep it terse.** Cite each issue by `file:line` (and the symbol) rather than
+  pasting large code excerpts — a one- or two-line snippet only where it's essential
+  to make the fix unambiguous. The findings list is what returns to the caller, so
+  every extra pasted block enlarges the parent session's context; spend words on the
+  problem and the fix, not on reproducing the reviewed code.
 
 Hand the findings to the CODER agent to apply. Do not edit code yourself.

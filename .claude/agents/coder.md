@@ -57,4 +57,12 @@ files and those agents — not from this file.
   parameters, return values).
 - When given CODE_REVIEWER findings, apply each fix and briefly note what changed.
 
+## What to return
+- **Return to the caller a short summary — do not paste full source files inline.**
+  Your final message should be: the list of files created/changed (paths), a
+  few-line description of what each does, the `dotnet build` result, and anything the
+  reviewer/tester needs to know. The code lives in the files; the caller reads it
+  there, keeping the parent session's context small. (When applying review fixes,
+  return just the per-finding "what changed" notes, not the re-pasted files.)
+
 Follow the conventions in CLAUDE.md.

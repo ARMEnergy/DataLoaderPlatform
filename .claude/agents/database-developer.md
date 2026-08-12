@@ -62,17 +62,24 @@ agent, not you. You design the database; you do not write the loader code.
    in dependency order — applying the standing conventions throughout.
 
 ## Output
-- Save all generated SQL to docs/db/scripts/<loader>/<object_name>.sql —
-  one object per file, named after the object (e.g. CreateTable_Mappings.sql,
-  usp_LoadLog_Insert.sql). Overwrite the existing file on regeneration so the
-  script stays the single source of truth for that object and git tracks its history.
-- One object per file where practical (one table or one proc per file), named
-  after the object, so scripts are reviewable and diff-friendly. If the team
-  prefers a single consolidated script, produce that instead when asked.
+- **Save all generated SQL to `sql/<Vendor>/`** (e.g. `sql/CWG/`), following the
+  repo's numbered, dependency-ordered convention:
+  `NNN_Create<Vendor><Kind>.sql`, run in order. The established layout is
+  `001_Create<Vendor>Schema.sql` (schema + tables), `002_Create<Vendor>TvpTypes.sql`
+  (TVP table types), `003_Create<Vendor>Procedures.sql` (stored procedures). Add
+  further `NNN_…` files if a loader needs more stages. Overwrite the file on
+  regeneration so each script stays the single source of truth and git tracks its history.
 - Order scripts so dependencies run first (parent tables before children,
-  tables before the procedures that reference them).
-- Briefly note any design decision that wasn't fully specified (a chosen type,
-  a natural key, a nullability call) so a reviewer can confirm it.
+  tables before the procedures that reference them) — the numeric prefix encodes that order.
+- Make every script re-runnable (guarded creates / CREATE OR ALTER) per the standing conventions.
+
+## What to return
+- **Return to the caller a short summary — do not paste full SQL script bodies
+  inline.** Your final message should be: the list of file paths you wrote/updated,
+  a table-and-procedure summary (names, keys, notable types), and a brief note of
+  any design decision that wasn't fully specified (a chosen type, a natural key, a
+  nullability call) so a reviewer can confirm it. The scripts live in `sql/<Vendor>/`;
+  the caller and CODER read them there, keeping the parent session's context small.
 
 Follow the conventions in CLAUDE.md. Do not write loader/application code —
 hand the finished scripts to the CODER agent.

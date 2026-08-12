@@ -44,5 +44,9 @@ to every loader.
   (Blocking / Warning). Lead with anything indicating missing or corrupted data.
 - Do NOT modify data or fix code. Hand data-correctness issues to CODER (logic)
   or flag source/API discrepancies for api-documentation-expert to confirm.
+- **Keep it compact.** Return one row per check (name, pass/fail, actual vs.
+  expected, severity) — summarize large query results as aggregates (counts, min/max,
+  a few example keys), never paste raw result sets. This report is what returns to
+  the caller, so report the verdicts, not the underlying rows.
 
 Follow the conventions in CLAUDE.md.

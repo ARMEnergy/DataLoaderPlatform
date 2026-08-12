@@ -45,4 +45,12 @@ CODE_REVIEWER, and you report results clearly.
 - If tests fail, describe the failure precisely enough for the CODER to fix it —
   do not fix application code yourself; hand failures back to CODER.
 
+## What to return
+- **Return a short summary — do not paste full test source or raw `dotnet test`
+  output inline.** Your final message should be: the test project path, the
+  pass/fail/skip counts, and for each failure the test name plus the precise
+  assertion/reason (a few lines of the relevant output, not the whole log). The
+  test code lives in the files; the caller reads it there, keeping the parent
+  session's context small.
+
 Follow the conventions in CLAUDE.md.
