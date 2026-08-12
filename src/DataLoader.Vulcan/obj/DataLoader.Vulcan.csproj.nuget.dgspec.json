@@ -1,7 +1,7 @@
 {
   "format": 1,
   "restore": {
-    "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {}
+    "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {}
   },
   "projects": {
     "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj": {
@@ -123,14 +123,14 @@
         }
       }
     },
-    "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
+    "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
+        "projectUniqueName": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
         "projectName": "DataLoader.Vulcan",
-        "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
+        "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj",
         "packagesPath": "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\obj\\",
+        "outputPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\yaroslav.chekhuta\\AppData\\Roaming\\NuGet\\NuGet.Config"

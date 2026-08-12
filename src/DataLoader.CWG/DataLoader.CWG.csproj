@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.CWG</RootNamespace>
+    <AssemblyName>DataLoader.CWG</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core brings Microsoft.Data.SqlClient, Microsoft.Extensions.Http(.Polly)
+         and Polly in transitively; this loader needs no extra packages. -->
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.CWG.Tests" />
+  </ItemGroup>
+</Project>

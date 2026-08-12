@@ -1127,6 +1127,19 @@
           "bin/placeholder/DataLoader.Core.dll": {}
         }
       },
+      "DataLoader.CWG/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.CWG.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.CWG.dll": {}
+        }
+      },
       "DataLoader.EnergyAspects/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -3161,6 +3174,11 @@
       "path": "../DataLoader.Core/DataLoader.Core.csproj",
       "msbuildProject": "../DataLoader.Core/DataLoader.Core.csproj"
     },
+    "DataLoader.CWG/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.CWG/DataLoader.CWG.csproj",
+      "msbuildProject": "../DataLoader.CWG/DataLoader.CWG.csproj"
+    },
     "DataLoader.EnergyAspects/1.0.0": {
       "type": "project",
       "path": "../DataLoader.EnergyAspects/DataLoader.EnergyAspects.csproj",
@@ -3184,6 +3202,7 @@
   },
   "projectFileDependencyGroups": {
     "net8.0": [
+      "DataLoader.CWG >= 1.0.0",
       "DataLoader.Core >= 1.0.0",
       "DataLoader.EnergyAspects >= 1.0.0",
       "DataLoader.Platts >= 1.0.0",
@@ -3223,17 +3242,20 @@
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj"
             },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CWG\\DataLoader.CWG.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CWG\\DataLoader.CWG.csproj"
+            },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EnergyAspects\\DataLoader.EnergyAspects.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EnergyAspects\\DataLoader.EnergyAspects.csproj"
             },
-            "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj": {
-              "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj"
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.StormVista\\DataLoader.StormVista.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.StormVista\\DataLoader.StormVista.csproj"
             },
-            "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
-              "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj"
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Vulcan\\DataLoader.Vulcan.csproj"
             }
           }
         }

@@ -23,6 +23,7 @@ C:\DataLoaderPlatform\
 ├── DataLoader.Vulcan.dll
 ├── DataLoader.Platts.dll
 ├── DataLoader.StormVista.dll
+├── DataLoader.CWG.dll
 ├── DataLoader.<Vendor>.dll      ← one DLL per loader; drop in new ones here
 ├── appsettings.json             ← every loader's config in one file
 └── … (transitive .NET DLLs)
@@ -54,15 +55,18 @@ DataLoaderPlatform.sln
 │   │                                 5 tables via 5 closed pipelines, watermark resume)
 │   ├── DataLoader.Platts/         ← SFTP feed loader (SSH.NET; two closed pipelines;
 │   │                                 work-unit key embeds the file's mtime)
-│   └── DataLoader.StormVista/     ← HTTP+CSV hybrid loader (StormVista Wx Models;
-│                                     two closed pipelines; two-zone resume key)
+│   ├── DataLoader.StormVista/     ← HTTP+CSV hybrid loader (StormVista Wx Models;
+│   │                                 two closed pipelines; two-zone resume key)
+│   └── DataLoader.CWG/            ← HTTP+CSV descriptor-driven loader (Commodity
+│                                     Weather Group; 15 endpoints, arm schema)
 ├── sql/
 │   ├── Core/                      ← platform DB scripts (LoaderRun, LoadLog, overlap guard)
 │   ├── EnergyAspects/             ← ea schema
 │   ├── Vulcan/                    ← Vulcan schema
 │   ├── Platts/                    ← arm schema
-│   └── StormVista/                ← dbo schema (own StormVista database)
-├── tests/                         ← xUnit test projects (Core, Vulcan, Platts, StormVista)
+│   ├── StormVista/                ← dbo schema (own StormVista database)
+│   └── CWG/                       ← arm schema (own CWG database)
+├── tests/                         ← xUnit test projects (Core, Vulcan, Platts, StormVista, CWG)
 └── docs/ARCHITECTURE.md
 ```
 
@@ -163,6 +167,7 @@ C:\DataLoaderPlatform\
 ├── DataLoader.Vulcan.dll
 ├── DataLoader.Platts.dll
 ├── DataLoader.StormVista.dll
+├── DataLoader.CWG.dll
 ├── appsettings.json
 └── (transitive DLLs)
 ```
@@ -187,6 +192,7 @@ Before the first run:
    sql/Vulcan/001_…sql, 002_…sql, 003_…sql
    sql/Platts/001_…sql, 002_…sql, 003_…sql
    sql/StormVista/001_…sql, 002_…sql, 003_…sql
+   sql/CWG/001_…sql, 002_…sql, 003_…sql
    ```
    `StormVista`'s scripts also contain a `CREATE DATABASE StormVista` guard,
    since (unlike the others) it isn't assumed to pre-exist.

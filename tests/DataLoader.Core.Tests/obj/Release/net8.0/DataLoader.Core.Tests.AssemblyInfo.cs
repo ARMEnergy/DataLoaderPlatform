@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.Core.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c19842cb1cbf99503ce1f567e688bf661c30bd34")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+41ba147d70a669322125a88d9600035250dc316e")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.Core.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.Core.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
