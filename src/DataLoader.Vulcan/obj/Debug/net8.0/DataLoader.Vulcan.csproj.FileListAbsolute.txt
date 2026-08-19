@@ -13,3 +13,4 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\o
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\refint\DataLoader.Vulcan.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\ref\DataLoader.Vulcan.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Vulcan\obj\Debug\net8.0\DataLoader.Vulcan.sourcelink.json

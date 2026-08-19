@@ -9,12 +9,12 @@ namespace DataLoader.CWG;
 
 /// <summary>
 /// Plugin entry point for the CWG (Commodity Weather Group) loader. One module,
-/// fifteen closed per-endpoint pipelines (design §1), toggled by
+/// eighteen closed per-endpoint pipelines (design §1), toggled by
 /// <c>EnabledEndpoints[]</c>. Each pipeline is assembled explicitly in a factory
 /// closure that <c>new</c>s a descriptor-bound provider + reader + per-endpoint
 /// sink, so the shared <see cref="CwgWorkUnit"/> generics are never resolved by
 /// the container — avoiding the shared-generic-service DI collision (§1.1). All
-/// 15 share one rate-limited <see cref="HttpClient"/> and run sequentially.
+/// 18 share one rate-limited <see cref="HttpClient"/> and run sequentially.
 /// </summary>
 public sealed class CwgModule : ILoaderModule
 {
@@ -22,7 +22,7 @@ public sealed class CwgModule : ILoaderModule
     public const string HttpClientName = "CWG";
 
     public string LoaderId => Id;
-    public string DisplayName => "Commodity Weather Group (HTTP/CSV — 15 forecast/observation/renewable endpoints)";
+    public string DisplayName => "Commodity Weather Group (HTTP/CSV — 18 forecast/observation/renewable endpoints)";
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
@@ -56,7 +56,7 @@ public sealed class CwgModule : ILoaderModule
 
         services.AddSingleton<ICwgFileLog, SqlCwgFileLog>();
 
-        // The 15 closed per-endpoint pipelines, built explicitly. Each line names its
+        // The 18 closed per-endpoint pipelines, built explicitly. Each line names its
         // descriptor, the shared shape parser its ParseShape selects, its typed row
         // factory (the only mapping code) and its per-endpoint sink.
         Add(services, CwgDescriptors.CityForecast, CwgShapeParsers.A, CityForecastRow.From,
@@ -91,6 +91,12 @@ public sealed class CwgModule : ILoaderModule
             sp => new WindTotalCapacityPctSqlSink(Opt(sp), Log<WindTotalCapacityPctSqlSink>(sp)));
         Add(services, CwgDescriptors.Station, CwgShapeParsers.A, StationRow.From,
             sp => new StationSqlSink(Opt(sp), Log<StationSqlSink>(sp)));
+        Add(services, CwgDescriptors.Regions5DegreeDays, CwgShapeParsers.A, Regions5DegreeDaysRow.From,
+            sp => new Regions5DegreeDaysSqlSink(Opt(sp), Log<Regions5DegreeDaysSqlSink>(sp)));
+        Add(services, CwgDescriptors.Regions9DegreeDays, CwgShapeParsers.A, Regions9DegreeDaysRow.From,
+            sp => new Regions9DegreeDaysSqlSink(Opt(sp), Log<Regions9DegreeDaysSqlSink>(sp)));
+        Add(services, CwgDescriptors.ISODegreeDays, CwgShapeParsers.A, ISODegreeDaysRow.From,
+            sp => new ISODegreeDaysSqlSink(Opt(sp), Log<ISODegreeDaysSqlSink>(sp)));
     }
 
     private static IOptions<CwgSettings> Opt(IServiceProvider sp) => sp.GetRequiredService<IOptions<CwgSettings>>();
@@ -113,7 +119,7 @@ public sealed class CwgModule : ILoaderModule
     /// <summary>
     /// Constructs a descriptor-bound provider + reader + per-endpoint sink and wraps
     /// them in a <see cref="CwgEndpointPipeline{TRow}"/>. The generic provider/reader
-    /// are never resolved from the container, so all 15 endpoints coexist without a
+    /// are never resolved from the container, so all 18 endpoints coexist without a
     /// shared-generic-service collision (design §1.1).
     /// </summary>
     private static ICwgEndpointPipeline BuildPipeline<TRecord, TRow>(

@@ -23,6 +23,7 @@ internal static class CwgCsv
         var fields = new List<string>();
         var field = new StringBuilder();
         var inQuotes = false;
+        var terminated = false; // set when the bare "END." terminator line is reached
 
         void EndField()
         {
@@ -33,6 +34,16 @@ internal static class CwgCsv
         void EndRecord()
         {
             EndField();
+            // CWG files end with a bare "END." line. Treat it — and anything after it —
+            // as EOF, not a 1-column data row: otherwise the shape-A width guard warns
+            // and skips it, and AllowShortRows endpoints (Station) would load it as a
+            // bogus row (Identifier='END.').
+            if (fields.Count == 1 && fields[0].Trim() == "END.")
+            {
+                terminated = true;
+                fields.Clear();
+                return;
+            }
             if (!(fields.Count == 1 && fields[0].Length == 0)) // drop truly blank lines
                 records.Add(fields.ToArray());
             fields.Clear();
@@ -82,6 +93,8 @@ internal static class CwgCsv
                     field.Append(c);
                     break;
             }
+
+            if (terminated) break; // stop at the CWG "END." terminator — ignore the rest
         }
 
         if (field.Length > 0 || fields.Count > 0)

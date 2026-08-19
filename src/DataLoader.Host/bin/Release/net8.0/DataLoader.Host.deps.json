@@ -8,9 +8,11 @@
     ".NETCoreApp,Version=v8.0": {
       "DataLoader.Host/1.0.0": {
         "dependencies": {
+          "DataLoader.AGSI": "1.0.0",
           "DataLoader.CWG": "1.0.0",
           "DataLoader.Core": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
+          "DataLoader.IHSPointLogic": "1.0.0",
           "DataLoader.Platts": "1.0.0",
           "DataLoader.StormVista": "1.0.0",
           "DataLoader.Vulcan": "1.0.0",
@@ -704,6 +706,17 @@
         }
       },
       "System.Threading.Tasks.Extensions/4.5.4": {},
+      "DataLoader.AGSI/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.AGSI.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.Core/1.0.0": {
         "dependencies": {
           "Microsoft.Data.SqlClient": "5.2.1",
@@ -742,6 +755,17 @@
         },
         "runtime": {
           "DataLoader.EnergyAspects.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "DataLoader.IHSPointLogic/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.IHSPointLogic.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1209,6 +1233,11 @@
       "path": "system.threading.tasks.extensions/4.5.4",
       "hashPath": "system.threading.tasks.extensions.4.5.4.nupkg.sha512"
     },
+    "DataLoader.AGSI/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
     "DataLoader.Core/1.0.0": {
       "type": "project",
       "serviceable": false,
@@ -1220,6 +1249,11 @@
       "sha512": ""
     },
     "DataLoader.EnergyAspects/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.IHSPointLogic/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

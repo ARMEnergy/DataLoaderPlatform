@@ -182,3 +182,8 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.StormVista.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.CWG.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.CWG.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\obj\Release\net8.0\DataLoader.Host.sourcelink.json
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.AGSI.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.AGSI.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.IHSPointLogic.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.IHSPointLogic.pdb

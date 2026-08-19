@@ -1,20 +1,21 @@
 -- =============================================================================
 -- 001_CreateCwgSchema.sql
--- Database, [arm] schema, the Endpoint/Status lookup tables, the arm.FileLog hub,
--- and the 15 flat fact tables for the CWG (Commodity Weather Group) loader. Runs
+-- Database, [arm] schema, the Endpoint/Region/Status lookup tables, the arm.FileLog hub,
+-- and the 18 flat fact tables for the CWG (Commodity Weather Group) loader. Runs
 -- against this loader's OWN database (Loaders:CWG:ConnectionString → Database=CWG).
 --
 -- Design of record: docs/design/CWG.md (§6 full-field mapping + §9 resolved
 -- decisions) and docs/apis/CWG.md (per-column types, nullability, DECIMAL sizing).
 --
 -- Model (mirrors Platts' flat arm.* posture + StormVista's FileLog hub):
---   * arm.Endpoint / arm.Status are small lookup tables keyed by their natural
---     NAME (no surrogate Id). arm.Endpoint additionally carries the endpoint's
---     full URL template (base + filename template from CwgDescriptors.cs). Both
---     are pre-seeded (MERGE, re-runnable) with the fixed catalog: 15 endpoints,
---     3 statuses. FileLog.Endpoint / FileLog.Status FK to them by name.
+--   * arm.Endpoint / arm.Status / arm.Region are small lookup tables, each with a
+--     surrogate  Id INT IDENTITY  PK (StormVista pattern) and a UNIQUE natural
+--     Name. arm.Endpoint additionally carries the endpoint's full URL template
+--     (base + filename template from CwgDescriptors.cs). Endpoint (18) + Status (3)
+--     + Region (19) are pre-seeded (MERGE, re-runnable) with their fixed catalogs.
+--     FileLog.EndpointId / StatusId / RegionId FK to them by surrogate Id.
 --   * arm.FileLog is the single hub: one row per request/outcome (Success /
---     NotAvailable / Failed) across all 15 endpoints. It KEEPS its surrogate
+--     NotAvailable / Failed) across all 18 endpoints. It KEEPS its surrogate
 --     Id PK (documented hub exception): its natural key (Endpoint, Region,
 --     Variant, RepresentativeDate) contains NULL-able columns (Region / Variant /
 --     RepresentativeDate) that a PRIMARY KEY cannot contain, so the natural key
@@ -24,7 +25,7 @@
 --   * Every fact carries FileLogId (provenance FK to arm.FileLog(Id)). Unlike
 --     the hub, the FACTS now use their NATURAL key AS THE PRIMARY KEY — there is
 --     NO surrogate Id on any fact table (design-directed; nothing references a
---     fact by Id). All 15 fact natural keys are all-NOT-NULL, so a PK is valid.
+--     fact by Id). All 18 fact natural keys are all-NOT-NULL, so a PK is valid.
 --     FileLogId is NOT part of the fact PK; it is UPDATEd on MERGE match (003).
 --   * Because FileLogId does NOT lead the fact PKs, each fact carries an explicit
 --     nonclustered IX_<Table>_FileLogId for the FileLog→facts join / FK check.
@@ -49,7 +50,7 @@
 --     indexes are created atomically with each guarded table. Lookup seeds use
 --     MERGE so re-execution keeps the catalog current without duplicating rows.
 --
--- Parents precede children: Endpoint + Status (lookups) → FileLog (hub) → the 15
+-- Parents precede children: Endpoint + Status (lookups) → FileLog (hub) → the 18
 -- facts. FKs are satisfied because the lookups are seeded before FileLog exists.
 -- =============================================================================
 
@@ -77,7 +78,7 @@ GO
 -- =============================================================================
 
 -- ----------------------------------------------------------------------------
--- arm.Endpoint — the fixed catalog of 15 endpoints. Name is the exact EndpointId
+-- arm.Endpoint — the fixed catalog of 18 endpoints. Name is the exact EndpointId
 -- from CwgDescriptors.cs; Url is the full endpoint URL template
 -- (https://api.commoditywx.com/v1/ + that endpoint's filename template, with the
 -- {region}/{subregion}/{date}/{datemmddyyyy} placeholders kept literal).
@@ -87,17 +88,18 @@ IF OBJECT_ID('arm.Endpoint', 'U') IS NULL
 BEGIN
     CREATE TABLE arm.Endpoint
     (
-        [Name]      VARCHAR(40)  NOT NULL CONSTRAINT PK_Endpoint PRIMARY KEY,
-        Url         VARCHAR(200) NOT NULL,
-        DateCreated DATETIME     NOT NULL CONSTRAINT DF_Endpoint_DateCreated DEFAULT GETDATE()
+        Id          INT          IDENTITY(1,1) NOT NULL CONSTRAINT PK_Endpoint PRIMARY KEY,
+        DateCreated DATETIME     NOT NULL CONSTRAINT DF_Endpoint_DateCreated DEFAULT GETDATE(),
+        [Name]      VARCHAR(40)  NOT NULL CONSTRAINT UQ_Endpoint_Name UNIQUE,
+        Url         VARCHAR(200) NOT NULL
     );
 END
 GO
 
--- Seed / refresh the 15 endpoints (MERGE → re-runnable; keeps Url current).
+-- Seed / refresh the 18 endpoints (MERGE → re-runnable; keeps Url current).
 MERGE arm.Endpoint AS tgt
 USING (VALUES
-    ('CityForecast',                 'https://api.commoditywx.com/v1/city15dfcst_{region}_{date}_F.csv'),
+    ('CityForecast',                 'https://api.commoditywx.com/v1/city15dfcst_{region}_{date}_{units}.csv'),
     ('CityGasForecast',              'https://api.commoditywx.com/v1/city_gasday_fcst.csv'),
     ('CityObservation',              'https://api.commoditywx.com/v1/{region}_observations_final_{date}.csv'),
     ('DailyNormal',                  'https://api.commoditywx.com/v1/daily_normals.csv'),
@@ -105,6 +107,9 @@ USING (VALUES
     ('SolarForecastChange',          'https://api.commoditywx.com/v1/{region}solarchanges_{datemmddyyyy}.csv'),
     ('SolarHourly',                  'https://api.commoditywx.com/v1/Gen_hrly_solar.csv'),
     ('NationalDegreeDays',           'https://api.commoditywx.com/v1/northamerica_{subregion}_wdd_{date}.csv'),
+    ('Regions5DegreeDays',           'https://api.commoditywx.com/v1/northamerica_{subregion}_wdd_{date}.csv'),
+    ('Regions9DegreeDays',           'https://api.commoditywx.com/v1/northamerica_{subregion}_wdd_{date}.csv'),
+    ('ISODegreeDays',                'https://api.commoditywx.com/v1/northamerica_{subregion}_wdd_{date}.csv'),
     ('WindForecast',                 'https://api.commoditywx.com/v1/{region}wind_{datemmddyyyy}.csv'),
     ('WindForecastSubRegion',        'https://api.commoditywx.com/v1/{region}wind_regions_{datemmddyyyy}.csv'),
     ('WindHourly',                   'https://api.commoditywx.com/v1/Gen_hrly_5day.csv'),
@@ -127,8 +132,10 @@ IF OBJECT_ID('arm.Status', 'U') IS NULL
 BEGIN
     CREATE TABLE arm.Status
     (
-        [Name]      VARCHAR(20) NOT NULL CONSTRAINT PK_Status PRIMARY KEY,
-        DateCreated DATETIME    NOT NULL CONSTRAINT DF_Status_DateCreated DEFAULT GETDATE()
+        Id          INT         IDENTITY(1,1) NOT NULL CONSTRAINT PK_Status PRIMARY KEY,
+        DateCreated DATETIME    NOT NULL CONSTRAINT DF_Status_DateCreated DEFAULT GETDATE(),
+        [Name]      VARCHAR(20) NOT NULL CONSTRAINT UQ_Status_Name UNIQUE
+                                CONSTRAINT CK_Status_Name CHECK ([Name] IN ('Success','NotAvailable','Failed'))
     );
 END
 GO
@@ -145,10 +152,41 @@ WHEN NOT MATCHED BY TARGET THEN
     INSERT ([Name]) VALUES (src.[Name]);
 GO
 
+-- ----------------------------------------------------------------------------
+-- arm.Region — the closed catalog of filename region axes CwgDescriptors.cs can
+-- emit: the 3 geographies + the ISO union (Solar ∪ Wind ∪ Wind sub-region
+-- parents). A NULL filename region (capacity/hourly/normals/gasday) is a NULL
+-- RegionId in FileLog, never a row here. usp_UpsertFileLog get-or-creates, so a
+-- future descriptor region self-registers even if absent from this seed.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('arm.Region', 'U') IS NULL
+BEGIN
+    CREATE TABLE arm.Region
+    (
+        Id          INT         IDENTITY(1,1) NOT NULL CONSTRAINT PK_Region PRIMARY KEY,
+        DateCreated DATETIME    NOT NULL CONSTRAINT DF_Region_DateCreated DEFAULT GETDATE(),
+        [Name]      VARCHAR(16) NOT NULL CONSTRAINT UQ_Region_Name UNIQUE
+    );
+END
+GO
+
+-- Seed the 19 known region strings (MERGE → re-runnable).
+MERGE arm.Region AS tgt
+USING (VALUES
+    ('northamerica'), ('asia'), ('europe'),
+    ('ERCOT'), ('CAISO'), ('MISO'), ('PJM'), ('SPP'), ('NEPOOL'), ('IESO'),
+    ('AESO'), ('NW'), ('SW'), ('NYISO'), ('BPA'), ('UK'), ('GERMANY'),
+    ('FRANCE'), ('SPAIN')
+) AS src ([Name])
+   ON tgt.[Name] = src.[Name]
+WHEN NOT MATCHED BY TARGET THEN
+    INSERT ([Name]) VALUES (src.[Name]);
+GO
+
 -- =============================================================================
--- HUB TABLE. One row per request/outcome across all 15 endpoints. Endpoint and
--- Status are now normalized: they FK to arm.Endpoint(Name) / arm.Status(Name)
--- (both catalogs pre-seeded above, so the FKs are always satisfied). Region /
+-- HUB TABLE. One row per request/outcome across all 18 endpoints. Endpoint,
+-- Region and Status are normalized to surrogate-Id FKs (arm.Endpoint/Region/
+-- Status .Id); usp_UpsertFileLog resolves the passed names to those Ids. Region /
 -- Variant / RepresentativeDate are NULL-able; the UNIQUE constraint relies on
 -- SQL NULL-equality so undated / no-region requests collapse to one stable hub
 -- row (upserted each run). FileLog KEEPS its surrogate Id PK because its natural
@@ -160,22 +198,23 @@ BEGIN
     (
         Id                 INT           IDENTITY(1,1) NOT NULL CONSTRAINT PK_FileLog PRIMARY KEY,
         DateCreated        DATETIME      NOT NULL CONSTRAINT DF_FileLog_DateCreated DEFAULT GETDATE(),
-        Endpoint           VARCHAR(40)   NOT NULL,               -- FK to arm.Endpoint(Name); width holds 'WindTotalCapacityClimatology'
-        Region             VARCHAR(16)   NULL,                   -- geography (northamerica/asia/europe) or ISO region; NULL for capacity/undated
+        EndpointId         INT           NOT NULL,               -- FK to arm.Endpoint(Id)
+        RegionId           INT           NULL,                   -- FK to arm.Region(Id); NULL for capacity/undated (no filename region)
         Variant            VARCHAR(16)   NULL,                   -- subregion ('national'); NULL otherwise
         RepresentativeDate DATE          NULL,                   -- file date; NULL for undated "latest" files
-        [Status]           VARCHAR(20)   NOT NULL,               -- FK to arm.Status(Name)
+        StatusId           INT           NOT NULL,               -- FK to arm.Status(Id)
         HttpStatus         INT           NULL,
         [RowCount]         INT           NOT NULL CONSTRAINT DF_FileLog_RowCount DEFAULT 0,
         RequestPath        NVARCHAR(400) NOT NULL,               -- sanitized path, NO apikey (unique per row; stays inline)
         LastCheckedUtc     DATETIME2(3)  NULL,
         ModifiedAtUtc      DATETIME2(3)  NULL,
         -- NULL-equality in a UNIQUE constraint collapses undated / no-region rows
-        -- to a single hub row per (Endpoint[, Region][, Variant][, Date]).
+        -- to a single hub row per (EndpointId[, RegionId][, Variant][, Date]).
         CONSTRAINT UQ_FileLog_Endpoint_Region_Variant_RepDate
-            UNIQUE (Endpoint, Region, Variant, RepresentativeDate),
-        CONSTRAINT FK_FileLog_Endpoint FOREIGN KEY (Endpoint) REFERENCES arm.Endpoint ([Name]),
-        CONSTRAINT FK_FileLog_Status   FOREIGN KEY ([Status])  REFERENCES arm.Status ([Name])
+            UNIQUE (EndpointId, RegionId, Variant, RepresentativeDate),
+        CONSTRAINT FK_FileLog_Endpoint FOREIGN KEY (EndpointId) REFERENCES arm.Endpoint (Id),
+        CONSTRAINT FK_FileLog_Region   FOREIGN KEY (RegionId)   REFERENCES arm.Region (Id),
+        CONSTRAINT FK_FileLog_Status   FOREIGN KEY (StatusId)   REFERENCES arm.Status (Id)
     );
 END
 GO
@@ -191,7 +230,13 @@ GO
 
 -- ----------------------------------------------------------------------------
 -- 1. arm.CityForecast (Shape A) — PK (Region, Station, ProductionDate, ForecastDate).
---    15-day city forecast; units fixed to F (not stored). Region = geography.
+--    15-day city forecast. Region = geography ('northamerica'/'europe'; 'asia'
+--    dropped). Per-region units: northamerica in F, europe in C — carried in the
+--    Units ATTRIBUTE column (NOT part of the key; Region already keys each row and
+--    units is 1:1 with region — §6.1 / §9 item 18). Temp columns are DECIMAL(8,5):
+--    the europe '_C' normals carry up to 5 dp (e.g. 7.74478), so the loader must not
+--    round; all five temps widened uniformly (±999.99999, ample for °F/°C incl.
+--    below-zero) so the TVP cannot truncate before the merge (§9 item 19).
 -- ----------------------------------------------------------------------------
 IF OBJECT_ID('arm.CityForecast', 'U') IS NULL
 BEGIN
@@ -203,13 +248,14 @@ BEGIN
         ProductionDate DATE         NOT NULL,   -- M/D/YY (2-digit year)
         ForecastDate   DATE         NOT NULL,   -- M/D/YY
         Station        VARCHAR(8)   NOT NULL,
-        FcstMin        DECIMAL(5,1) NOT NULL,
-        FcstMax        DECIMAL(5,1) NOT NULL,
-        FcstAvg        DECIMAL(5,1) NOT NULL,
-        NormMin        DECIMAL(5,1) NOT NULL,
-        NormMax        DECIMAL(5,1) NOT NULL,   -- header quirk 'Norm Max'
+        FcstMin        DECIMAL(8,5) NOT NULL,   -- signed; 1 dp in _F/_C (widened for uniformity)
+        FcstMax        DECIMAL(8,5) NOT NULL,
+        FcstAvg        DECIMAL(8,5) NOT NULL,
+        NormMin        DECIMAL(8,5) NOT NULL,   -- _C normals carry up to 5 dp (e.g. 7.74478)
+        NormMax        DECIMAL(8,5) NOT NULL,   -- header quirk 'Norm Max'; _C up to 5 dp (e.g. 20.3699)
         Hdd            SMALLINT     NOT NULL,
         Cdd            SMALLINT     NOT NULL,
+        Units          VARCHAR(1)   NOT NULL,   -- 'F'/'C'; ATTRIBUTE (from filename units token), NOT a key
         ModifiedAtUtc  DATETIME2(3) NOT NULL CONSTRAINT DF_CityForecast_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_CityForecast PRIMARY KEY (Region, Station, ProductionDate, ForecastDate),
         CONSTRAINT FK_CityForecast_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
@@ -515,9 +561,9 @@ BEGIN
                                       CHECK (Block IN ('Current','Yesterday','Change')),
         Region          VARCHAR(10)   NOT NULL,
         TotalCapacityMw DECIMAL(12,4) NULL,       -- blank in Change block → NULL
-        Avg_1_5         DECIMAL(12,4) NOT NULL,   -- '1-5 Day Avg (MW)' (signed in Change)
-        Avg_6_10        DECIMAL(12,4) NOT NULL,   -- '6-10 Day Avg (MW)'
-        Avg_11_15       DECIMAL(12,4) NOT NULL,   -- '11-15 Day Avg (MW)'
+        Avg_1_5         DECIMAL(12,4) NULL,       -- '1-5 Day Avg (MW)' (signed in Change; absent horizon → NULL)
+        Avg_6_10        DECIMAL(12,4) NULL,       -- '6-10 Day Avg (MW)'
+        Avg_11_15       DECIMAL(12,4) NULL,       -- '11-15 Day Avg (MW)' (short Change block omits this)
         ModifiedAtUtc   DATETIME2(3)  NOT NULL CONSTRAINT DF_WindTotalCapacityMW_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_WindTotalCapacityMW PRIMARY KEY (ProductionDate, Block, Region),
         CONSTRAINT FK_WindTotalCapacityMW_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
@@ -542,9 +588,9 @@ BEGIN
                                       CHECK (Block IN ('Current','Yesterday','Change')),
         Region          VARCHAR(10)   NOT NULL,
         TotalCapacityMw DECIMAL(12,4) NULL,       -- blank in Change block → NULL
-        Avg_1_5         DECIMAL(6,2)  NOT NULL,   -- '1-5 Day Avg (%)' (signed in Change)
-        Avg_6_10        DECIMAL(6,2)  NOT NULL,   -- '6-10 Day Avg (%)'
-        Avg_11_15       DECIMAL(6,2)  NOT NULL,   -- '11-15 Day Avg (%)'
+        Avg_1_5         DECIMAL(6,2)  NULL,       -- '1-5 Day Avg (%)' (signed in Change; absent horizon → NULL)
+        Avg_6_10        DECIMAL(6,2)  NULL,       -- '6-10 Day Avg (%)'
+        Avg_11_15       DECIMAL(6,2)  NULL,       -- '11-15 Day Avg (%)' (short Change block omits this)
         ModifiedAtUtc   DATETIME2(3)  NOT NULL CONSTRAINT DF_WindTotalCapacityPct_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_WindTotalCapacityPct PRIMARY KEY (ProductionDate, Block, Region),
         CONSTRAINT FK_WindTotalCapacityPct_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
@@ -572,12 +618,124 @@ BEGIN
         Lat           DECIMAL(9,6) NULL,       -- nullable: partial rows (< 9 fields) load with missing tail as NULL
         Lon           DECIMAL(9,6) NULL,       -- signed; nullable (see Lat)
         [Name]        NVARCHAR(64) NULL,       -- source truncates ~16 chars; nullable (see Lat)
-        [State]       VARCHAR(8)   NULL,       -- may be blank → NULL
-        Country       VARCHAR(4)   NULL,       -- nullable (see Lat)
+        [State]       VARCHAR(64)  NULL,       -- state/province code (NA, e.g. 'AB') OR full region name (Europe/Asia, e.g. 'United Kingdom'); blank → NULL
+        Country       VARCHAR(64)  NULL,       -- country code (NA, 2-letter) OR full name (Europe/Asia); nullable (see Lat)
         ModifiedAtUtc DATETIME2(3) NOT NULL CONSTRAINT DF_Station_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_Station PRIMARY KEY (Region, Identifier),
         CONSTRAINT FK_Station_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
         INDEX IX_Station_FileLogId NONCLUSTERED (FileLogId)
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 16. arm.Regions5DegreeDays (Shape A) — PK (RunDate, Dates, RegionName).
+--     Weighted degree-days broken out into 5 super-regions. Same measure families
+--     as NationalDegreeDays (#8) but +1 offset because RegionName occupies Fields[1],
+--     PLUS per-region GasWeight/ElctWeight/PopWeight (0..1). RunDate = filename date;
+--     RegionName is the in-file REGION_NAME cell (free text; NOT a filename axis /
+--     arm.Region row — §5 Region trap). ElctWeight keeps the source 'ELCT' spelling.
+--     Column ORDER (FileLogId first, then the data columns) mirrors the TVP in 002.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('arm.Regions5DegreeDays', 'U') IS NULL
+BEGIN
+    CREATE TABLE arm.Regions5DegreeDays
+    (
+        DateCreated   DATETIME     NOT NULL CONSTRAINT DF_Regions5DegreeDays_DateCreated DEFAULT GETDATE(),
+        FileLogId     INT          NOT NULL,
+        RunDate       DATE         NOT NULL,   -- from filename YYYYMMDD
+        Dates         DATE         NOT NULL,   -- 'DATES' column, YYYY-MM-DD
+        RegionName    VARCHAR(32)  NOT NULL,   -- in-file REGION_NAME (data; max obs 13)
+        NgHdd         DECIMAL(9,4) NOT NULL,   -- NG_HDD
+        NgHdd30y      DECIMAL(9,4) NOT NULL,   -- 30Y_NG_HDD
+        NgHdd10y      DECIMAL(9,4) NOT NULL,   -- 10Y_NG_HDD
+        NgHddLastY    DECIMAL(9,4) NOT NULL,   -- LAST_Y_NG_HDD
+        PopCdd        DECIMAL(9,4) NOT NULL,   -- POP_CDD
+        PopCdd30y     DECIMAL(9,4) NOT NULL,   -- 30Y_POP_CDD
+        PopCdd10y     DECIMAL(9,4) NOT NULL,   -- 10Y_POP_CDD
+        PopCddLastY   DECIMAL(9,4) NOT NULL,   -- LAST_Y_POP_CDD
+        ElecCdd       DECIMAL(9,4) NOT NULL,   -- ELEC_CDD
+        ElecCdd30y    DECIMAL(9,4) NOT NULL,   -- 30Y_ELEC_CDD
+        ElecCdd10y    DECIMAL(9,4) NOT NULL,   -- 10Y_ELEC_CDD
+        ElecCddLastY  DECIMAL(9,4) NOT NULL,   -- LAST_Y_ELEC_CDD
+        IsForecast    BIT          NOT NULL,   -- IS_FORECAST True/False
+        GasWeight     DECIMAL(9,4) NOT NULL,   -- GAS_WEIGHT (0..1)
+        ElctWeight    DECIMAL(9,4) NOT NULL,   -- ELCT_WEIGHT (source header spelled 'ELCT')
+        PopWeight     DECIMAL(9,4) NOT NULL,   -- POP_WEIGHT (0..1)
+        ModifiedAtUtc DATETIME2(3) NOT NULL CONSTRAINT DF_Regions5DegreeDays_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_Regions5DegreeDays PRIMARY KEY (RunDate, Dates, RegionName),
+        CONSTRAINT FK_Regions5DegreeDays_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
+        INDEX IX_Regions5DegreeDays_FileLogId NONCLUSTERED (FileLogId)
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 17. arm.Regions9DegreeDays (Shape A) — PK (RunDate, Dates, RegionName).
+--     IDENTICAL column set / PK to arm.Regions5DegreeDays (#16). Only the
+--     RegionName value set differs (9 U.S. Census divisions, UPPERCASE; max obs 15).
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('arm.Regions9DegreeDays', 'U') IS NULL
+BEGIN
+    CREATE TABLE arm.Regions9DegreeDays
+    (
+        DateCreated   DATETIME     NOT NULL CONSTRAINT DF_Regions9DegreeDays_DateCreated DEFAULT GETDATE(),
+        FileLogId     INT          NOT NULL,
+        RunDate       DATE         NOT NULL,   -- from filename YYYYMMDD
+        Dates         DATE         NOT NULL,   -- 'DATES' column, YYYY-MM-DD
+        RegionName    VARCHAR(32)  NOT NULL,   -- in-file REGION_NAME (data; max obs 15)
+        NgHdd         DECIMAL(9,4) NOT NULL,   -- NG_HDD
+        NgHdd30y      DECIMAL(9,4) NOT NULL,   -- 30Y_NG_HDD
+        NgHdd10y      DECIMAL(9,4) NOT NULL,   -- 10Y_NG_HDD
+        NgHddLastY    DECIMAL(9,4) NOT NULL,   -- LAST_Y_NG_HDD
+        PopCdd        DECIMAL(9,4) NOT NULL,   -- POP_CDD
+        PopCdd30y     DECIMAL(9,4) NOT NULL,   -- 30Y_POP_CDD
+        PopCdd10y     DECIMAL(9,4) NOT NULL,   -- 10Y_POP_CDD
+        PopCddLastY   DECIMAL(9,4) NOT NULL,   -- LAST_Y_POP_CDD
+        ElecCdd       DECIMAL(9,4) NOT NULL,   -- ELEC_CDD
+        ElecCdd30y    DECIMAL(9,4) NOT NULL,   -- 30Y_ELEC_CDD
+        ElecCdd10y    DECIMAL(9,4) NOT NULL,   -- 10Y_ELEC_CDD
+        ElecCddLastY  DECIMAL(9,4) NOT NULL,   -- LAST_Y_ELEC_CDD
+        IsForecast    BIT          NOT NULL,   -- IS_FORECAST True/False
+        GasWeight     DECIMAL(9,4) NOT NULL,   -- GAS_WEIGHT (0..1)
+        ElctWeight    DECIMAL(9,4) NOT NULL,   -- ELCT_WEIGHT (source header spelled 'ELCT')
+        PopWeight     DECIMAL(9,4) NOT NULL,   -- POP_WEIGHT (0..1)
+        ModifiedAtUtc DATETIME2(3) NOT NULL CONSTRAINT DF_Regions9DegreeDays_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_Regions9DegreeDays PRIMARY KEY (RunDate, Dates, RegionName),
+        CONSTRAINT FK_Regions9DegreeDays_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
+        INDEX IX_Regions9DegreeDays_FileLogId NONCLUSTERED (FileLogId)
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 18. arm.ISODegreeDays (Shape A) — PK (RunDate, Dates, RegionName).
+--     DIVERGENT 11-column layout: the HDD family is POP_HDD (population-weighted),
+--     NOT NG_HDD; there is NO ELEC_* family and NO weight columns. RegionName is the
+--     in-file ISO/market label (data; max obs 11 — §5 Region trap). RunDate = filename.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('arm.ISODegreeDays', 'U') IS NULL
+BEGIN
+    CREATE TABLE arm.ISODegreeDays
+    (
+        DateCreated   DATETIME     NOT NULL CONSTRAINT DF_ISODegreeDays_DateCreated DEFAULT GETDATE(),
+        FileLogId     INT          NOT NULL,
+        RunDate       DATE         NOT NULL,   -- from filename YYYYMMDD
+        Dates         DATE         NOT NULL,   -- 'DATES' column, YYYY-MM-DD
+        RegionName    VARCHAR(32)  NOT NULL,   -- in-file REGION_NAME (ISO/market label; max obs 11)
+        PopHdd        DECIMAL(9,4) NOT NULL,   -- POP_HDD (NOT NG_HDD)
+        PopHdd30y     DECIMAL(9,4) NOT NULL,   -- 30Y_POP_HDD
+        PopHdd10y     DECIMAL(9,4) NOT NULL,   -- 10Y_POP_HDD
+        PopHddLastY   DECIMAL(9,4) NOT NULL,   -- LAST_Y_POP_HDD
+        PopCdd        DECIMAL(9,4) NOT NULL,   -- POP_CDD
+        PopCdd30y     DECIMAL(9,4) NOT NULL,   -- 30Y_POP_CDD
+        PopCdd10y     DECIMAL(9,4) NOT NULL,   -- 10Y_POP_CDD
+        PopCddLastY   DECIMAL(9,4) NOT NULL,   -- LAST_Y_POP_CDD
+        IsForecast    BIT          NOT NULL,   -- IS_FORECAST True/False
+        ModifiedAtUtc DATETIME2(3) NOT NULL CONSTRAINT DF_ISODegreeDays_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_ISODegreeDays PRIMARY KEY (RunDate, Dates, RegionName),
+        CONSTRAINT FK_ISODegreeDays_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
+        INDEX IX_ISODegreeDays_FileLogId NONCLUSTERED (FileLogId)
     );
 END
 GO

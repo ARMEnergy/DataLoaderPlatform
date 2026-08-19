@@ -9,7 +9,7 @@ namespace DataLoader.CWG;
 /// <summary>
 /// Process-wide client-side pace limiter (design §8). Spaces outgoing requests by
 /// <c>1 / RequestsPerSecond</c> so a run stays under a conservative cap.
-/// Registered as a singleton so pacing is global across all 15 endpoints and
+/// Registered as a singleton so pacing is global across all 18 endpoints and
 /// survives HttpClientFactory handler rotation (the delegating handler is
 /// transient; the limiter state lives here).
 /// </summary>

@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace DataLoader.CWG;
 
 /// <summary>
-/// One CWG request/file = one work unit, shared by all 15 endpoints (design §3).
+/// One CWG request/file = one work unit, shared by all 18 endpoints (design §3).
 /// Carries the fully-substituted <see cref="Filename"/> (no host/query), the
 /// natural-key fields the FileLog needs (<see cref="Region"/>,
 /// <see cref="Variant"/>, <see cref="RepresentativeDate"/>) and the precomputed
@@ -16,6 +16,15 @@ public sealed class CwgWorkUnit : WorkUnit
     public required string EndpointId { get; init; }
     public string? Region { get; init; }
     public string? Variant { get; init; }
+
+    /// <summary>
+    /// Per-region units token (<c>F</c>/<c>C</c>) for CityForecast; null on every other endpoint.
+    /// The typed attribute the CityForecast row factory copies into the fact's <c>Units</c> column.
+    /// Holds the same value as <see cref="Variant"/> for CityForecast (both stamped), but represents a
+    /// different concern — <see cref="Variant"/> is the generic FileLog sub-key slot (design §3).
+    /// </summary>
+    public string? Units { get; init; }
+
     public DateOnly? RepresentativeDate { get; init; }
     public required string Filename { get; init; }
     public required string KeyValue { get; init; }
@@ -79,8 +88,8 @@ public sealed class CwgWorkUnitProvider : IWorkUnitProvider<CwgWorkUnit>
         var runDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
             DateTime.SpecifyKind(context.StartedAtUtc, DateTimeKind.Utc), EasternTz));
 
-        var regions = ResolveRegions();
-        if (regions.Count == 0)
+        var regionPairs = ResolveRegions();
+        if (regionPairs.Count == 0)
         {
             _logger.LogInformation("[CWG {Endpoint}] no regions after the Geographies filter; nothing to enumerate", _d.EndpointId);
             return Task.FromResult<IReadOnlyList<CwgWorkUnit>>(Array.Empty<CwgWorkUnit>());
@@ -108,18 +117,20 @@ public sealed class CwgWorkUnitProvider : IWorkUnitProvider<CwgWorkUnit>
                 // LoadLog skip forever); a recent one stays HOT (base + :run=token →
                 // re-pulled every run so late/revised recent files are caught).
                 var ageDays = runDate.DayNumber - d.DayNumber;
-                foreach (var region in regions)
+                foreach (var (region, regionUnits) in regionPairs)
                 foreach (var extra in extras)
                 {
-                    var variant = Variant(extra);
+                    // FileLog Variant slot: the DD subregion token OR (CityForecast) the units token.
+                    var variant = Variant(extra) ?? regionUnits;
                     var baseKey = $"cwg:{_d.EndpointId}:{region ?? "-"}:{variant ?? "-"}:{d.ToString("yyyyMMdd", Inv)}";
                     units.Add(new CwgWorkUnit
                     {
                         EndpointId = _d.EndpointId,
                         Region = region,
                         Variant = variant,
+                        Units = regionUnits,
                         RepresentativeDate = d,
-                        Filename = Substitute(region, d, extra),
+                        Filename = Substitute(region, regionUnits, d, extra),
                         KeyValue = ageDays > _settings.SettledAfterDays ? baseKey : $"{baseKey}:run={hot}"
                     });
                 }
@@ -127,17 +138,18 @@ public sealed class CwgWorkUnitProvider : IWorkUnitProvider<CwgWorkUnit>
         }
         else
         {
-            foreach (var region in regions)
+            foreach (var (region, regionUnits) in regionPairs)
             foreach (var extra in extras)
             {
-                var variant = Variant(extra);
+                var variant = Variant(extra) ?? regionUnits;
                 units.Add(new CwgWorkUnit
                 {
                     EndpointId = _d.EndpointId,
                     Region = region,
                     Variant = variant,
+                    Units = regionUnits,
                     RepresentativeDate = null,
-                    Filename = Substitute(region, null, extra),
+                    Filename = Substitute(region, regionUnits, null, extra),
                     KeyValue = $"cwg:{_d.EndpointId}:{region ?? "-"}:{variant ?? "-"}:run={hot}"
                 });
             }
@@ -148,32 +160,46 @@ public sealed class CwgWorkUnitProvider : IWorkUnitProvider<CwgWorkUnit>
     }
 
     /// <summary>
-    /// The region list to iterate. Geography descriptors are filtered by the
-    /// <c>Geographies</c> setting; None/ISO descriptors with a fixed <c>Regions</c> list
-    /// (e.g. NationalDegreeDays' <c>northamerica</c>) return it verbatim — unfiltered
-    /// (Fix 2); a descriptor with no regions yields a single <c>null</c> region.
+    /// The (region, units) pairs to iterate. <c>Regions</c> is zipped 1:1 with the descriptor's
+    /// optional <c>RegionUnits</c> (index-aligned; <c>Units = null</c> when <c>RegionUnits</c> is null)
+    /// BEFORE the <c>Geographies</c> filter, so a filtered-out region drops its units with it.
+    /// Geography descriptors are filtered by the <c>Geographies</c> setting; None/ISO descriptors with a
+    /// fixed <c>Regions</c> list (e.g. NationalDegreeDays' <c>northamerica</c>) return it verbatim —
+    /// unfiltered (Fix 2); a descriptor with no regions yields a single <c>(null, null)</c> pair.
     /// </summary>
-    private IReadOnlyList<string?> ResolveRegions()
+    private IReadOnlyList<(string? Region, string? Units)> ResolveRegions()
     {
+        if (_d.Regions.Length == 0)
+            return new (string?, string?)[] { (null, null) };
+
+        // Zip index-aligned; the registry invariant (CwgDescriptors static ctor) guarantees
+        // RegionUnits.Length == Regions.Length whenever RegionUnits is non-null.
+        var pairs = new List<(string? Region, string? Units)>(_d.Regions.Length);
+        for (var i = 0; i < _d.Regions.Length; i++)
+            pairs.Add((_d.Regions[i], _d.RegionUnits is null ? null : _d.RegionUnits[i]));
+
         if (_d.RegionKind == CwgRegionKind.Geography)
         {
             var geoSet = new HashSet<string>(_settings.Geographies ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-            return _d.Regions.Where(geoSet.Contains).Cast<string?>().ToList();
+            return pairs.Where(p => p.Region is not null && geoSet.Contains(p.Region!)).ToList();
         }
-        if (_d.Regions.Length > 0)
-            return _d.Regions.Cast<string?>().ToList();
-        return new List<string?> { null };
+        return pairs;
     }
 
     private static string? Variant(IReadOnlyDictionary<string, string> extra) =>
         extra.TryGetValue("subregion", out var sub) ? sub : null;
 
-    private string Substitute(string? region, DateOnly? date, IReadOnlyDictionary<string, string> extra)
+    private string Substitute(string? region, string? units, DateOnly? date, IReadOnlyDictionary<string, string> extra)
     {
         var s = _d.FilenameTemplate;
 
         if (_d.RegionPlaceholder is not null && region is not null)
             s = s.Replace("{" + _d.RegionPlaceholder + "}", region);
+
+        // {units} exists only in CityForecast's template; guarded like {region} — replace only when
+        // present, so templates without a {units} token (the other 17 endpoints) are unaffected.
+        if (units is not null)
+            s = s.Replace("{units}", units);
 
         if (date.HasValue)
         {

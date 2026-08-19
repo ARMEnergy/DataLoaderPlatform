@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace DataLoader.CWG;
 
 // =============================================================================
-// Per-endpoint SQL sinks (×15). Each bulk-merges its FileLogId-stamped rows into
+// Per-endpoint SQL sinks (×18). Each bulk-merges its FileLogId-stamped rows into
 // arm.<Table> via arm.usp_BulkMerge<Table>(@Records arm.<Table>Tvp). Column ORDER
 // in every BuildTable mirrors sql/CWG/002 EXACTLY — FileLogId first (a
 // load-bearing contract). Each de-dups the batch on its merge key before building
@@ -43,7 +43,11 @@ public sealed class CityForecastSqlSink : CwgSqlSinkBase<CityForecastRow>
             .GroupBy(r => (r.Region, r.Station, r.ProductionDate, r.ForecastDate))
             .Select(g => g.Last());
 
-        // Order: FileLogId, Region, ProductionDate, ForecastDate, Station, FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd.
+        // Order: FileLogId, Region, ProductionDate, ForecastDate, Station, FcstMin, FcstMax, FcstAvg,
+        //        NormMin, NormMax, Hdd, Cdd, Units — mirrors arm.CityForecastTvp exactly (FileLogId first,
+        //        Units last). The five temp columns map to DECIMAL(8,5): decimal values are passed through
+        //        UNROUNDED (the _C normals carry up to 5 dp) — the DataTable decimal columns transmit the
+        //        value's own scale to the TVP, and the server type enforces DECIMAL(8,5).
         var t = new DataTable();
         t.Columns.Add("FileLogId", typeof(int));
         t.Columns.Add("Region", typeof(string));
@@ -57,10 +61,11 @@ public sealed class CityForecastSqlSink : CwgSqlSinkBase<CityForecastRow>
         t.Columns.Add("NormMax", typeof(decimal));
         t.Columns.Add("Hdd", typeof(short));
         t.Columns.Add("Cdd", typeof(short));
+        t.Columns.Add("Units", typeof(string)); // VARCHAR(1) 'F'/'C'; appended LAST
 
         foreach (var r in deduped)
             t.Rows.Add(r.FileLogId, r.Region, D(r.ProductionDate), D(r.ForecastDate), r.Station,
-                r.FcstMin, r.FcstMax, r.FcstAvg, r.NormMin, r.NormMax, r.Hdd, r.Cdd);
+                r.FcstMin, r.FcstMax, r.FcstAvg, r.NormMin, r.NormMax, r.Hdd, r.Cdd, r.Units);
         return t;
     }
 }
@@ -421,7 +426,7 @@ public sealed class WindTotalCapacityMWSqlSink : CwgSqlSinkBase<WindTotalCapacit
 
         foreach (var r in deduped)
             t.Rows.Add(r.FileLogId, D(r.ProductionDate), r.Block, r.Region,
-                DbNullable(r.TotalCapacityMw), r.Avg_1_5, r.Avg_6_10, r.Avg_11_15);
+                DbNullable(r.TotalCapacityMw), DbNullable(r.Avg_1_5), DbNullable(r.Avg_6_10), DbNullable(r.Avg_11_15));
         return t;
     }
 }
@@ -452,7 +457,7 @@ public sealed class WindTotalCapacityPctSqlSink : CwgSqlSinkBase<WindTotalCapaci
 
         foreach (var r in deduped)
             t.Rows.Add(r.FileLogId, D(r.ProductionDate), r.Block, r.Region,
-                DbNullable(r.TotalCapacityMw), r.Avg_1_5, r.Avg_6_10, r.Avg_11_15);
+                DbNullable(r.TotalCapacityMw), DbNullable(r.Avg_1_5), DbNullable(r.Avg_6_10), DbNullable(r.Avg_11_15));
         return t;
     }
 }
@@ -488,6 +493,140 @@ public sealed class StationSqlSink : CwgSqlSinkBase<StationRow>
             t.Rows.Add(r.FileLogId, r.Region, r.Identifier,
                 DbNullableObj(r.WmoId), DbNullableObj(r.Wban), DbNullableObj(r.Ghcnd),
                 DbNullable(r.Lat), DbNullable(r.Lon), DbNullableObj(r.Name), DbNullableObj(r.State), DbNullableObj(r.Country));
+        return t;
+    }
+}
+
+// -------------------------------------------------------------------- 16. Regions5DegreeDays
+public sealed class Regions5DegreeDaysSqlSink : CwgSqlSinkBase<Regions5DegreeDaysRow>
+{
+    public Regions5DegreeDaysSqlSink(IOptions<CwgSettings> settings, ILogger<Regions5DegreeDaysSqlSink> logger) : base(settings, logger) { }
+    protected override string StoredProcedureName => "arm.usp_BulkMergeRegions5DegreeDays";
+    protected override string TableValuedParameterType => "arm.Regions5DegreeDaysTvp";
+
+    protected override DataTable BuildTable(IReadOnlyList<Regions5DegreeDaysRow> rows)
+    {
+        var deduped = rows
+            .GroupBy(r => (r.RunDate, r.Dates, r.RegionName))
+            .Select(g => g.Last());
+
+        // Order: FileLogId, RunDate, Dates, RegionName, NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
+        //        PopCdd, PopCdd30y, PopCdd10y, PopCddLastY, ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
+        //        IsForecast, GasWeight, ElctWeight, PopWeight.
+        var t = new DataTable();
+        t.Columns.Add("FileLogId", typeof(int));
+        t.Columns.Add("RunDate", typeof(DateTime));
+        t.Columns.Add("Dates", typeof(DateTime));
+        t.Columns.Add("RegionName", typeof(string));
+        t.Columns.Add("NgHdd", typeof(decimal));
+        t.Columns.Add("NgHdd30y", typeof(decimal));
+        t.Columns.Add("NgHdd10y", typeof(decimal));
+        t.Columns.Add("NgHddLastY", typeof(decimal));
+        t.Columns.Add("PopCdd", typeof(decimal));
+        t.Columns.Add("PopCdd30y", typeof(decimal));
+        t.Columns.Add("PopCdd10y", typeof(decimal));
+        t.Columns.Add("PopCddLastY", typeof(decimal));
+        t.Columns.Add("ElecCdd", typeof(decimal));
+        t.Columns.Add("ElecCdd30y", typeof(decimal));
+        t.Columns.Add("ElecCdd10y", typeof(decimal));
+        t.Columns.Add("ElecCddLastY", typeof(decimal));
+        t.Columns.Add("IsForecast", typeof(bool));
+        t.Columns.Add("GasWeight", typeof(decimal));
+        t.Columns.Add("ElctWeight", typeof(decimal));
+        t.Columns.Add("PopWeight", typeof(decimal));
+
+        foreach (var r in deduped)
+            t.Rows.Add(r.FileLogId, D(r.RunDate), D(r.Dates), r.RegionName,
+                r.NgHdd, r.NgHdd30y, r.NgHdd10y, r.NgHddLastY,
+                r.PopCdd, r.PopCdd30y, r.PopCdd10y, r.PopCddLastY,
+                r.ElecCdd, r.ElecCdd30y, r.ElecCdd10y, r.ElecCddLastY,
+                r.IsForecast, r.GasWeight, r.ElctWeight, r.PopWeight);
+        return t;
+    }
+}
+
+// -------------------------------------------------------------------- 17. Regions9DegreeDays
+public sealed class Regions9DegreeDaysSqlSink : CwgSqlSinkBase<Regions9DegreeDaysRow>
+{
+    public Regions9DegreeDaysSqlSink(IOptions<CwgSettings> settings, ILogger<Regions9DegreeDaysSqlSink> logger) : base(settings, logger) { }
+    protected override string StoredProcedureName => "arm.usp_BulkMergeRegions9DegreeDays";
+    protected override string TableValuedParameterType => "arm.Regions9DegreeDaysTvp";
+
+    protected override DataTable BuildTable(IReadOnlyList<Regions9DegreeDaysRow> rows)
+    {
+        var deduped = rows
+            .GroupBy(r => (r.RunDate, r.Dates, r.RegionName))
+            .Select(g => g.Last());
+
+        // Order: FileLogId, RunDate, Dates, RegionName, NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
+        //        PopCdd, PopCdd30y, PopCdd10y, PopCddLastY, ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
+        //        IsForecast, GasWeight, ElctWeight, PopWeight. (IDENTICAL to #16.)
+        var t = new DataTable();
+        t.Columns.Add("FileLogId", typeof(int));
+        t.Columns.Add("RunDate", typeof(DateTime));
+        t.Columns.Add("Dates", typeof(DateTime));
+        t.Columns.Add("RegionName", typeof(string));
+        t.Columns.Add("NgHdd", typeof(decimal));
+        t.Columns.Add("NgHdd30y", typeof(decimal));
+        t.Columns.Add("NgHdd10y", typeof(decimal));
+        t.Columns.Add("NgHddLastY", typeof(decimal));
+        t.Columns.Add("PopCdd", typeof(decimal));
+        t.Columns.Add("PopCdd30y", typeof(decimal));
+        t.Columns.Add("PopCdd10y", typeof(decimal));
+        t.Columns.Add("PopCddLastY", typeof(decimal));
+        t.Columns.Add("ElecCdd", typeof(decimal));
+        t.Columns.Add("ElecCdd30y", typeof(decimal));
+        t.Columns.Add("ElecCdd10y", typeof(decimal));
+        t.Columns.Add("ElecCddLastY", typeof(decimal));
+        t.Columns.Add("IsForecast", typeof(bool));
+        t.Columns.Add("GasWeight", typeof(decimal));
+        t.Columns.Add("ElctWeight", typeof(decimal));
+        t.Columns.Add("PopWeight", typeof(decimal));
+
+        foreach (var r in deduped)
+            t.Rows.Add(r.FileLogId, D(r.RunDate), D(r.Dates), r.RegionName,
+                r.NgHdd, r.NgHdd30y, r.NgHdd10y, r.NgHddLastY,
+                r.PopCdd, r.PopCdd30y, r.PopCdd10y, r.PopCddLastY,
+                r.ElecCdd, r.ElecCdd30y, r.ElecCdd10y, r.ElecCddLastY,
+                r.IsForecast, r.GasWeight, r.ElctWeight, r.PopWeight);
+        return t;
+    }
+}
+
+// -------------------------------------------------------------------- 18. ISODegreeDays
+public sealed class ISODegreeDaysSqlSink : CwgSqlSinkBase<ISODegreeDaysRow>
+{
+    public ISODegreeDaysSqlSink(IOptions<CwgSettings> settings, ILogger<ISODegreeDaysSqlSink> logger) : base(settings, logger) { }
+    protected override string StoredProcedureName => "arm.usp_BulkMergeISODegreeDays";
+    protected override string TableValuedParameterType => "arm.ISODegreeDaysTvp";
+
+    protected override DataTable BuildTable(IReadOnlyList<ISODegreeDaysRow> rows)
+    {
+        var deduped = rows
+            .GroupBy(r => (r.RunDate, r.Dates, r.RegionName))
+            .Select(g => g.Last());
+
+        // Order: FileLogId, RunDate, Dates, RegionName, PopHdd, PopHdd30y, PopHdd10y, PopHddLastY,
+        //        PopCdd, PopCdd30y, PopCdd10y, PopCddLastY, IsForecast. (Divergent 11-col shape.)
+        var t = new DataTable();
+        t.Columns.Add("FileLogId", typeof(int));
+        t.Columns.Add("RunDate", typeof(DateTime));
+        t.Columns.Add("Dates", typeof(DateTime));
+        t.Columns.Add("RegionName", typeof(string));
+        t.Columns.Add("PopHdd", typeof(decimal));
+        t.Columns.Add("PopHdd30y", typeof(decimal));
+        t.Columns.Add("PopHdd10y", typeof(decimal));
+        t.Columns.Add("PopHddLastY", typeof(decimal));
+        t.Columns.Add("PopCdd", typeof(decimal));
+        t.Columns.Add("PopCdd30y", typeof(decimal));
+        t.Columns.Add("PopCdd10y", typeof(decimal));
+        t.Columns.Add("PopCddLastY", typeof(decimal));
+        t.Columns.Add("IsForecast", typeof(bool));
+
+        foreach (var r in deduped)
+            t.Rows.Add(r.FileLogId, D(r.RunDate), D(r.Dates), r.RegionName,
+                r.PopHdd, r.PopHdd30y, r.PopHdd10y, r.PopHddLastY,
+                r.PopCdd, r.PopCdd30y, r.PopCdd10y, r.PopCddLastY, r.IsForecast);
         return t;
     }
 }

@@ -55,16 +55,26 @@ public class WorkUnitProviderTests
     {
         var units = await Enumerate(CwgDescriptors.CityForecast, Settings(daysBack: 3));
 
-        // 3 days x 3 geographies.
-        Assert.Equal(9, units.Count);
+        // 3 days x 2 CityForecast regions (northamerica + europe; asia is dropped structurally).
+        Assert.Equal(6, units.Count);
         Assert.Equal(
             new[] { new DateOnly(2026, 8, 9), new DateOnly(2026, 8, 10), new DateOnly(2026, 8, 11) },
             units.Select(u => u.RepresentativeDate!.Value).Distinct().OrderBy(d => d).ToArray());
+        Assert.Equal(new[] { "europe", "northamerica" },
+            units.Select(u => u.Region).Distinct().OrderBy(s => s).ToArray());
 
+        // northamerica is fetched in _F; the {units} token fills the filename AND the resume-key Variant slot.
         var naToday = Assert.Single(units, u => u.Region == "northamerica" && u.RepresentativeDate == new DateOnly(2026, 8, 11));
-        Assert.Equal("city15dfcst_northamerica_20260811_F.csv", naToday.Filename);       // {region}/{yyyyMMdd} substitution
-        Assert.Equal("cwg:CityForecast:northamerica:-:20260811:run=20260811", naToday.Key); // date + run-date token (HOT)
+        Assert.Equal("city15dfcst_northamerica_20260811_F.csv", naToday.Filename);           // {region}/{yyyyMMdd}/{units}
+        Assert.Equal("F", naToday.Units);
+        Assert.Equal("cwg:CityForecast:northamerica:F:20260811:run=20260811", naToday.Key);  // Variant = units token 'F' (HOT)
         Assert.Contains(":run=20260811", naToday.Key);
+
+        // europe is fetched in _C.
+        var euToday = Assert.Single(units, u => u.Region == "europe" && u.RepresentativeDate == new DateOnly(2026, 8, 11));
+        Assert.Equal("city15dfcst_europe_20260811_C.csv", euToday.Filename);
+        Assert.Equal("C", euToday.Units);
+        Assert.Equal("cwg:CityForecast:europe:C:20260811:run=20260811", euToday.Key);        // Variant = units token 'C'
     }
 
     [Fact]
@@ -144,16 +154,27 @@ public class WorkUnitProviderTests
     [Fact]
     public async Task Geographies_Filter_NarrowsCityForecast_ButNotIsoOrNoneDescriptors()
     {
-        var settings = Settings(daysBack: 1, geographies: new[] { "asia", "europe" }); // exclude northamerica
+        // CityForecast regions are now {northamerica, europe}; narrow Geographies to europe only
+        // (asia is no longer a CityForecast region, so it can't be used to prove narrowing).
+        var settings = Settings(daysBack: 1, geographies: new[] { "europe" }); // exclude northamerica
 
         var city = await Enumerate(CwgDescriptors.CityForecast, settings);
-        Assert.Equal(new[] { "asia", "europe" }.OrderBy(s => s), city.Select(u => u.Region).OrderBy(s => s));
+        var euUnit = Assert.Single(city);                       // northamerica filtered out -> just europe
+        Assert.Equal("europe", euUnit.Region);
         Assert.DoesNotContain(city, u => u.Region == "northamerica");
+        // Units stay index-aligned to the surviving region after filtering: europe -> 'C'.
+        Assert.Equal("C", euUnit.Units);
+        Assert.Equal("C", euUnit.Variant);
+        Assert.Equal("city15dfcst_europe_20260811_C.csv", euUnit.Filename);
 
         // ISO descriptor (SolarForecast) is a DIFFERENT axis — not filtered by Geographies.
         var solar = await Enumerate(CwgDescriptors.SolarForecast, settings);
         Assert.Equal(10, solar.Count); // all 10 ISO regions regardless of Geographies
         Assert.Contains(solar, u => u.Region == "ERCOT");
+
+        // None descriptor (NationalDegreeDays) is likewise NOT filtered by Geographies (Fix 2).
+        var ndd = await Enumerate(CwgDescriptors.NationalDegreeDays, settings);
+        Assert.Contains(ndd, u => u.Region == "northamerica");  // survives even though northamerica is excluded
     }
 
     [Fact]
@@ -164,6 +185,64 @@ public class WorkUnitProviderTests
         var city = await Enumerate(CwgDescriptors.CityForecast, settings);
 
         Assert.Empty(city);
+    }
+
+    // ---------------------------------------------------------------- dropped asia: structural, not via Geographies
+
+    [Fact]
+    public async Task CityForecast_DropsAsia_ButCityObservationAndStationStillEnumerateAsia()
+    {
+        // asia is dropped from CityForecast STRUCTURALLY (its Regions list is {northamerica, europe}),
+        // NOT via the Geographies setting — which still lists all three. The shared Geographies list is
+        // unchanged, so the OTHER geography endpoints still enumerate asia.
+        Assert.Equal(new[] { "northamerica", "europe" }, CwgDescriptors.CityForecast.Regions);
+        Assert.Equal(new[] { "F", "C" }, CwgDescriptors.CityForecast.RegionUnits);
+
+        var settings = Settings(daysBack: 1); // full {northamerica, asia, europe}
+
+        var city = await Enumerate(CwgDescriptors.CityForecast, settings);
+        Assert.Equal(new[] { "europe", "northamerica" },
+            city.Select(u => u.Region).Distinct().OrderBy(s => s).ToArray());
+        Assert.DoesNotContain(city, u => u.Region == "asia");
+
+        // asia is still enumerated for the other geography descriptors (shared Geographies unchanged).
+        var obs = await Enumerate(CwgDescriptors.CityObservation, settings);
+        Assert.Contains(obs, u => u.Region == "asia");
+        var station = await Enumerate(CwgDescriptors.Station, settings);
+        Assert.Contains(station, u => u.Region == "asia");
+    }
+
+    // ---------------------------------------------------------------- Variant slot: units token vs subregion vs null
+
+    [Fact]
+    public async Task Variant_CityForecast_IsUnitsToken_DegreeDays_IsSubregion_PlainEndpoint_IsNull()
+    {
+        var settings = Settings(daysBack: 1);
+
+        // CityForecast: the Variant sub-key slot carries the units token ('F' for na, 'C' for europe),
+        // equal to Units — no drift.
+        var city = await Enumerate(CwgDescriptors.CityForecast, settings);
+        var na = Assert.Single(city, u => u.Region == "northamerica");
+        Assert.Equal("F", na.Variant);
+        Assert.Equal("F", na.Units);
+        var eu = Assert.Single(city, u => u.Region == "europe");
+        Assert.Equal("C", eu.Variant);
+        Assert.Equal("C", eu.Units);
+
+        // Regions5DegreeDays: Variant stays the {subregion} token; Units is null (no units drift).
+        var dd = Assert.Single(await Enumerate(CwgDescriptors.Regions5DegreeDays, settings));
+        Assert.Equal("5region", dd.Variant);
+        Assert.Null(dd.Units);
+
+        // NationalDegreeDays: Variant is 'national'; Units null.
+        var ndd = Assert.Single(await Enumerate(CwgDescriptors.NationalDegreeDays, settings));
+        Assert.Equal("national", ndd.Variant);
+        Assert.Null(ndd.Units);
+
+        // A plain endpoint (no region, no subregion, no units): Variant and Units are both null.
+        var gas = Assert.Single(await Enumerate(CwgDescriptors.CityGasForecast, settings));
+        Assert.Null(gas.Variant);
+        Assert.Null(gas.Units);
     }
 
     // ---------------------------------------------------------------- Fix 2: NationalDegreeDays NOT filtered by Geographies

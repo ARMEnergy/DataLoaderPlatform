@@ -159,7 +159,8 @@ public class SinkTests
         {
             FileLogId = 4, Region = "northamerica", ProductionDate = new DateOnly(2026, 8, 11),
             ForecastDate = new DateOnly(2026, 8, 11), Station = "KABR",
-            FcstMin = 62m, FcstMax = 83m, FcstAvg = 72.5m, NormMin = 57.9m, NormMax = 83.8m, Hdd = 0, Cdd = 8
+            FcstMin = 62m, FcstMax = 83m, FcstAvg = 72.5m, NormMin = 57.9m, NormMax = 83.8m, Hdd = 0, Cdd = 8,
+            Units = "F"
         };
 
         var t = BuildTable(sink, new List<CityForecastRow> { row });
@@ -167,14 +168,44 @@ public class SinkTests
         Assert.Equal(new[]
         {
             "FileLogId", "Region", "ProductionDate", "ForecastDate", "Station",
-            "FcstMin", "FcstMax", "FcstAvg", "NormMin", "NormMax", "Hdd", "Cdd"
+            "FcstMin", "FcstMax", "FcstAvg", "NormMin", "NormMax", "Hdd", "Cdd", "Units"
         }, Names(t));
         Assert.Equal("FileLogId", Names(t)[0]); // FileLogId is ALWAYS the first TVP column
+        Assert.Equal("Units", Names(t)[^1]);    // Units is ALWAYS the last TVP column
         Assert.Equal(typeof(short), t.Columns["Hdd"]!.DataType); // SMALLINT
         Assert.Equal(typeof(short), t.Columns["Cdd"]!.DataType);
 
         var r = t.Rows[0];
         Assert.Equal((short)8, r["Cdd"]);
         Assert.Equal(83.8m, r["NormMax"]);
+        Assert.Equal("F", r["Units"]);   // na unit -> 'F'
+    }
+
+    [Fact]
+    public void CityForecastSink_BuildTable_EuropeUnitsC_PreservesFullDecimalScale_UnitsLast()
+    {
+        // europe unit: Units='C' (last column) and the _C normals carry up to 5 dp. The five temp
+        // columns are DECIMAL(8,5): BuildTable must pass them through UNROUNDED (no clamp to (5,1)).
+        var sink = new CityForecastSqlSink(Opt(), NullLogger<CityForecastSqlSink>.Instance);
+        var row = new CityForecastRow
+        {
+            FileLogId = 6, Region = "europe", ProductionDate = new DateOnly(2026, 8, 11),
+            ForecastDate = new DateOnly(2026, 8, 11), Station = "BIAR",
+            FcstMin = 7m, FcstMax = 16m, FcstAvg = 11.5m,
+            NormMin = 7.74478m, NormMax = 15.4283m, Hdd = 7, Cdd = 0,
+            Units = "C"
+        };
+
+        var t = BuildTable(sink, new List<CityForecastRow> { row });
+
+        Assert.Equal("Units", Names(t)[^1]);       // Units is ALWAYS the last TVP column
+        Assert.Equal(typeof(decimal), t.Columns["NormMin"]!.DataType);
+        Assert.Equal(typeof(decimal), t.Columns["NormMax"]!.DataType);
+
+        var r = t.Rows[0];
+        Assert.Equal("C", r["Units"]);             // europe unit -> 'C'
+        Assert.Equal(7.74478m, r["NormMin"]);      // 5-dp normal emitted UNROUNDED
+        Assert.Equal(15.4283m, r["NormMax"]);
+        Assert.NotEqual(Math.Round(7.74478m, 1), (decimal)r["NormMin"]); // would be 7.7m if clamped to (5,1)
     }
 }

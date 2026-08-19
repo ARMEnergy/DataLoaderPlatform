@@ -24,7 +24,7 @@ DataLoader.Host.exe
 
 Exit codes: `0` = success or skipped (overlap guard), `1` = error, `2` = cancelled.
 
-Automated tests live under `tests/` (xUnit): `DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`, `DataLoader.StormVista.Tests`, and `DataLoader.CWG.Tests`. Run them with:
+Automated tests live under `tests/` (xUnit): `DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`, `DataLoader.StormVista.Tests`, `DataLoader.CWG.Tests`, `DataLoader.AGSI.Tests`, and `DataLoader.IHSPointLogic.Tests`. Run them with:
 
 ```bash
 dotnet test DataLoaderPlatform.sln -c Release
@@ -76,12 +76,12 @@ Bounded concurrency via `ParallelRunner` (semaphore). HTTP retry via `RetryPolic
 
 ### Concurrent Writes
 
-`ParallelRunner` runs work units concurrently, so several `MERGE`/upsert procs can hit the same table at once — a deadlock (and NOT-MATCHED insert-race) risk. `SqlWriteGate` (`src/DataLoader.Core/Concurrency/`) is a process-wide, per-target keyed lock (`{server}/{db}::{proc}`) that serializes those calls. `SqlSinkBase.WriteAsync` acquires it automatically, so every TVP-merge sink is covered; direct proc callers (e.g. the Platts `arm.usp_UpsertFileLog` writer, the StormVista `dbo.usp_UpsertFileLog` writer, and the EnergyAspects sink) acquire it too. It is **in-process only** — cross-process serialization is the overlap guard's job. `core.LoadLog` bookkeeping is intentionally *not* gated (keyed per work unit, so it rarely contends).
+`ParallelRunner` runs work units concurrently, so several `MERGE`/upsert procs can hit the same table at once — a deadlock (and NOT-MATCHED insert-race) risk. `SqlWriteGate` (`src/DataLoader.Core/Concurrency/`) is a process-wide, per-target keyed lock (`{server}/{db}::{proc}`) that serializes those calls. `SqlSinkBase.WriteAsync` acquires it automatically, so every TVP-merge sink is covered; direct proc callers (e.g. the Platts, CWG, and AGSI `arm.usp_UpsertFileLog` writers, the StormVista `dbo.usp_UpsertFileLog` writer, and the EnergyAspects sink) acquire it too. It is **in-process only** — cross-process serialization is the overlap guard's job. `core.LoadLog` bookkeeping is intentionally *not* gated (keyed per work unit, so it rarely contends).
 
 ### Database Layout
 
 - **Platform DB** (`core` schema): `core.LoaderRun` (one per host invocation), `core.LoadLog` (one per work unit attempt, keyed by `LoaderId` + `WorkUnitKey`), and `core.Param` (key/value config store keyed by `LoaderName` + `ParamName`, read by `core.usp_GetParam` for the `SEE_DB` indirection). Scripts in `sql/Core/` (run `001`–`004` in order).
-- **Per-loader DB**: each loader owns its own schema (e.g., `ea` for EnergyAspects, `arm` for Platts) — though `StormVista` deliberately uses the default **`dbo`** schema rather than a vendor prefix, per the `DATABASE_DEVELOPER` agent's own standing convention ("target schema is `dbo` unless the task says otherwise"). Scripts in `sql/<Vendor>/`. Connection string comes from `Loaders:<LoaderId>:ConnectionString`.
+- **Per-loader DB**: each loader owns its own schema (e.g., `ea` for EnergyAspects; `arm` for Platts, CWG, AGSI, and IHSPointLogic — the `arm` name is reused but each lives in its own database) — though `StormVista` deliberately uses the default **`dbo`** schema rather than a vendor prefix, per the `DATABASE_DEVELOPER` agent's own standing convention ("target schema is `dbo` unless the task says otherwise"). Scripts in `sql/<Vendor>/`. Connection string comes from `Loaders:<LoaderId>:ConnectionString`.
 
 ## Adding a New Loader
 
@@ -93,7 +93,7 @@ Bounded concurrency via `ParallelRunner` (semaphore). HTTP retry via `RetryPolic
 6. `FooSqlSink : SqlSinkBase<FooRow>`
 7. `IWorkUnitProvider<FooWorkUnit>`
 8. `FooModule : ILoaderModule`
-9. Add `sql/Foo/` scripts for the loader's own schema
+9. Add `sql/Foo/` scripts for the loader's own schema (numbered `001…` in dependency order; optionally a guarded, idempotent `999_DropFooObjects.sql` teardown that drops every object in reverse dependency order — see `sql/AGSI/`)
 10. Add `<ProjectReference>` from `DataLoader.Host` to the new project
 11. Add `Loaders:Foo` section in `appsettings.json`; add `"Foo"` to `Platform:EnabledLoaders` or pass as CLI arg
 
@@ -105,6 +105,8 @@ The host and `DataLoader.Core` never change when adding a loader.
 - `DataLoader.Platts/` — SFTP (SSH.NET); work-unit `Key` embeds the SFTP `LastModified`, so a file is reprocessed only when it changes; `arm.FileLog` audit.
 - `DataLoader.StormVista/` — HTTP+CSV hybrid; custom windowed pipeline + two-zone (settled/hot) resume key; `dbo` schema with `dbo.FileLog` as a normalized hub.
 - `DataLoader.CWG/` — HTTP+CSV, descriptor-driven; 15 per-endpoint pipelines over 5 shared CSV parse shapes; go-forward-only trailing-window resume; `arm` schema, `arm.FileLog` hub. See also `docs/apis/CWG.md`, `docs/design/CWG.md`, `sql/CWG/`.
+- `DataLoader.AGSI/` — HTTP+JSON (GIE gas-storage inventory); a country-discovery pipeline (`/api/about` → `arm.GasStorageEntity`) feeds a per-country×date fact pipeline (`arm.GasStorage`), **normalized** so the fact references the entity dimension via an `EntityId` FK rather than repeating country strings (PK `(EntityId, GasDayStart)`); StormVista-style two-zone (settled/hot) resume key but over `LoaderPipelineBase` directly (no windowed orchestrator); `x-key` **header** auth; `arm` schema, `arm.FileLog` hub; ships a guarded `999_DropAgsiObjects.sql` teardown. Build-only so far (disabled). See also `docs/apis/AGSI.md`, `docs/design/AGSI.md`, `sql/AGSI/`.
+- `DataLoader.IHSPointLogic/` — HTTP+JSON (S&P Global / IHS Markit Connect — PointLogic gas), the largest loader: **25 endpoints, descriptor-driven**, one shared tolerant JSON pager over two envelope shapes (flat array and `{PagingInfo,Data}` wrapper, `?pageIndex=` 0-based paging). **HTTP Basic (PAT) auth** — `Authorization: Basic base64(ClientId:ClientSecret)` via a delegating handler (no token/bearer). A **3-tier discovery graph** run with hard barriers (Tier 0 lookups+facts → Tier 1 discovery lookups county/facility/subregion → Tier 2 parametrized facts), driven by **5 AGSI-style load-once/fail-fast reference providers**; 5 work-unit archetypes (LatestLookup / GoForwardSnapshot / DiscoveryLookup / DiscoveryDatedFact / BatchedFact ≤50-id `pointIds` batches); go-forward accumulation (UTC report-date stamping) with the two-zone resume key on the only date-param endpoints (supplyDemand region/subregion). **DB-driven per-endpoint schedule**: run the host hourly and each endpoint runs/skips by its `arm.Endpoint.RunHoursCST` (`'*'` or a CSV of **US Central, DST-aware** hours — e.g. `PointVolume='*'` hourly, others `'6'` = 06:00 Central daily), gated in `RunAsync` before `ExecuteAsync` by converting the run's UTC start to Central (CWG's US-Eastern TZ pattern); the hot resume key stays **UTC**-monotonic and hour-granular (`PlHotKeyStrategy.RunHour`, `yyyyMMddHH`, the default) so a scheduled hourly endpoint re-pulls each hour while a same-hour re-run idempotently skips. `arm` schema (dimension tables are unprefixed — `arm.Region`, `arm.Point`, …), `arm.FileLog` hub, guarded `999` teardown. Build-only (disabled); schemas were verified against the live API. See also `docs/apis/IHSPointLogic.md`, `docs/design/IHSPointLogic.md`, `sql/IHSPointLogic/`.
 
 ## Agents
 
@@ -210,5 +212,5 @@ A new loader should follow this convention for its own secret fields.
 - `src/DataLoader.Core/Concurrency/SqlWriteGate.cs` — per-target write lock guarding parallel `MERGE`s from deadlocks
 - `src/DataLoader.Host/Program.cs` — bootstrap and discovery entry point
 - `sql/Core/` — platform database scripts (run these first, in order, before any loader scripts)
-- `tests/` — xUnit test projects (`DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`, `DataLoader.StormVista.Tests`, `DataLoader.CWG.Tests`)
+- `tests/` — xUnit test projects (`DataLoader.Core.Tests`, `DataLoader.Vulcan.Tests`, `DataLoader.Platts.Tests`, `DataLoader.StormVista.Tests`, `DataLoader.CWG.Tests`, `DataLoader.AGSI.Tests`, `DataLoader.IHSPointLogic.Tests`)
 - `docs/ARCHITECTURE.md` — design rationale

@@ -13,3 +13,4 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\o
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\refint\DataLoader.Platts.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\ref\DataLoader.Platts.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Platts\obj\Release\net8.0\DataLoader.Platts.sourcelink.json

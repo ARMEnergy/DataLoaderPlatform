@@ -159,3 +159,4 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.genruntimeconfig.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\ref\DataLoader.Platts.Tests.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.sourcelink.json

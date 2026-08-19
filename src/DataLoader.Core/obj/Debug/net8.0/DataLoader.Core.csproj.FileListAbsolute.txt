@@ -10,3 +10,4 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Core\obj
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Core\obj\Debug\net8.0\refint\DataLoader.Core.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Core\obj\Debug\net8.0\DataLoader.Core.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Core\obj\Debug\net8.0\ref\DataLoader.Core.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Core\obj\Debug\net8.0\DataLoader.Core.sourcelink.json

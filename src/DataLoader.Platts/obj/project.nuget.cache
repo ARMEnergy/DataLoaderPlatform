@@ -60,5 +60,18 @@
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\8.0.19\\microsoft.windowsdesktop.app.ref.8.0.19.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\8.0.19\\microsoft.aspnetcore.app.ref.8.0.19.nupkg.sha512"
   ],
-  "logs": []
+  "logs": [
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "message": "Package 'SSH.NET' 2024.2.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-q939-rpr3-3284",
+      "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj",
+      "libraryId": "SSH.NET",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
 }

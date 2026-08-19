@@ -26,6 +26,14 @@ agent, not you. You design the database; you do not write the loader code.
 - The first column is always:  Id INT IDENTITY(1,1) NOT NULL  (primary key).
 - The second column is always: DateCreated DATETIME NOT NULL DEFAULT GETDATE().
 - These two columns are identical across all tables, in this order, always.
+- **Fact/measure-table exception:** a high-volume fact table may instead use its
+  composite natural/business key as the PRIMARY KEY (no surrogate `Id`) when the
+  loader spec calls for it — e.g. `arm.GasStorage` keyed on `(EntityId, GasDayStart)`,
+  or CWG's per-endpoint fact tables. Such a table still leads with `DateCreated` and
+  carries a `ModifiedAtUtc`; the surrounding dimension/lookup tables keep the standard
+  `Id`/`DateCreated` pair. Normalize repeated per-entity strings out of the fact into a
+  dimension referenced by an FK (as `arm.GasStorage.EntityId → arm.GasStorageEntity.Id`)
+  rather than storing them on every fact row.
 - Target schema is [dbo] unless the task or loader spec says otherwise.
 - Do NOT use TINYINT anywhere. Prefer INT for small integer/enum-like values, 
   BIGINT where range demands it.
@@ -69,6 +77,15 @@ agent, not you. You design the database; you do not write the loader code.
   (TVP table types), `003_Create<Vendor>Procedures.sql` (stored procedures). Add
   further `NNN_…` files if a loader needs more stages. Overwrite the file on
   regeneration so each script stays the single source of truth and git tracks its history.
+- **Teardown script (when asked for one):** add a guarded, idempotent
+  `999_Drop<Vendor>Objects.sql` that drops every object the create scripts made, in
+  reverse dependency order — procedures → TVP types → tables (FK-child first) → the
+  schema (guarded to fire only when it holds no remaining objects/types). Guard every
+  drop (`IF OBJECT_ID(…,'P'/'U') IS NOT NULL`, `IF TYPE_ID(…) IS NOT NULL`) so it is
+  safe to re-run or to run where nothing was ever created. It targets the loader's own
+  database only and must **never** drop the database itself or touch the platform-owned
+  `core` schema. The `999_` prefix sorts it after the ordered create scripts. See
+  `sql/AGSI/999_DropAgsiObjects.sql` for the reference implementation.
 - Order scripts so dependencies run first (parent tables before children,
   tables before the procedures that reference them) — the numeric prefix encodes that order.
 - Make every script re-runnable (guarded creates / CREATE OR ALTER) per the standing conventions.

@@ -27,7 +27,7 @@ public sealed class CwgSettings : LoaderSettingsBase
     /// <summary>Per-request timeout on the shared <see cref="HttpClient"/>.</summary>
     public int HttpTimeoutSeconds { get; set; } = 60;
 
-    /// <summary>Endpoints to run this pass; matched case-insensitively against pipeline endpoint ids. Defaults to all 15.</summary>
+    /// <summary>Endpoints to run this pass; matched case-insensitively against pipeline endpoint ids. Defaults to all 18.</summary>
     public string[] EnabledEndpoints { get; set; } = CwgDescriptors.AllIds;
 
     /// <summary>Dated-endpoint enumeration window in days back from the newest represented date (undated endpoints ignore it). Default 21.</summary>

@@ -117,4 +117,55 @@ public class ParseShapeETests
         // The climo row type carries NO Block property (single-block contract) — assert by type shape.
         Assert.DoesNotContain("Block", typeof(WindTotalCapacityClimatologyRow).GetProperties().Select(p => p.Name));
     }
+
+    // ---------------------------------------------------------------- weekday titles + short Change block
+
+    [Fact]
+    public void WindTotalCapacityPct_WeekdayTitles_AndShortChangeBlock_LoadWithNullHorizon()
+    {
+        // Two real-world variations from a Monday file: CWG names the actual weekday
+        // ("Friday's Forecast" / "Change from Friday's Forecast") instead of "Yesterday",
+        // and the Change block omits the trailing 11-15 horizon (4 cols, not 5). Both must
+        // load: weekday titles map to Current/Yesterday/Change, and the missing horizon -> NULL.
+        var csv =
+            "Total Wind Generation Across All Regions\n" +
+            ",Total Capacity (MW),1-5 Day Avg (%),6-10 Day Avg (%),11-15 Day Avg (%)\n" +
+            "MISO,33687,21%,22%,20%\n" +
+            "ERCOT,40661,54%,30%,23%\n" +
+            "Total Percent,,36%,25%,22%\n" +
+            "\n" +
+            "Friday's Forecast\n" +
+            "MISO,33687,19%,20%,20%\n" +
+            "ERCOT,40661,54%,31%,20%\n" +
+            "Total Percent,,36%,25%,21%\n" +
+            "\n" +
+            "Change from Friday's Forecast\n" +
+            "MISO,,0%,7%\n" +
+            "ERCOT,,3%,7%\n" +
+            "Total Percent,,2%,7%\n";
+        var unit = Unit("WindTotalCapacityPct", new DateOnly(2026, 7, 27), "Total_Capacity_07272026.csv");
+
+        var caps = Parser.Parse(CwgDescriptors.WindTotalCapacityPct, unit, csv, NullLogger.Instance);
+        var rows = caps.Select(c => WindTotalCapacityPctRow.From(c, unit)).Where(r => r is not null).Cast<WindTotalCapacityPctRow>().ToList();
+
+        // Weekday titles resolved to the three canonical blocks; 2 regions each; footers dropped.
+        Assert.Equal(new[] { "Current", "Yesterday", "Change" }, rows.Select(r => r.Block).Distinct().ToArray());
+        Assert.Equal(6, rows.Count);
+        Assert.DoesNotContain(rows, r => r.Region.StartsWith("Total", StringComparison.OrdinalIgnoreCase));
+
+        // The "Friday's Forecast" middle block is stamped 'Yesterday' (the schema's Block value).
+        var yMiso = Assert.Single(rows, r => r.Block == "Yesterday" && r.Region == "MISO");
+        Assert.Equal(19.00m, yMiso.Avg_1_5);
+
+        // Short Change rows load (not skipped, not mislabeled); the absent 11-15 horizon -> NULL.
+        var cMiso = Assert.Single(rows, r => r.Block == "Change" && r.Region == "MISO");
+        Assert.Null(cMiso.TotalCapacityMw);
+        Assert.Equal(0.00m, cMiso.Avg_1_5);
+        Assert.Equal(7.00m, cMiso.Avg_6_10);
+        Assert.Null(cMiso.Avg_11_15);   // missing 5th column -> NULL
+        var cErcot = Assert.Single(rows, r => r.Block == "Change" && r.Region == "ERCOT");
+        Assert.Equal(3.00m, cErcot.Avg_1_5);
+        Assert.Equal(7.00m, cErcot.Avg_6_10);
+        Assert.Null(cErcot.Avg_11_15);
+    }
 }

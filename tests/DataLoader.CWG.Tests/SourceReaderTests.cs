@@ -28,6 +28,7 @@ public class SourceReaderTests
     {
         EndpointId = "CityForecast",
         Region = "northamerica",
+        Units = "F", // northamerica is fetched in _F; CityForecastRow.From drops rows when Units is null
         RepresentativeDate = new DateOnly(2026, 8, 11),
         Filename = CityFile,
         KeyValue = "k"

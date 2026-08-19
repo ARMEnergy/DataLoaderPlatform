@@ -39,7 +39,7 @@ public interface ICwgFileLog
 /// <summary>
 /// SQL implementation calling <c>arm.usp_UpsertFileLog</c> and reading the
 /// returned scalar <c>FileLogId</c> with <c>ExecuteScalar</c>. The call is
-/// serialized on the <see cref="SqlWriteGate"/> (one shared key across all 15
+/// serialized on the <see cref="SqlWriteGate"/> (one shared key across all 18
 /// endpoints; a fast single-row upsert) so parallel work units cannot deadlock
 /// on the hub upsert — Platts/StormVista posture.
 /// </summary>

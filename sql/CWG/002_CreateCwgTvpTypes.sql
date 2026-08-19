@@ -1,6 +1,6 @@
 -- =============================================================================
 -- 002_CreateCwgTvpTypes.sql
--- Table-valued parameter types for the 15 CWG bulk merges (schema [arm]).
+-- Table-valued parameter types for the 18 CWG bulk merges (schema [arm]).
 --
 -- Column ORDER here is the C# sink contract: FileLogId is ALWAYS the first
 -- column, then the target table's data columns in the SAME ORDER as 001. The
@@ -13,7 +13,8 @@
 -- same-file duplicate natural key cannot break the MERGE.
 --
 -- NULL-ability mirrors the target columns: fact measures are NOT NULL except the
--- hourly ActualMw and the capacity Change-block TotalCapacityMw.
+-- hourly ActualMw, the capacity Change-block TotalCapacityMw, and the capacity
+-- Avg_1_5/6_10/11_15 horizons (a short Change block can omit a trailing horizon).
 --
 -- Run 001 first. This script assumes CWG is the current database.
 -- =============================================================================
@@ -24,7 +25,10 @@ GO
 -- ----------------------------------------------------------------------------
 -- arm.CityForecastTvp — feeds arm.usp_BulkMergeCityForecast.
 -- Order: (FileLogId, Region, ProductionDate, ForecastDate, Station,
---         FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd).
+--         FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd, Units).
+-- Units is the LAST column (matches the sink's BuildTable order — load-bearing).
+-- Temps are DECIMAL(8,5): a narrow TVP column would truncate the _C 5-dp normals
+-- before the merge runs (must equal the table width in 001).
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.CityForecastTvp') IS NULL
 BEGIN
@@ -35,13 +39,14 @@ BEGIN
         ProductionDate DATE         NOT NULL,
         ForecastDate   DATE         NOT NULL,
         Station        VARCHAR(8)   NOT NULL,
-        FcstMin        DECIMAL(5,1) NOT NULL,
-        FcstMax        DECIMAL(5,1) NOT NULL,
-        FcstAvg        DECIMAL(5,1) NOT NULL,
-        NormMin        DECIMAL(5,1) NOT NULL,
-        NormMax        DECIMAL(5,1) NOT NULL,
+        FcstMin        DECIMAL(8,5) NOT NULL,
+        FcstMax        DECIMAL(8,5) NOT NULL,
+        FcstAvg        DECIMAL(8,5) NOT NULL,
+        NormMin        DECIMAL(8,5) NOT NULL,
+        NormMax        DECIMAL(8,5) NOT NULL,
         Hdd            SMALLINT     NOT NULL,
-        Cdd            SMALLINT     NOT NULL
+        Cdd            SMALLINT     NOT NULL,
+        Units          VARCHAR(1)   NOT NULL
     );
 END
 GO
@@ -191,6 +196,102 @@ END
 GO
 
 -- ----------------------------------------------------------------------------
+-- arm.Regions5DegreeDaysTvp — feeds arm.usp_BulkMergeRegions5DegreeDays.
+-- Order: (FileLogId, RunDate, Dates, RegionName,
+--         NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
+--         PopCdd, PopCdd30y, PopCdd10y, PopCddLastY,
+--         ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
+--         IsForecast, GasWeight, ElctWeight, PopWeight).
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.Regions5DegreeDaysTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.Regions5DegreeDaysTvp AS TABLE
+    (
+        FileLogId    INT          NOT NULL,
+        RunDate      DATE         NOT NULL,
+        Dates        DATE         NOT NULL,
+        RegionName   VARCHAR(32)  NOT NULL,
+        NgHdd        DECIMAL(9,4) NOT NULL,
+        NgHdd30y     DECIMAL(9,4) NOT NULL,
+        NgHdd10y     DECIMAL(9,4) NOT NULL,
+        NgHddLastY   DECIMAL(9,4) NOT NULL,
+        PopCdd       DECIMAL(9,4) NOT NULL,
+        PopCdd30y    DECIMAL(9,4) NOT NULL,
+        PopCdd10y    DECIMAL(9,4) NOT NULL,
+        PopCddLastY  DECIMAL(9,4) NOT NULL,
+        ElecCdd      DECIMAL(9,4) NOT NULL,
+        ElecCdd30y   DECIMAL(9,4) NOT NULL,
+        ElecCdd10y   DECIMAL(9,4) NOT NULL,
+        ElecCddLastY DECIMAL(9,4) NOT NULL,
+        IsForecast   BIT          NOT NULL,
+        GasWeight    DECIMAL(9,4) NOT NULL,
+        ElctWeight   DECIMAL(9,4) NOT NULL,
+        PopWeight    DECIMAL(9,4) NOT NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.Regions9DegreeDaysTvp — feeds arm.usp_BulkMergeRegions9DegreeDays.
+-- IDENTICAL column set / order to arm.Regions5DegreeDaysTvp.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.Regions9DegreeDaysTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.Regions9DegreeDaysTvp AS TABLE
+    (
+        FileLogId    INT          NOT NULL,
+        RunDate      DATE         NOT NULL,
+        Dates        DATE         NOT NULL,
+        RegionName   VARCHAR(32)  NOT NULL,
+        NgHdd        DECIMAL(9,4) NOT NULL,
+        NgHdd30y     DECIMAL(9,4) NOT NULL,
+        NgHdd10y     DECIMAL(9,4) NOT NULL,
+        NgHddLastY   DECIMAL(9,4) NOT NULL,
+        PopCdd       DECIMAL(9,4) NOT NULL,
+        PopCdd30y    DECIMAL(9,4) NOT NULL,
+        PopCdd10y    DECIMAL(9,4) NOT NULL,
+        PopCddLastY  DECIMAL(9,4) NOT NULL,
+        ElecCdd      DECIMAL(9,4) NOT NULL,
+        ElecCdd30y   DECIMAL(9,4) NOT NULL,
+        ElecCdd10y   DECIMAL(9,4) NOT NULL,
+        ElecCddLastY DECIMAL(9,4) NOT NULL,
+        IsForecast   BIT          NOT NULL,
+        GasWeight    DECIMAL(9,4) NOT NULL,
+        ElctWeight   DECIMAL(9,4) NOT NULL,
+        PopWeight    DECIMAL(9,4) NOT NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.ISODegreeDaysTvp — feeds arm.usp_BulkMergeISODegreeDays.
+-- DIVERGENT 11-col shape: POP_HDD family (no NG_HDD / ELEC family / weights).
+-- Order: (FileLogId, RunDate, Dates, RegionName,
+--         PopHdd, PopHdd30y, PopHdd10y, PopHddLastY,
+--         PopCdd, PopCdd30y, PopCdd10y, PopCddLastY, IsForecast).
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.ISODegreeDaysTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.ISODegreeDaysTvp AS TABLE
+    (
+        FileLogId   INT          NOT NULL,
+        RunDate     DATE         NOT NULL,
+        Dates       DATE         NOT NULL,
+        RegionName  VARCHAR(32)  NOT NULL,
+        PopHdd      DECIMAL(9,4) NOT NULL,
+        PopHdd30y   DECIMAL(9,4) NOT NULL,
+        PopHdd10y   DECIMAL(9,4) NOT NULL,
+        PopHddLastY DECIMAL(9,4) NOT NULL,
+        PopCdd      DECIMAL(9,4) NOT NULL,
+        PopCdd30y   DECIMAL(9,4) NOT NULL,
+        PopCdd10y   DECIMAL(9,4) NOT NULL,
+        PopCddLastY DECIMAL(9,4) NOT NULL,
+        IsForecast  BIT          NOT NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
 -- arm.WindForecastTvp — feeds arm.usp_BulkMergeWindForecast.
 -- Order: (FileLogId, Region, InitDate, ForecastDate, HourLabel, HourOfDay, ValueMw).
 -- ----------------------------------------------------------------------------
@@ -280,9 +381,9 @@ BEGIN
         Block           VARCHAR(12)   NOT NULL,
         Region          VARCHAR(10)   NOT NULL,
         TotalCapacityMw DECIMAL(12,4) NULL,
-        Avg_1_5         DECIMAL(12,4) NOT NULL,
-        Avg_6_10        DECIMAL(12,4) NOT NULL,
-        Avg_11_15       DECIMAL(12,4) NOT NULL
+        Avg_1_5         DECIMAL(12,4) NULL,
+        Avg_6_10        DECIMAL(12,4) NULL,
+        Avg_11_15       DECIMAL(12,4) NULL
     );
 END
 GO
@@ -301,9 +402,9 @@ BEGIN
         Block           VARCHAR(12)   NOT NULL,
         Region          VARCHAR(10)   NOT NULL,
         TotalCapacityMw DECIMAL(12,4) NULL,
-        Avg_1_5         DECIMAL(6,2)  NOT NULL,
-        Avg_6_10        DECIMAL(6,2)  NOT NULL,
-        Avg_11_15       DECIMAL(6,2)  NOT NULL
+        Avg_1_5         DECIMAL(6,2)  NULL,
+        Avg_6_10        DECIMAL(6,2)  NULL,
+        Avg_11_15       DECIMAL(6,2)  NULL
     );
 END
 GO
@@ -326,8 +427,8 @@ BEGIN
         Lat        DECIMAL(9,6) NULL,
         Lon        DECIMAL(9,6) NULL,
         [Name]     NVARCHAR(64) NULL,
-        [State]    VARCHAR(8)   NULL,
-        Country    VARCHAR(4)   NULL
+        [State]    VARCHAR(64)  NULL,
+        Country    VARCHAR(64)  NULL
     );
 END
 GO

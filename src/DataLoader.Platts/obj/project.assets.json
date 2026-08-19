@@ -2633,11 +2633,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj",
+      "projectUniqueName": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj",
       "projectName": "DataLoader.Platts",
-      "projectPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj",
+      "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj",
       "packagesPath": "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\",
-      "outputPath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\obj\\",
+      "outputPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\yaroslav.chekhuta\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -2712,5 +2712,17 @@
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.304/PortableRuntimeIdentifierGraph.json"
       }
     }
-  }
+  },
+  "logs": [
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "Package 'SSH.NET' 2024.2.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-q939-rpr3-3284",
+      "libraryId": "SSH.NET",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
 }

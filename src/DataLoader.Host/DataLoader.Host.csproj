@@ -24,6 +24,8 @@
     <ProjectReference Include="..\DataLoader.Platts\DataLoader.Platts.csproj" />
     <ProjectReference Include="..\DataLoader.StormVista\DataLoader.StormVista.csproj" />
     <ProjectReference Include="..\DataLoader.CWG\DataLoader.CWG.csproj" />
+    <ProjectReference Include="..\DataLoader.AGSI\DataLoader.AGSI.csproj" />
+    <ProjectReference Include="..\DataLoader.IHSPointLogic\DataLoader.IHSPointLogic.csproj" />
   </ItemGroup>
 
   <ItemGroup>

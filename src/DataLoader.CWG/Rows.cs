@@ -32,11 +32,19 @@ public sealed class CityForecastRow : ICwgFactRow
     public required short Hdd { get; init; }
     public required short Cdd { get; init; }
 
+    // 'F'/'C' units attribute (from the work unit's units token). Declared LAST → documents the TVP
+    // column order (arm.CityForecastTvp.Units is the last column). ATTRIBUTE, NOT part of the key.
+    public required string Units { get; init; }
+
     // Fields: 0 Production Date, 1 Date, 2 Station, 3 Fcst Mn, 4 Fcst Mx, 5 Fcst Avg, 6 Norm Mn, 7 Norm Max, 8 HDD, 9 CDD.
+    // Temps parsed as-is (full decimal precision — NOT rounded): the _C normals carry up to 5 dp and the
+    // DB/TVP columns are DECIMAL(8,5). Region + Units come from the unit; both are required (NOT NULL).
     public static CityForecastRow? From(CwgTabularRecord rec, CwgWorkUnit unit)
     {
         var region = unit.Region;
         if (region is null) return null;
+        var units = unit.Units;
+        if (units is null) return null; // Units is a required NOT NULL attribute — mirror the Region guard.
         var f = rec.Fields;
         if (f.Length < 10) return null;
         if (!CwgParse.DateMdyy(f[0], out var prod)) return null;
@@ -53,7 +61,8 @@ public sealed class CityForecastRow : ICwgFactRow
         return new CityForecastRow
         {
             Region = region, ProductionDate = prod, ForecastDate = fdate, Station = station,
-            FcstMin = fmin, FcstMax = fmax, FcstAvg = favg, NormMin = nmin, NormMax = nmax, Hdd = hdd, Cdd = cdd
+            FcstMin = fmin, FcstMax = fmax, FcstAvg = favg, NormMin = nmin, NormMax = nmax, Hdd = hdd, Cdd = cdd,
+            Units = units
         };
     }
 }
@@ -379,18 +388,20 @@ public sealed class WindTotalCapacityMWRow : ICwgFactRow
     public required string Block { get; init; }
     public required string Region { get; init; }
     public required decimal? TotalCapacityMw { get; init; } // blank in Change block → NULL
-    public required decimal Avg_1_5 { get; init; }
-    public required decimal Avg_6_10 { get; init; }
-    public required decimal Avg_11_15 { get; init; }
+    public required decimal? Avg_1_5 { get; init; }         // absent forecast horizon → NULL
+    public required decimal? Avg_6_10 { get; init; }
+    public required decimal? Avg_11_15 { get; init; }
 
     public static WindTotalCapacityMWRow? From(CwgCapacityRow cap, CwgWorkUnit unit)
     {
         var prod = unit.RepresentativeDate;
         if (prod is null) return null;
         decimal? tot = CwgParse.Decimal(cap.TotalCapacityRaw, out var t) ? t : null;
-        if (!CwgParse.Decimal(cap.Avg1_5Raw, out var a1)) return null;
-        if (!CwgParse.Decimal(cap.Avg6_10Raw, out var a2)) return null;
-        if (!CwgParse.Decimal(cap.Avg11_15Raw, out var a3)) return null;
+        // A short Change block can omit trailing horizons; an absent/blank cell → NULL
+        // rather than dropping the whole row.
+        decimal? a1 = CwgParse.Decimal(cap.Avg1_5Raw,   out var v1) ? v1 : null;
+        decimal? a2 = CwgParse.Decimal(cap.Avg6_10Raw,  out var v2) ? v2 : null;
+        decimal? a3 = CwgParse.Decimal(cap.Avg11_15Raw, out var v3) ? v3 : null;
         return new WindTotalCapacityMWRow
         {
             ProductionDate = prod.Value, Block = cap.Block, Region = cap.Region, TotalCapacityMw = tot,
@@ -408,18 +419,20 @@ public sealed class WindTotalCapacityPctRow : ICwgFactRow
     public required string Block { get; init; }
     public required string Region { get; init; }
     public required decimal? TotalCapacityMw { get; init; } // blank in Change block → NULL
-    public required decimal Avg_1_5 { get; init; }
-    public required decimal Avg_6_10 { get; init; }
-    public required decimal Avg_11_15 { get; init; }
+    public required decimal? Avg_1_5 { get; init; }         // absent forecast horizon → NULL
+    public required decimal? Avg_6_10 { get; init; }
+    public required decimal? Avg_11_15 { get; init; }
 
     public static WindTotalCapacityPctRow? From(CwgCapacityRow cap, CwgWorkUnit unit)
     {
         var prod = unit.RepresentativeDate;
         if (prod is null) return null;
         decimal? tot = CwgParse.Decimal(cap.TotalCapacityRaw, out var t) ? t : null;
-        if (!CwgParse.Percent(cap.Avg1_5Raw, out var a1)) return null;
-        if (!CwgParse.Percent(cap.Avg6_10Raw, out var a2)) return null;
-        if (!CwgParse.Percent(cap.Avg11_15Raw, out var a3)) return null;
+        // A short Change block can omit trailing horizons; an absent/blank cell → NULL
+        // rather than dropping the whole row.
+        decimal? a1 = CwgParse.Percent(cap.Avg1_5Raw,   out var v1) ? v1 : null;
+        decimal? a2 = CwgParse.Percent(cap.Avg6_10Raw,  out var v2) ? v2 : null;
+        decimal? a3 = CwgParse.Percent(cap.Avg11_15Raw, out var v3) ? v3 : null;
         return new WindTotalCapacityPctRow
         {
             ProductionDate = prod.Value, Block = cap.Block, Region = cap.Region, TotalCapacityMw = tot,
@@ -466,6 +479,183 @@ public sealed class StationRow : ICwgFactRow
             Name = CwgParse.NullIfBlank(At(6)),
             State = CwgParse.NullIfBlank(At(7)),
             Country = CwgParse.NullIfBlank(At(8))
+        };
+    }
+}
+
+// -------------------------------------------------------------------- 16. Regions5DegreeDays (Shape A)
+/// <summary>arm.Regions5DegreeDays — key (RunDate, Dates, RegionName). Mirrors NationalDegreeDays
+/// (#8) but with REGION_NAME at Fields[1] (so the DD family is offset +1) plus per-region weights.</summary>
+public sealed class Regions5DegreeDaysRow : ICwgFactRow
+{
+    public int FileLogId { get; set; }
+    public required DateOnly RunDate { get; init; }
+    public required DateOnly Dates { get; init; }
+    public required string RegionName { get; init; }
+    public required decimal NgHdd { get; init; }
+    public required decimal NgHdd30y { get; init; }
+    public required decimal NgHdd10y { get; init; }
+    public required decimal NgHddLastY { get; init; }
+    public required decimal PopCdd { get; init; }
+    public required decimal PopCdd30y { get; init; }
+    public required decimal PopCdd10y { get; init; }
+    public required decimal PopCddLastY { get; init; }
+    public required decimal ElecCdd { get; init; }
+    public required decimal ElecCdd30y { get; init; }
+    public required decimal ElecCdd10y { get; init; }
+    public required decimal ElecCddLastY { get; init; }
+    public required bool IsForecast { get; init; }
+    public required decimal GasWeight { get; init; }
+    public required decimal ElctWeight { get; init; }
+    public required decimal PopWeight { get; init; }
+
+    // Fields: 0 DATES, 1 REGION_NAME, 2 NG_HDD, 3 30Y_NG_HDD, 4 10Y_NG_HDD, 5 LAST_Y_NG_HDD,
+    // 6 POP_CDD, 7 30Y_POP_CDD, 8 10Y_POP_CDD, 9 LAST_Y_POP_CDD, 10 ELEC_CDD, 11 30Y_ELEC_CDD,
+    // 12 10Y_ELEC_CDD, 13 LAST_Y_ELEC_CDD, 14 IS_FORECAST, 15 GAS_WEIGHT, 16 ELCT_WEIGHT, 17 POP_WEIGHT.
+    public static Regions5DegreeDaysRow? From(CwgTabularRecord rec, CwgWorkUnit unit)
+    {
+        var run = unit.RepresentativeDate;
+        if (run is null) return null;
+        var f = rec.Fields;
+        if (f.Length < 18) return null;
+        if (!CwgParse.DateIso(f[0], out var dates)) return null;
+        var region = f[1].Trim();
+        if (region.Length == 0) return null;
+        if (!CwgParse.Decimal(f[2], out var ngHdd)) return null;
+        if (!CwgParse.Decimal(f[3], out var ngHdd30)) return null;
+        if (!CwgParse.Decimal(f[4], out var ngHdd10)) return null;
+        if (!CwgParse.Decimal(f[5], out var ngHddL)) return null;
+        if (!CwgParse.Decimal(f[6], out var popCdd)) return null;
+        if (!CwgParse.Decimal(f[7], out var popCdd30)) return null;
+        if (!CwgParse.Decimal(f[8], out var popCdd10)) return null;
+        if (!CwgParse.Decimal(f[9], out var popCddL)) return null;
+        if (!CwgParse.Decimal(f[10], out var elecCdd)) return null;
+        if (!CwgParse.Decimal(f[11], out var elecCdd30)) return null;
+        if (!CwgParse.Decimal(f[12], out var elecCdd10)) return null;
+        if (!CwgParse.Decimal(f[13], out var elecCddL)) return null;
+        if (!CwgParse.Bit(f[14], out var isForecast)) return null;
+        if (!CwgParse.Decimal(f[15], out var gasW)) return null;
+        if (!CwgParse.Decimal(f[16], out var elctW)) return null;
+        if (!CwgParse.Decimal(f[17], out var popW)) return null;
+        return new Regions5DegreeDaysRow
+        {
+            RunDate = run.Value, Dates = dates, RegionName = region,
+            NgHdd = ngHdd, NgHdd30y = ngHdd30, NgHdd10y = ngHdd10, NgHddLastY = ngHddL,
+            PopCdd = popCdd, PopCdd30y = popCdd30, PopCdd10y = popCdd10, PopCddLastY = popCddL,
+            ElecCdd = elecCdd, ElecCdd30y = elecCdd30, ElecCdd10y = elecCdd10, ElecCddLastY = elecCddL,
+            IsForecast = isForecast, GasWeight = gasW, ElctWeight = elctW, PopWeight = popW
+        };
+    }
+}
+
+// -------------------------------------------------------------------- 17. Regions9DegreeDays (Shape A)
+/// <summary>arm.Regions9DegreeDays — key (RunDate, Dates, RegionName). Column set IDENTICAL to
+/// Regions5DegreeDays (#16); only the RegionName value set differs (9 U.S. Census divisions).</summary>
+public sealed class Regions9DegreeDaysRow : ICwgFactRow
+{
+    public int FileLogId { get; set; }
+    public required DateOnly RunDate { get; init; }
+    public required DateOnly Dates { get; init; }
+    public required string RegionName { get; init; }
+    public required decimal NgHdd { get; init; }
+    public required decimal NgHdd30y { get; init; }
+    public required decimal NgHdd10y { get; init; }
+    public required decimal NgHddLastY { get; init; }
+    public required decimal PopCdd { get; init; }
+    public required decimal PopCdd30y { get; init; }
+    public required decimal PopCdd10y { get; init; }
+    public required decimal PopCddLastY { get; init; }
+    public required decimal ElecCdd { get; init; }
+    public required decimal ElecCdd30y { get; init; }
+    public required decimal ElecCdd10y { get; init; }
+    public required decimal ElecCddLastY { get; init; }
+    public required bool IsForecast { get; init; }
+    public required decimal GasWeight { get; init; }
+    public required decimal ElctWeight { get; init; }
+    public required decimal PopWeight { get; init; }
+
+    // Fields: identical layout to Regions5DegreeDaysRow (see §6.16 / above).
+    public static Regions9DegreeDaysRow? From(CwgTabularRecord rec, CwgWorkUnit unit)
+    {
+        var run = unit.RepresentativeDate;
+        if (run is null) return null;
+        var f = rec.Fields;
+        if (f.Length < 18) return null;
+        if (!CwgParse.DateIso(f[0], out var dates)) return null;
+        var region = f[1].Trim();
+        if (region.Length == 0) return null;
+        if (!CwgParse.Decimal(f[2], out var ngHdd)) return null;
+        if (!CwgParse.Decimal(f[3], out var ngHdd30)) return null;
+        if (!CwgParse.Decimal(f[4], out var ngHdd10)) return null;
+        if (!CwgParse.Decimal(f[5], out var ngHddL)) return null;
+        if (!CwgParse.Decimal(f[6], out var popCdd)) return null;
+        if (!CwgParse.Decimal(f[7], out var popCdd30)) return null;
+        if (!CwgParse.Decimal(f[8], out var popCdd10)) return null;
+        if (!CwgParse.Decimal(f[9], out var popCddL)) return null;
+        if (!CwgParse.Decimal(f[10], out var elecCdd)) return null;
+        if (!CwgParse.Decimal(f[11], out var elecCdd30)) return null;
+        if (!CwgParse.Decimal(f[12], out var elecCdd10)) return null;
+        if (!CwgParse.Decimal(f[13], out var elecCddL)) return null;
+        if (!CwgParse.Bit(f[14], out var isForecast)) return null;
+        if (!CwgParse.Decimal(f[15], out var gasW)) return null;
+        if (!CwgParse.Decimal(f[16], out var elctW)) return null;
+        if (!CwgParse.Decimal(f[17], out var popW)) return null;
+        return new Regions9DegreeDaysRow
+        {
+            RunDate = run.Value, Dates = dates, RegionName = region,
+            NgHdd = ngHdd, NgHdd30y = ngHdd30, NgHdd10y = ngHdd10, NgHddLastY = ngHddL,
+            PopCdd = popCdd, PopCdd30y = popCdd30, PopCdd10y = popCdd10, PopCddLastY = popCddL,
+            ElecCdd = elecCdd, ElecCdd30y = elecCdd30, ElecCdd10y = elecCdd10, ElecCddLastY = elecCddL,
+            IsForecast = isForecast, GasWeight = gasW, ElctWeight = elctW, PopWeight = popW
+        };
+    }
+}
+
+// -------------------------------------------------------------------- 18. ISODegreeDays (Shape A)
+/// <summary>arm.ISODegreeDays — key (RunDate, Dates, RegionName). DIVERGENT 11-column layout: the
+/// HDD family is POP_HDD (not NG_HDD), no ELEC_* family and no weight columns.</summary>
+public sealed class ISODegreeDaysRow : ICwgFactRow
+{
+    public int FileLogId { get; set; }
+    public required DateOnly RunDate { get; init; }
+    public required DateOnly Dates { get; init; }
+    public required string RegionName { get; init; }
+    public required decimal PopHdd { get; init; }
+    public required decimal PopHdd30y { get; init; }
+    public required decimal PopHdd10y { get; init; }
+    public required decimal PopHddLastY { get; init; }
+    public required decimal PopCdd { get; init; }
+    public required decimal PopCdd30y { get; init; }
+    public required decimal PopCdd10y { get; init; }
+    public required decimal PopCddLastY { get; init; }
+    public required bool IsForecast { get; init; }
+
+    // Fields: 0 DATES, 1 REGION_NAME, 2 POP_HDD, 3 30Y_POP_HDD, 4 10Y_POP_HDD, 5 LAST_Y_POP_HDD,
+    // 6 POP_CDD, 7 30Y_POP_CDD, 8 10Y_POP_CDD, 9 LAST_Y_POP_CDD, 10 IS_FORECAST.
+    public static ISODegreeDaysRow? From(CwgTabularRecord rec, CwgWorkUnit unit)
+    {
+        var run = unit.RepresentativeDate;
+        if (run is null) return null;
+        var f = rec.Fields;
+        if (f.Length < 11) return null;
+        if (!CwgParse.DateIso(f[0], out var dates)) return null;
+        var region = f[1].Trim();
+        if (region.Length == 0) return null;
+        if (!CwgParse.Decimal(f[2], out var popHdd)) return null;
+        if (!CwgParse.Decimal(f[3], out var popHdd30)) return null;
+        if (!CwgParse.Decimal(f[4], out var popHdd10)) return null;
+        if (!CwgParse.Decimal(f[5], out var popHddL)) return null;
+        if (!CwgParse.Decimal(f[6], out var popCdd)) return null;
+        if (!CwgParse.Decimal(f[7], out var popCdd30)) return null;
+        if (!CwgParse.Decimal(f[8], out var popCdd10)) return null;
+        if (!CwgParse.Decimal(f[9], out var popCddL)) return null;
+        if (!CwgParse.Bit(f[10], out var isForecast)) return null;
+        return new ISODegreeDaysRow
+        {
+            RunDate = run.Value, Dates = dates, RegionName = region,
+            PopHdd = popHdd, PopHdd30y = popHdd30, PopHdd10y = popHdd10, PopHddLastY = popHddL,
+            PopCdd = popCdd, PopCdd30y = popCdd30, PopCdd10y = popCdd10, PopCddLastY = popCddL,
+            IsForecast = isForecast
         };
     }
 }

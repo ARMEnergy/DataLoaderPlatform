@@ -157,3 +157,4 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.genruntimeconfig.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\ref\DataLoader.Vulcan.Tests.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.sourcelink.json

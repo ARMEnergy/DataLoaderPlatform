@@ -1,16 +1,35 @@
 # CWG (Commodity Weather Group) loader — design & processing flow
 
 Design/flow spec for the CWG loader. Input of record is the field reference at
-`docs/apis/CWG.md` (15 endpoints, parse shapes A–E, natural keys, DECIMAL sizing).
+`docs/apis/CWG.md` (18 endpoints, parse shapes A–E, natural keys, DECIMAL sizing).
 This document is the CODER hand-off; it contains no code. SQL objects named here are
 proposed to DATABASE_DEVELOPER (open items are collected in §9).
 
+> **2026-08 addendum — three regional/ISO degree-day endpoints added (§2.1 #16–#18,
+> §6.16–§6.18).** `Regions5DegreeDays`, `Regions9DegreeDays`, `ISODegreeDays` are the
+> per-region siblings of `NationalDegreeDays` (§8/§6.8) in the same
+> `northamerica_{subregion}_wdd_{date}.csv` family, with `{subregion}` = `5region` /
+> `9region` / `iso`. They reuse **Shape A** unchanged (plus a shared `END.`-footer skip),
+> add an in-file `REGION_NAME` to the merge key, and get **three** new tables/TVPs/procs
+> (no unified table — see §9). This raises the endpoint count **15 → 18**.
+
 Locked decisions this design is built around: DB `CWG`, schema `arm`, server
 `ARMH-OPSDB01`, Integrated Security; `ApiKey` via `SEE_DB`; descriptor-driven single
-module; one `arm.FileLog` hub + 15 flat fact tables carrying `FileLogId` + natural
+module; one `arm.FileLog` hub + 18 flat fact tables carrying `FileLogId` + natural
 columns; go-forward only, `DaysBack` default 3; Station = the forecast-station file;
 RunDate hot key for the undated "latest" files; enums live in C# descriptors
-(DB-free enumeration); units = `F` only.
+(DB-free enumeration); units are **per-region on CityForecast** (`F` for
+`northamerica`, `C` for `europe`; **`asia` dropped**) and fixed elsewhere (§2.1 #1, §6.1).
+
+> **2026-08 addendum — CityForecast per-region units (§2/§2.1 #1, §3, §5, §6.1, §9
+> item 18).** CityForecast stays ONE endpoint but now enumerates only
+> `region ∈ {northamerica, europe}` (drops `asia`), fetching each region in its native
+> unit (`_F` / `_C`) via a new `{units}` filename token driven by an index-aligned
+> `RegionUnits` descriptor field. Units is stamped as the FileLog `Variant` and stored in
+> a new **`Units` attribute column** on `arm.CityForecast` (NOT a key column). The two
+> Celsius normals carry up to 5 dp, so the temperature `DECIMAL` columns widen
+> (DATABASE_DEVELOPER). No new endpoint, table, TVP or proc — one endpoint, additive
+> column.
 
 Reference implementations mirrored: `src/DataLoader.StormVista/` (HTTP+CSV, `?apikey=`,
 404-tolerant GET, per-request FileLog upsert returning a `FileLogId` that stamps rows,
@@ -33,7 +52,7 @@ Reference implementations mirrored: `src/DataLoader.StormVista/` (HTTP+CSV, `?ap
 | Concern | Type(s) | Shared or per-endpoint |
 |--------|---------|------------------------|
 | Settings | `CwgSettings : LoaderSettingsBase` | shared |
-| Descriptor | `CwgEndpointDescriptor` (record), `CwgDescriptors` (static registry of 15) | shared |
+| Descriptor | `CwgEndpointDescriptor` (record), `CwgDescriptors` (static registry of 18) | shared |
 | Enums | `CwgParseShape {A,B,C,D,E}`, `CwgDateToken {None,Ymd,Mdyyyy}`, `CwgRegionKind {None,Geography,Iso}`, `HotKeyStrategy {RunDate,RunId}` | shared |
 | Work unit | `CwgWorkUnit : WorkUnit` (one for **all** endpoints) | shared |
 | Work-unit provider | `CwgWorkUnitProvider : IWorkUnitProvider<CwgWorkUnit>` (constructed per descriptor) | shared class, per-descriptor instance |
@@ -42,9 +61,9 @@ Reference implementations mirrored: `src/DataLoader.StormVista/` (HTTP+CSV, `?ap
 | Shape parsers | `ICwgShapeParser<TRecord>` + `ShapeAParser … ShapeEParser` (written once each) | shared |
 | Source reader | `CwgSourceReader<TRecord,TRow> : ISourceReader<CwgWorkUnit,TRow>` (HTTP + FileLog + parse + map + stamp) | shared |
 | FileLog | `CwgFileContext` (readonly struct), `ICwgFileLog`, `SqlCwgFileLog` (calls `arm.usp_UpsertFileLog`, `SqlWriteGate`, returns `FileLogId`) | shared |
-| Fact row | `ICwgFactRow { int FileLogId { get; set; } }` + **15 row types** | interface shared, 15 rows per-endpoint |
+| Fact row | `ICwgFactRow { int FileLogId { get; set; } }` + **18 row types** | interface shared, 18 rows per-endpoint |
 | Row factory | `Func<TRecord, CwgWorkUnit, TRow?>` (a `static TRow? From(...)` per row type) | **per-endpoint** (the only mapping code) |
-| Sink | `SqlSinkBase<TRow>` subclass **×15** (per-endpoint proc + TVP) | **per-endpoint** |
+| Sink | `SqlSinkBase<TRow>` subclass **×18** (per-endpoint proc + TVP) | **per-endpoint** |
 | Pipeline | `ICwgEndpointPipeline : ILoaderPipeline { string EndpointId }`, `CwgEndpointPipeline<TRow> : LoaderPipelineBase<CwgWorkUnit,TRow,TRow>` | shared |
 | Module | `CwgModule : ILoaderModule` | shared |
 | HTTP plumbing | rate limiter + delegating handler + Polly policy (mirror StormVista) | shared |
@@ -58,12 +77,12 @@ idempotency, the pipeline loop) is written once.
 
 ## 1. Module topology & pipeline strategy
 
-**One module, fifteen closed per-endpoint pipelines**, built explicitly (Platts /
+**One module, eighteen closed per-endpoint pipelines**, built explicitly (Platts /
 StormVista pattern), toggled by `EnabledEndpoints[]`.
 
 ### 1.1 Why closed per-endpoint pipelines (not one generic pipeline)
 
-All 15 endpoints share the `CwgWorkUnit` type. If we registered a single
+All 18 endpoints share the `CwgWorkUnit` type. If we registered a single
 `IWorkUnitProvider<CwgWorkUnit>` (or `ISourceReader<CwgWorkUnit,TRow>`) in DI, every
 pipeline would resolve the *same* provider and load the wrong endpoint's descriptor —
 exactly the collision the Platts/StormVista headers warn about. We therefore **never
@@ -104,13 +123,13 @@ small (default 3): the whole unit list for a run materializes cheaply.
    - `.AddHttpMessageHandler<CwgRateLimitingHandler>()` throttle **inner** so every
      attempt (first + each retry) is paced by `RequestsPerSecond`.
 4. `services.AddSingleton<ICwgFileLog, SqlCwgFileLog>();`
-5. Register the 15 pipelines with a generic helper, one line each:
+5. Register the 18 pipelines with a generic helper, one line each:
 
    ```
    services.AddSingleton<ICwgEndpointPipeline>(sp => BuildPipeline<CwgTabularRecord, CityForecastRow>(
        sp, CwgDescriptors.CityForecast, ShapeA, CityForecastRow.From,
        s => new CityForecastSqlSink(options, log)));
-   … ×15 …
+   … ×18 …
    ```
 
    `BuildPipeline<TRecord,TRow>(sp, descriptor, shapeParser, rowFactory, sinkFactory)`
@@ -120,9 +139,11 @@ small (default 3): the whole unit list for a run materializes cheaply.
    - `sink     = sinkFactory(sp)` (per-endpoint `SqlSinkBase<TRow>`)
    - returns `new CwgEndpointPipeline<TRow>(descriptor.EndpointId, provider, source, sink, loadLog, settings, logger)`.
 
-   The 5 `ShapeX` parsers are shared singletons/statics; each of the 15 lines picks the
-   one its descriptor's `ParseShape` names (`ShapeA` is reused by 5 endpoints, `ShapeB` by
-   3, `ShapeC` by 3, `ShapeD` by 1, `ShapeE` by 3).
+   The 5 `ShapeX` parsers are shared singletons/statics; each of the 18 lines picks the
+   one its descriptor's `ParseShape` names (`ShapeA` is reused by **8** endpoints —
+   CityForecast, CityGasForecast, CityObservation, Station, NationalDegreeDays,
+   **Regions5DegreeDays, Regions9DegreeDays, ISODegreeDays** — `ShapeB` by 3, `ShapeC` by
+   3, `ShapeD` by 1, `ShapeE` by 3).
 
 ### 1.4 RunAsync fan-out
 
@@ -141,7 +162,7 @@ Mirror `StormVistaModule.RunAsync`:
    regardless of how many units run at once, so sequential-endpoints keeps memory/log
    reasoning simple while still saturating the allowed RPS. (Endpoint-level parallelism is
    an available knob but unnecessary given the global throttle — see §9 open item.)
-4. Aggregate the 15 `LoaderRunResult`s (sum totals; `Success = all succeeded`) exactly
+4. Aggregate the 18 `LoaderRunResult`s (sum totals; `Success = all succeeded`) exactly
    as StormVista/Platts do.
 
 ---
@@ -160,7 +181,8 @@ record CwgEndpointDescriptor(
     CwgRegionKind RegionKind,        // None | Geography (na/asia/europe) | Iso (ERCOT…)
     string?       RegionPlaceholder, // token name in the template, e.g. "region" (null if none)
     string[]      Regions,           // enum values for the region placeholder (empty if none)
-    (string Name,string[] Values)[] ExtraPlaceholders, // e.g. subregion=["national"]; units baked as literal F
+    string[]?     RegionUnits,       // OPTIONAL, index-aligned 1:1 with Regions → the per-region {units} token (CityForecast: {"F","C"}); null on the other 17 endpoints. In CwgDescriptors.cs this is a TRAILING optional ctor param (`string[]? RegionUnits = null`), like ExpectedColumns/AllowShortRows, so the other 17 descriptor literals are untouched.
+    (string Name,string[] Values)[] ExtraPlaceholders, // e.g. subregion=["national"]; CityForecast no longer bakes a units literal here — see RegionUnits + the {units} token
     string[]?     WideRegionColumns, // Shape B in-file region column set (ordered); null otherwise
     int           KeyColumns,        // Shape B leading key-column count (1: DATE / UTC_HOUR_ENDING)
     int?          ExpectedBlocks,    // Shape E: 1 (Climo) or 3 (MW/Pct); null otherwise
@@ -170,14 +192,25 @@ record CwgEndpointDescriptor(
 ```
 
 Derived at runtime: `IsHot = !Dated` (undated → RunDate hot key); `RepresentativeDate`
-per unit (below). `units=F` is baked into `CityForecast`'s template as a literal (locked
-decision 8) — no placeholder — but is noted in the mapping (§6).
+per unit (below).
 
-### 2.1 Concrete descriptor values — all 15
+**The `{units}` token (CityForecast only).** CityForecast's template carries a `{units}`
+placeholder (`city15dfcst_{region}_{date}_{units}.csv`); its `RegionUnits = {"F","C"}` is
+index-aligned 1:1 with `Regions = {"northamerica","europe"}` (northamerica→`F`,
+europe→`C`). The work-unit provider resolves the region's units by its **position in the
+descriptor's `Regions` array** (carried through the Geographies filter as a `(Region,Units)`
+pair so a filtered-out region drops its units with it), substitutes `{units}` in the
+filename, and stamps the token onto the work unit (as both `Units` and the FileLog
+`Variant` — §3). Every other descriptor has `RegionUnits = null` and no `{units}` token in
+its template, so `Substitute` performs **no** `{units}` replacement and their `Units`/`Variant`
+are unchanged — the change is fully additive. (The old literal `_F` in the template and the
+"units=F, not stored" note are **superseded** by this mechanism.)
+
+### 2.1 Concrete descriptor values — all 18
 
 | # | EndpointId | Shape | FilenameTemplate | Dated | DateToken | Off | RegionKind / Regions | Extra | Wide cols (B) / Blocks (E) |
 |---|-----------|:----:|------------------|:----:|:--------:|:--:|----------------------|-------|-----------------------------|
-| 1 | CityForecast | A | `city15dfcst_{region}_{date}_F.csv` | Y | Ymd | 0 | Geography: `northamerica,asia,europe` | — | — |
+| 1 | CityForecast | A | `city15dfcst_{region}_{date}_{units}.csv` | Y | Ymd | 0 | Geography: `northamerica,europe` (**asia dropped**); `RegionUnits={F,C}` | — | — |
 | 2 | CityGasForecast | A | `city_gasday_fcst.csv` | N | None | — | None | — | — |
 | 3 | CityObservation | A | `{region}_observations_final_{date}.csv` | Y | Ymd | **−1** | Geography: `northamerica,asia,europe` | — | — |
 | 4 | DailyNormal | B | `daily_normals.csv` | N | None | — | None | — | Wide=`CAISO,SPP,ERCOT,MISO,PJM,NEPOOL,NYISO,BPA,IESO,AESO,NW,SW` (12); KeyCols=1 |
@@ -192,6 +225,9 @@ decision 8) — no placeholder — but is noted in the mapping (§6).
 | 13 | WindTotalCapacityMW | E | `Total_Capacity_vals_{datemmddyyyy}.csv` | Y | Mdyyyy | 0 | None (regions in-file) | — | Blocks=3 |
 | 14 | WindTotalCapacityPct | E | `Total_Capacity_{datemmddyyyy}.csv` | Y | Mdyyyy | 0 | None (regions in-file) | — | Blocks=3 |
 | 15 | Station | A | `{region}_station_information.csv` | N | None | — | Geography: `northamerica,asia,europe` | — | — |
+| 16 | Regions5DegreeDays | A | `northamerica_{subregion}_wdd_{date}.csv` | Y | Ymd | 0 | None (see note) — `northamerica` literal | subregion=`5region` | `ExpectedColumns=18` |
+| 17 | Regions9DegreeDays | A | `northamerica_{subregion}_wdd_{date}.csv` | Y | Ymd | 0 | None (see note) — `northamerica` literal | subregion=`9region` | `ExpectedColumns=18` |
+| 18 | ISODegreeDays | A | `northamerica_{subregion}_wdd_{date}.csv` | Y | Ymd | 0 | None (see note) — `northamerica` literal | subregion=`iso` | `ExpectedColumns=11` |
 
 Notes:
 - **`Off` (DateOffsetDays):** the *newest* represented date = `runDate + Off`. Only
@@ -201,24 +237,73 @@ Notes:
   (`national`) are both fixed, modelled as a literal geography + one `ExtraPlaceholders`
   value. It produces exactly one work unit per date. (Reviewer: confirm we keep
   `northamerica` as `FileLog.Region` and `national` as `FileLog.Variant` — see §5.)
+- **#16–#18 Regions5/Regions9/ISO DegreeDays** are the per-region siblings of #8 in the
+  **same `wdd` family** and follow #8's descriptor pattern **exactly**: `RegionKind.None`
+  (NOT `Geography` — `northamerica` is baked into the filename and stamped on the
+  unit/FileLog, but must NOT be subject to the `Geographies` filter, so narrowing
+  `Geographies` never zeroes these out), `Regions = ["northamerica"]` literal, one
+  `ExtraPlaceholders` value `subregion=5region|9region|iso`, `Dated=true`, `DateToken=Ymd`,
+  `Off=0`. Each produces exactly one work unit per RunDate. They differ from #8 in only
+  three ways: the descriptor carries `ExpectedColumns=18` (5/9region) or `11` (iso) as the
+  Shape-A width guard; the file adds an in-file `REGION_NAME` column (multiple regions per
+  date) that becomes the third natural-key column; and the file terminates with an `END.`
+  footer row the shared Shape-A parser must skip (§4). `AllowShortRows=false` for all three.
+  Targets: `arm.Regions5DegreeDays` / `arm.Regions9DegreeDays` / `arm.ISODegreeDays` (+
+  matching `…Tvp` / `arm.usp_BulkMergeRegions5DegreeDays` etc.).
 - **Geographies filter:** `RegionKind == Geography` descriptors (#1, #3, #15) intersect
   their `Regions` list with the `Geographies[]` setting (default all three). `Iso`
-  descriptors are **not** filtered by `Geographies` (different axis).
+  descriptors are **not** filtered by `Geographies` (different axis). CityForecast (#1)
+  intersects its **two-element** `Regions = {northamerica, europe}` — `asia` is dropped
+  **structurally** (removed from this endpoint's `Regions`), not by the setting, so a run
+  with the default `Geographies` still yields only `northamerica`+`europe`; narrowing
+  `Geographies` further (e.g. to `{northamerica}`) drops `europe` **and its `C` units**
+  because the units travel with the region as a pair through the filter. CityObservation
+  (#3) and Station (#15) keep all three geographies — the drop is **CityForecast-only**.
+- **CityForecast units (#1):** `RegionUnits` is index-aligned with `Regions`
+  (northamerica↔`F`, europe↔`C`). The token feeds the `{units}` filename slot, the FileLog
+  `Variant`, and the new `Units` attribute column (§5, §6.1). It is a per-endpoint
+  descriptor field; the other 17 leave `RegionUnits = null`.
 
 ---
 
 ## 3. Work-unit construction & resume keying
 
 `CwgWorkUnit : WorkUnit` carries: `EndpointId`, `Region?` (the region/geography literal
-or null), `Variant?` (subregion `national` or null), `RepresentativeDate?` (DateOnly,
-null for undated), `Filename` (fully substituted, no host/query), `KeyValue` (precomputed),
-`Key => KeyValue`, `DisplayName`.
+or null), `Variant?` (the FileLog sub-variant slot — the `wdd` subregion token
+`national` / `5region` / `9region` / `iso` for the DD family, **or the units token
+`F` / `C` for CityForecast** — null otherwise), `Units?` (**NEW** — the per-region units
+token `F` / `C` for CityForecast, null on every other endpoint; the typed attribute the
+CityForecast row factory copies into the row's `Units` column), `RepresentativeDate?`
+(DateOnly, null for undated), `Filename` (fully substituted, no host/query), `KeyValue`
+(precomputed), `Key => KeyValue`, `DisplayName`.
+
+> **`Units` vs `Variant` (why both).** `Variant` is the generic **FileLog** sub-key slot
+> (`arm.FileLog.Variant`) that the source reader already passes through to
+> `usp_UpsertFileLog` — no source-reader/FileLog change is needed to log units. `Units` is
+> the typed **fact** attribute the CityForecast row stores. They hold the **same value**
+> (`F`/`C`) for CityForecast but represent different concerns, so both are stamped. For the
+> DD family `Variant` = subregion and `Units` = null; for all other endpoints both are null.
+
+> **The four `wdd` degree-day endpoints (#8, #16–#18) all enumerate identically:** one
+> region literal (`northamerica`) × one `subregion` extra (`national`/`5region`/`9region`/
+> `iso`) × each date in the `DaysBack` window → **one work unit per RunDate** each. The
+> `Variant` (subregion token) makes their keys and FileLog rows distinct even though they
+> share `Region='northamerica'`. Resume keying (below), the two-zone settled/hot split, the
+> go-forward trailing window, and the per-RunDate work-unit granularity are the **same** as
+> NationalDegreeDays — the region breakout lives entirely *inside* each file (in-file
+> `REGION_NAME` rows), not in the work-unit axis. Base key, e.g.
+> `cwg:Regions5DegreeDays:northamerica:5region:20260811`.
 
 `CwgWorkUnitProvider.GetWorkUnitsAsync(context)` (DB-free) for its bound descriptor:
 
 ```
 runDate = DateOnly.FromDateTime(EasternNow(context.StartedAtUtc))   // US Eastern, NOT UTC
-regions = (RegionKind==Geography ? Regions ∩ settings.Geographies : Regions)   // None/Iso: Regions verbatim; [null] if none
+// ResolveRegions now yields (Region, Units) PAIRS. Build pairs by zipping Regions with
+// RegionUnits (Units = RegionUnits?[i] ?? null, index-aligned), THEN apply the Geographies
+// filter on Region — so a filtered-out region drops its Units with it. None/Iso: Regions
+// verbatim, Units=null. No regions: single (null, null).
+regionPairs = zip(Regions, RegionUnits)          // (region, units); units=null when RegionUnits is null
+              |> (RegionKind==Geography ? filter by settings.Geographies on region : identity)
 extras  = cartesian of ExtraPlaceholders  (e.g. {subregion:national}); [{}] if none
 
 hot = settings.HotKeyStrategy==RunDate ? runDate:yyyyMMdd : context.RunId:N   // hot-zone run token
@@ -228,21 +313,28 @@ if (descriptor.Dated):
     for k in 0 .. settings.DaysBack-1:                                        // enumerate the DaysBack window
         d = newest.AddDays(-k)
         ageDays = runDate.DayNumber - d.DayNumber
-        for region in regions, for extra in extras:
-            filename = substitute(template, {date/datemmddyyyy}=fmt(d), region, extra…)
+        for (region, units) in regionPairs, for extra in extras:
+            variant  = extra.subregion ?? units                              // FileLog slot: subregion (DD) OR units (CityForecast)
+            filename = substitute(template, {date/datemmddyyyy}=fmt(d), {region}=region, {units}=units, extra…)
             baseKey  = $"cwg:{EndpointId}:{region ?? '-'}:{variant ?? '-'}:{d:yyyyMMdd}"
-            unit = { EndpointId, Region=region, Variant=extra.subregion, RepresentativeDate=d,
+            unit = { EndpointId, Region=region, Variant=variant, Units=units, RepresentativeDate=d,
                      Filename=filename,
                      // TWO-ZONE: settled (older than SettledAfterDays) → STABLE; recent → HOT
                      KeyValue = ageDays > settings.SettledAfterDays ? baseKey
                                                                     : $"{baseKey}:run={hot}" }
 else:  // undated / latest — always HOT
-    for region in regions, for extra in extras:
-        filename = substitute(template, region, extra…)
-        unit = { EndpointId, Region=region, Variant=extra.subregion, RepresentativeDate=null,
+    for (region, units) in regionPairs, for extra in extras:
+        variant  = extra.subregion ?? units
+        filename = substitute(template, {region}=region, {units}=units, extra…)
+        unit = { EndpointId, Region=region, Variant=variant, Units=units, RepresentativeDate=null,
                  Filename=filename,
                  KeyValue = $"cwg:{EndpointId}:{region ?? '-'}:{variant ?? '-'}:run={hot}" }   // HOT
 ```
+
+`Substitute` replaces `{units}` with the pair's units token only when it is non-null (mirrors
+the existing `{region}` guard); templates without a `{units}` token are unaffected. CODER
+should assert `RegionUnits.Length == Regions.Length` when `RegionUnits` is non-null (a
+descriptor-registry invariant, checked once at construction).
 
 `runDate` is the **US Eastern** calendar date (CWG publishes dated files on the Eastern
 day), not the UTC date — this keeps a run that straddles the UTC midnight boundary from
@@ -272,6 +364,14 @@ Eastern run date):
   enumerate one `:run=<hot>` unit each (`RepresentativeDate=null`).
 - **CityObservation** newest = `runDate − 1` (`DateOffsetDays=-1`; requesting today 404s), then
   `DaysBack` further days back; its newest day has `ageDays = 1`, so it starts in the hot zone.
+- **CityForecast** is unchanged by the units work: still `Dated`, `Ymd`, `Off=0`, two-zone
+  settled/hot. The **only** enumeration deltas are (a) the region set drops `asia`
+  (2 regions instead of 3 → fewer units) and (b) the per-region units token now fills the
+  `Variant` slot, so the key becomes `cwg:CityForecast:{region}:{F|C}:{yyyyMMdd}` (was
+  `…:{region}:-:{yyyyMMdd}`). `region` alone already keys each unit uniquely, so the units
+  token in the `Variant` slot adds no ambiguity — it only makes the key self-describing and
+  consistent with the DD family. Because CWG is **build-only/never loaded live**, there are
+  no existing `core.LoadLog` rows for this key to invalidate.
 
 The `arm.FileLog` hub row is keyed on `(Endpoint,Region,Variant,RepresentativeDate)` —
 independent of the run token — so a daily hot re-pull **upserts one stable hub row** (refreshing
@@ -312,15 +412,38 @@ returning **null drops the record** (used for sentinels). Shared helpers:
   A blank/`"NULL"`/unparseable numeric → factory returns null for that cell/row (skip)
   with a debug/warn log; a bad **key/date** cell skips the whole record.
 
-### Shape A — simple tabular (CityForecast, CityGasForecast, CityObservation, Station, NationalDegreeDays)
+### Shape A — simple tabular (CityForecast, CityGasForecast, CityObservation, Station, NationalDegreeDays, Regions5DegreeDays, Regions9DegreeDays, ISODegreeDays)
 Emits `CwgTabularRecord { string[] Fields; Header }`, one per data row.
-1. Tokenize. `header = records[0]`. Width guard: require `header.Length ≥ N` (N = the
-   endpoint's documented column count). Optionally verify each header cell equals the
-   expected name (warn, don't fail) — parsing is by **ordered position** (CWG.md gives a
-   stable order; position avoids the C# identifier problem of `30Y_…`/`10Y_…` headers).
-2. For `i=1..end`: skip rows with `Length < N` (warn); else emit the raw field array.
-3. Row factory reads by index and applies the endpoint's typed parsers (see §6). Region
-   (geography/ISO) and the filename date come from the **unit**, not the CSV.
+1. Tokenize. `header = records[0]`. Width guard: require `header.Length ≥ N` (N =
+   `descriptor.ExpectedColumns` when set, else `header.Length`). Optionally verify each
+   header cell equals the expected name (warn, don't fail) — parsing is by **ordered
+   position** (CWG.md gives a stable order; position avoids the C# identifier problem of
+   `30Y_…`/`10Y_…` headers).
+2. **`END.` footer skip (shared, applies to all four `wdd` endpoints).** For `i=1..end`,
+   **first** skip any row whose `cells[0].Trim() == "END."` at **Debug** level — the `wdd`
+   family (national + 5region + 9region + iso) terminates with a literal `END.` sentinel
+   row (`DATES=END.`, remaining fields empty). Then skip rows with `Length < N`
+   (warn, unless `AllowShortRows`); else emit the raw field array.
+3. Row factory reads by index and applies the endpoint's typed parsers (see §6). For most
+   Shape-A endpoints Region (geography/ISO) and the date come from the **unit**, not the
+   CSV — **except the three region-carrying `wdd` siblings (#16–#18), whose `RegionName`
+   is read from the in-file `REGION_NAME` cell (`Fields[1]`)** while `RunDate` still comes
+   from the unit (filename) and `Dates` from `Fields[0]` (see the Region-trap note in §5).
+
+> **Parse-shape decision (pivotal): REUSE Shape A — no new shape.** The `ShapeAParser`
+> already emits raw positional field arrays and is region-agnostic (region semantics live
+> entirely in the per-endpoint row factory), so the three new region/ISO endpoints reuse it
+> verbatim; the only per-endpoint C# is their three new row types + `From(...)` factories +
+> sinks + descriptors. **One small shared enhancement is required:** the explicit `END.`
+> skip in step 2. *Verified against the fixtures:* NationalDegreeDays **already** drops the
+> `END.` row today — but only incidentally, via the `Length < N` short-row guard, which logs
+> a spurious **Warning** every run (the row is a bare single field `END.`, so `1 < 14`). The
+> explicit `END.` check makes the intent self-documenting, demotes it to Debug (no per-file
+> warning noise across the now-four `wdd` endpoints), and is robust whether the real footer
+> is bare (`END.`) or comma-padded to full width. It is purely additive: the four non-`wdd`
+> Shape-A endpoints never emit an `END.` row, so their behavior is unchanged. Row types:
+> `Regions5DegreeDaysRow` / `Regions9DegreeDaysRow` / `ISODegreeDaysRow`; ISO gets its own
+> divergent column set (`POP_HDD`, no `ELEC_*`, no weights — §6.18).
 
 ### Shape B — wide-by-region → unpivot (DailyNormal, SolarHourly, WindHourly)
 Emits `CwgUnpivotCell { string KeyCell; string Region; string RawValue }`.
@@ -395,7 +518,7 @@ Emits `CwgCapacityRow { string Block; string Region; string TotalCapacityRaw; st
 
 ---
 
-## 5. FileLog flow (`arm.FileLog` hub, generalized across all 15 endpoints)
+## 5. FileLog flow (`arm.FileLog` hub, generalized across all 18 endpoints)
 
 `arm.FileLog` is the single hub logging **every outcome** (Success / NotAvailable /
 Failed) for every request. Generalized natural key:
@@ -406,11 +529,32 @@ UNIQUE (Endpoint, Region, Variant, RepresentativeDate)   -- SQL NULL-equality co
 
 | Endpoint | Region | Variant | RepresentativeDate |
 |----------|--------|---------|--------------------|
-| CityForecast / CityObservation / Station | geography (na/asia/europe) | NULL | file date (Station: NULL) |
+| CityForecast | geography (`northamerica`/`europe`; **no `asia`**) | **units** (`F`/`C`) | file date |
+| CityObservation / Station | geography (na/asia/europe) | NULL | file date (Station: NULL) |
 | SolarForecast / SolarForecastChange / WindForecast / WindForecastSubRegion | ISO region | NULL | file date |
-| NationalDegreeDays | `northamerica` | `national` | file date |
+| NationalDegreeDays | `northamerica` | `national` | file date (RunDate) |
+| Regions5DegreeDays | `northamerica` | `5region` | file date (RunDate) |
+| Regions9DegreeDays | `northamerica` | `9region` | file date (RunDate) |
+| ISODegreeDays | `northamerica` | `iso` | file date (RunDate) |
 | WindTotalCapacity {Climatology,MW,Pct} | NULL | NULL | file date |
 | CityGasForecast / DailyNormal / SolarHourly / WindHourly | NULL | NULL | **NULL** (undated) |
+
+> **THE REGION TRAP (critical — read before implementing #16–#18).** There are **two
+> distinct "regions"** in the `wdd` family and they must never be conflated:
+> 1. **`arm.FileLog.RegionId`** = the **filename geography**, which stays `northamerica`
+>    for all four `wdd` endpoints (it is the file's geography axis, resolved to the seeded
+>    `arm.Region` lookup — get-or-create per §9 item 7). Because `EndpointId` differs per
+>    endpoint (National vs Regions5 vs Regions9 vs ISO) **and** `Variant` differs
+>    (`national`/`5region`/`9region`/`iso`), the four families never collide on the
+>    `(EndpointId, RegionId, Variant, RepresentativeDate)` hub key despite sharing
+>    `RegionId='northamerica'`.
+> 2. **The in-file fact `REGION_NAME`** (free-text labels — `Pacific`, `South Central`,
+>    `NEW ENGLAND`, `CAISO NORTH`, …) is **data**, stored only in the fact table's
+>    `RegionName` column and used as the 3rd merge-key column. These labels **MUST NOT be
+>    added to the `arm.Region` seed catalog** — that catalog holds filename axes only
+>    (geographies + ISO *filename* regions). Only `northamerica` is ever passed to
+>    `usp_UpsertFileLog` for these endpoints, so the us5/us9/iso labels never reach
+>    `arm.Region`.
 
 **Why `RepresentativeDate` is NULL for undated files (critical):** an undated file's
 FileLog row must be *stable* across daily re-pulls so the same `FileLogId` is reused and
@@ -453,7 +597,7 @@ resolved to small seeded lookups server-side (§9); the C# contract speaks strin
 
 ---
 
-## 6. Full-field mapping (all 15 endpoints)
+## 6. Full-field mapping (all 18 endpoints)
 
 Legend: **origin** = `unit` (from filename/work-unit) or the exact source CSV column.
 Every fact row also carries `FileLogId` (provenance; stamped in §5; UPDATEd on MERGE, not
@@ -461,20 +605,36 @@ a merge-key column). `ModifiedAtUtc` is a table default. Types are the CWG.md
 recommendations (see §9 for the sizing confirmations). "Key" marks the MERGE natural key.
 
 ### 1. CityForecast → `arm.CityForecast` (Shape A) — merge key `(Region, Station, ProductionDate, ForecastDate)`
+
+**Region set = `{northamerica, europe}` (asia dropped). Per-region units:** northamerica in
+`F` (`_F` file), europe in `C` (`_C` file), via the `{units}` token + `RegionUnits={F,C}`
+(§2/§3). `Units` is a **self-describing ATTRIBUTE column, NOT a key** — `Region` already
+keys each row and units is 1:1 with region, so the merge key / PK / MERGE-ON / PARTITION BY
+are **unchanged**; only the row, TVP, and INSERT/UPDATE column lists gain `Units`.
+
 | Origin | Row prop | TVP/table col | Type | Notes |
 |--------|----------|---------------|------|-------|
-| unit.Region | Region | Region | VARCHAR(16) | **Key**; geography literal |
+| unit.Region | Region | Region | VARCHAR(16) | **Key**; geography literal (`northamerica`/`europe`) |
 | `Production Date` | ProductionDate | ProductionDate | DATE | **Key**; `M/D/YY` (2-digit yr) |
 | `Date` | ForecastDate | ForecastDate | DATE | **Key**; `M/D/YY` |
 | `Station` | Station | Station | VARCHAR(8) | **Key** |
-| `Fcst Mn` | FcstMin | FcstMin | DECIMAL(5,1) | signed |
-| `Fcst Mx` | FcstMax | FcstMax | DECIMAL(5,1) | |
-| `Fcst Avg` | FcstAvg | FcstAvg | DECIMAL(5,1) | `.5` occurs |
-| `Norm Mn` | NormMin | NormMin | DECIMAL(5,1) | |
-| `Norm Max` | NormMax | NormMax | DECIMAL(5,1) | header quirk `Norm Max` |
+| `Fcst Mn` | FcstMin | FcstMin | DECIMAL — WIDENED | signed; 1 dp in both `_F`/`_C`; widened with the others for uniformity (§9 item 18) |
+| `Fcst Mx` | FcstMax | FcstMax | DECIMAL — WIDENED | 1 dp both |
+| `Fcst Avg` | FcstAvg | FcstAvg | DECIMAL — WIDENED | `.5` occurs; 1 dp both |
+| `Norm Mn` | NormMin | NormMin | DECIMAL — WIDENED (≥5 dp) | **`_C` normals carry up to 5 dp** (e.g. `7.74478`); `_F` = 1 dp. **Preserve source precision — do NOT round in the loader** (§9 item 18) |
+| `Norm Max` | NormMax | NormMax | DECIMAL — WIDENED (≥5 dp) | header quirk `Norm Max`; `_C` up to 5 dp (e.g. `20.3699`) |
 | `HDD` | Hdd | Hdd | SMALLINT | |
 | `CDD` | Cdd | Cdd | SMALLINT | |
-| (units `F`) | — | — | — | fixed literal, not stored (decision 8) |
+| unit.Units | **Units** | **Units** | VARCHAR(1) (DB's call; F/C) | **Attribute, not key.** Value from the descriptor's `RegionUnits` (via the work unit); **appended LAST** in the row / TVP / BuildTable / INSERT-UPDATE lists (FileLogId stays first, all existing positions stable) |
+
+**`Units` end-to-end flow (what CODER wires):**
+1. **descriptor** — `RegionUnits={F,C}` aligned to `Regions={northamerica,europe}`; template `…_{units}.csv`.
+2. **work unit** — provider stamps `Units = F|C` (and `Variant = F|C` for the FileLog) per §3.
+3. **row factory** — `CityForecastRow.From(rec, unit)` copies `Units = unit.Units` (guard: `unit.Units is null → return null`, mirroring the existing `Region` guard). No other field changes; **do NOT round** `NormMin/NormMax` — parse with `CwgParse.Decimal` (full `decimal` precision) as today.
+4. **row** — `CityForecastRow` gains `public required string Units { get; init; }`, declared **last** (property order documents TVP order).
+5. **sink `BuildTable`** — append `t.Columns.Add("Units", typeof(string));` **last**, and `r.Units` last in `t.Rows.Add(...)`. The dedup `GroupBy (Region, Station, ProductionDate, ForecastDate)` is **unchanged** (Units is not part of the key).
+6. **TVP** `arm.CityForecastTvp` — append `Units VARCHAR(1) NOT NULL` last (sink order == TVP order — the load-bearing contract).
+7. **merge proc** `arm.usp_BulkMergeCityForecast` — add `Units` to the `SELECT`, the `INSERT (…)` column list and the `WHEN MATCHED … UPDATE SET` list; the `PARTITION BY` / `ON` / PK stay exactly as-is.
 
 ### 2. CityGasForecast → `arm.CityGasForecast` (Shape A) — merge key `(Station, ProductionDate, ForecastDate)`
 Identical 10 columns to #1 (`Production Date→ProductionDate` Key, `Date→ForecastDate` Key,
@@ -606,6 +766,67 @@ signed in the Change block; `TotalCapacityMw DECIMAL(12,4) NULL` (blank in Chang
 | `state` | State | State | VARCHAR(8) NULL | may be blank |
 | `country` | Country | Country | VARCHAR(4) | |
 
+### 16. Regions5DegreeDays → `arm.Regions5DegreeDays` (Shape A) — merge key `(RunDate, Dates, RegionName)`
+18 source columns; the DD family is offset by **+1** vs National (§6.8) because `REGION_NAME`
+occupies `Fields[1]`. `RunDate` from the unit (filename); `RegionName` from the CSV
+`REGION_NAME` cell (`Fields[1]`) — **not** from the unit. Source header positions in brackets.
+
+| Origin | Row prop | Col | Type | Notes |
+|--------|----------|-----|------|-------|
+| unit.date (filename) | RunDate | RunDate | DATE | **Key** |
+| `DATES` [0] | Dates | Dates | DATE | **Key** (`YYYY-MM-DD`) |
+| `REGION_NAME` [1] | RegionName | RegionName | VARCHAR(32) | **Key**; in-file fact region (free text, e.g. `South Central`; max obs 13). See Region-trap §5 |
+| `NG_HDD` [2] | NgHdd | NgHdd | DECIMAL(9,4) | |
+| `30Y_NG_HDD` [3] | NgHdd30y | NgHdd30y | DECIMAL(9,4) | digit-leading header → renamed |
+| `10Y_NG_HDD` [4] | NgHdd10y | NgHdd10y | DECIMAL(9,4) | `0.0000` is valid, not null |
+| `LAST_Y_NG_HDD` [5] | NgHddLastY | NgHddLastY | DECIMAL(9,4) | |
+| `POP_CDD` [6] | PopCdd | PopCdd | DECIMAL(9,4) | |
+| `30Y_POP_CDD` [7] | PopCdd30y | PopCdd30y | DECIMAL(9,4) | |
+| `10Y_POP_CDD` [8] | PopCdd10y | PopCdd10y | DECIMAL(9,4) | |
+| `LAST_Y_POP_CDD` [9] | PopCddLastY | PopCddLastY | DECIMAL(9,4) | |
+| `ELEC_CDD` [10] | ElecCdd | ElecCdd | DECIMAL(9,4) | |
+| `30Y_ELEC_CDD` [11] | ElecCdd30y | ElecCdd30y | DECIMAL(9,4) | |
+| `10Y_ELEC_CDD` [12] | ElecCdd10y | ElecCdd10y | DECIMAL(9,4) | |
+| `LAST_Y_ELEC_CDD` [13] | ElecCddLastY | ElecCddLastY | DECIMAL(9,4) | |
+| `IS_FORECAST` [14] | IsForecast | IsForecast | BIT | `True/False` → 1/0 |
+| `GAS_WEIGHT` [15] | GasWeight | GasWeight | DECIMAL(9,4) | 0..1 fraction; constant per region within a file |
+| `ELCT_WEIGHT` [16] | ElctWeight | ElctWeight | DECIMAL(9,4) | **header spelled `ELCT`**, not `ELEC` — keep the prop name `ElctWeight` |
+| `POP_WEIGHT` [17] | PopWeight | PopWeight | DECIMAL(9,4) | 0..1 fraction |
+
+`END.` footer row skipped by the shared Shape-A `END.` guard (§4). ~110 fact rows/file
+(5 regions × 22-day in-file window). Batch de-dup GroupBy `(RunDate, Dates, RegionName)`.
+
+### 17. Regions9DegreeDays → `arm.Regions9DegreeDays` (Shape A) — merge key `(RunDate, Dates, RegionName)`
+**Column set, positions, types, and row shape are IDENTICAL to §6.16** (same 18 columns,
+same `+1` offset, same weights incl. the `ELCT_WEIGHT` spelling, same digit-leading
+headers). The **only** difference is the `RegionName` value set (9 U.S. Census divisions,
+UPPERCASE, e.g. `NEW ENGLAND`, `MIDDLE ATLANTIC`; max obs 15 — still fits `VARCHAR(32)`).
+Row type `Regions9DegreeDaysRow` mirrors `Regions5DegreeDaysRow`. ~198 fact rows/file
+(9 × 22). `END.` footer skipped. Merge/de-dup key `(RunDate, Dates, RegionName)`.
+
+### 18. ISODegreeDays → `arm.ISODegreeDays` (Shape A) — merge key `(RunDate, Dates, RegionName)`
+**⚠ DIVERGENT 11-column layout — do NOT reuse §6.16's column set.** The HDD family is
+**`POP_HDD`** (population-weighted), **not `NG_HDD`**; there is **NO `ELEC_*` family** and
+**NO weight columns**. `RegionName` from `Fields[1]`; `RunDate` from the unit.
+
+| Origin | Row prop | Col | Type | Notes |
+|--------|----------|-----|------|-------|
+| unit.date (filename) | RunDate | RunDate | DATE | **Key** |
+| `DATES` [0] | Dates | Dates | DATE | **Key** (`YYYY-MM-DD`) |
+| `REGION_NAME` [1] | RegionName | RegionName | VARCHAR(32) | **Key**; ISO/market label (e.g. `CAISO NORTH`; max obs 11). See Region-trap §5 |
+| `POP_HDD` [2] | PopHdd | PopHdd | DECIMAL(9,4) | **`POP_HDD`, NOT `NG_HDD`** |
+| `30Y_POP_HDD` [3] | PopHdd30y | PopHdd30y | DECIMAL(9,4) | digit-leading header → renamed |
+| `10Y_POP_HDD` [4] | PopHdd10y | PopHdd10y | DECIMAL(9,4) | `0.0000` valid, not null |
+| `LAST_Y_POP_HDD` [5] | PopHddLastY | PopHddLastY | DECIMAL(9,4) | |
+| `POP_CDD` [6] | PopCdd | PopCdd | DECIMAL(9,4) | |
+| `30Y_POP_CDD` [7] | PopCdd30y | PopCdd30y | DECIMAL(9,4) | |
+| `10Y_POP_CDD` [8] | PopCdd10y | PopCdd10y | DECIMAL(9,4) | |
+| `LAST_Y_POP_CDD` [9] | PopCddLastY | PopCddLastY | DECIMAL(9,4) | |
+| `IS_FORECAST` [10] | IsForecast | IsForecast | BIT | `True/False` → 1/0 |
+
+`END.` footer skipped. ~462 fact rows/file (21 ISO/market regions × 22). Merge/de-dup key
+`(RunDate, Dates, RegionName)`. Row type `ISODegreeDaysRow` (its own 11-field shape).
+
 Each sink's `BuildTable` column order must match its TVP exactly (SqlSinkBase contract);
 each `SqlSinkBase<TRow>` sets `StoredProcedureName`/`TableValuedParameterType`/
 `GetConnectionString` and de-dups the batch on its merge key before building the TVP
@@ -624,7 +845,7 @@ the first TVP column on every table.
 | `BaseUrl` | string | `https://api.commoditywx.com/v1` | API host + `/v1` |
 | `ApiKey` | string | `SEE_DB` | resolved from `core.Param` by `AddLoaderSettings`; `?apikey=`; never logged |
 | `HttpTimeoutSeconds` | int | 60 | per-request timeout on the shared client |
-| `EnabledEndpoints` | string[] | all 15 EndpointIds | toggle; matched case-insensitively to `ICwgEndpointPipeline.EndpointId` |
+| `EnabledEndpoints` | string[] | all 18 EndpointIds | toggle; matched case-insensitively to `ICwgEndpointPipeline.EndpointId` |
 | `DaysBack` | int | 3 | dated-endpoint look-back window (undated ignore it) |
 | `HotZoneKeyStrategy` | `RunDate`\|`RunId` | `RunDate` | undated "latest" file re-pull cadence (decision 6) |
 | `Geographies` | string[] | `northamerica,asia,europe` | filters `RegionKind==Geography` descriptors only |
@@ -643,12 +864,12 @@ real key lives in `core.Param(LoaderName='CWG', ParamName='ApiKey')` (or env
 ## 8. Concurrency & idempotency
 
 - **Sinks** derive from `SqlSinkBase<TRow>`, which auto-acquires `SqlWriteGate` keyed
-  `{server}/{db}::{proc}`. The 15 fact procs are 15 distinct keys, so different endpoints
+  `{server}/{db}::{proc}`. The 18 fact procs are 18 distinct keys, so different endpoints
   never serialize against each other; two concurrent work units of the *same* endpoint
   serialize on that one proc key (correct — prevents the parallel-MERGE deadlock /
   insert-race). With endpoints run sequentially (§1.4), only within-endpoint units contend.
 - **FileLog** is a **direct** proc writer, so `SqlCwgFileLog` acquires `SqlWriteGate`
-  explicitly on `arm.usp_UpsertFileLog` (one shared key across all 15 endpoints; a fast
+  explicitly on `arm.usp_UpsertFileLog` (one shared key across all 18 endpoints; a fast
   single-row upsert, so serializing it is cheap and deadlock-proof) — Platts/StormVista
   posture. `core.LoadLog` is intentionally not gated (keyed per work unit).
 - **Idempotent MERGE.** Every fact proc MERGEs on the endpoint's **natural key** (§6),
@@ -675,12 +896,16 @@ Parent-agent decisions on the designer's open items (apply these):
 5. **Station sentinels** — keep `wban` **literal** as string (no `99999`→NULL mapping;
    lossless); `ghcnd`/`state` empty → NULL.
 6. **DailyNormal `MonthDay`** — CONFIRMED `CHAR(5)` (`MM-DD`, year-agnostic, 366 rows).
-7. **FileLog identity** — `arm.FileLog UNIQUE (Endpoint, Region, Variant,
+7. **FileLog identity** — `arm.FileLog UNIQUE (EndpointId, RegionId, Variant,
    RepresentativeDate)` with SQL NULL-equality. NationalDegreeDays uses
-   `Region='northamerica'`, `Variant='national'`. Prefer **inline VARCHAR + CHECK** for
-   `Endpoint`/`Status` (keep it flat like Platts — no seeded lookup tables — for this
-   build-only pass), but DATABASE_DEVELOPER may use its standing convention if it judges
-   otherwise; state the choice.
+   `Region='northamerica'`, `Variant='national'`. **RESOLVED (revised):** `Endpoint`,
+   `Region` and `Status` are **normalized to surrogate-Id lookup tables**
+   (`arm.Endpoint` / `arm.Region` / `arm.Status`, each `Id INT IDENTITY` PK + UNIQUE
+   `Name`), matching StormVista and the standing `DATABASE_DEVELOPER` convention. FileLog
+   stores `EndpointId` / `RegionId` / `StatusId` FKs; `usp_UpsertFileLog` keeps its
+   name-string signature and resolves names→Ids server-side (Endpoint/Status must exist —
+   RAISERROR on miss; Region is get-or-create for non-NULL). Supersedes the earlier
+   build-only suggestion of flat inline `VARCHAR + CHECK`.
 8. **`FileLogId` = provenance, not merge key** — CONFIRMED. Facts MERGE on natural
    columns; `FileLogId` is a regular FK column updated on match.
 9. **Station is undated** — CONFIRMED same RunDate hot key + `RepresentativeDate=NULL`.
@@ -691,13 +916,86 @@ Parent-agent decisions on the designer's open items (apply these):
     `DECIMAL(9,6)` lat/lon.
 12. **Endpoint-level parallelism** — CONFIRMED sequential endpoints (global throttle caps RPS).
 
+**Regional / ISO degree-day additions (2026-08, #16–#18):**
+
+13. **Three separate tables** — CONFIRMED (user-directed): `arm.Regions5DegreeDays`,
+    `arm.Regions9DegreeDays`, `arm.ISODegreeDays`, each its own descriptor / table / TVP /
+    merge proc / `EnabledEndpoints` entry / `arm.Endpoint` seed row, mirroring the
+    per-endpoint pattern. **Not** a single unified table: ISO's divergent column set
+    (`POP_HDD`, no `ELEC_*`, no weights) makes unification awkward, and the user explicitly
+    asked for the three named tables. (5region and 9region *could* share a table since their
+    layouts are identical, but they are kept separate for symmetry and per the directive.)
+14. **Merge key `(RunDate, Dates, RegionName)`** — CONFIRMED for all three. `RunDate` from
+    the filename, `Dates` from the `DATES` column, `RegionName` from the in-file
+    `REGION_NAME`. `FileLogId` is provenance (updated on match), never a merge-key column —
+    consistent with item 8.
+15. **Shared `END.`-footer skip in `ShapeAParser`** — the pivotal parse decision (§4).
+    Reuse Shape A; add one explicit `cells[0]=="END."` → skip (Debug) ahead of the
+    short-row guard. Purely additive; also removes NationalDegreeDays' current spurious
+    per-file Warning. **Reviewer confirm:** OK to touch the shared `ShapeAParser` (used by
+    all 8 Shape-A endpoints) for this behavior-preserving change vs. leaving National's
+    noisy short-row skip in place.
+16. **`RegionName VARCHAR(32)` column naming** — the in-file fact region column is named
+    `RegionName` (maps source `REGION_NAME`) to keep it visibly **distinct** from the
+    geography `Region` used elsewhere and from `arm.FileLog.RegionId` (the Region trap,
+    §5). It is the column the PK/merge-key text calls "Region". `VARCHAR(32)` covers the
+    observed maxima (5region 13 / 9region 15 / iso 11) with headroom. **Reviewer confirm**
+    the `RegionName` name (vs. plain `Region`) and the `(9,4)` weight sizing
+    (`GAS_WEIGHT`/`ELCT_WEIGHT`/`POP_WEIGHT` are 0..1 fractions; CWG.md notes `(7,4)` would
+    also suffice — DATABASE_DEVELOPER's call).
+17. **`arm.Endpoint` seed rows** — add three: `Regions5DegreeDays`, `Regions9DegreeDays`,
+    `ISODegreeDays` (coordinate with DATABASE_DEVELOPER). `arm.Region` gets **no** new
+    rows — the four `wdd` endpoints all log `RegionId='northamerica'` (already seeded); the
+    in-file `REGION_NAME` labels never touch `arm.Region` (§5 Region trap).
+
+**CityForecast per-region units (2026-08, #1):**
+
+18. **`Units` attribute column on `arm.CityForecast`** — add a `Units VARCHAR(1) NOT NULL`
+    column (F/C; DATABASE_DEVELOPER picks the exact width — `VARCHAR(1)` suffices, a touch
+    wider is harmless). It is an **ATTRIBUTE, NOT a key**: `Region` already uniquely keys a
+    row and units is 1:1 with region, so **do NOT** change `PK_CityForecast`, the MERGE
+    `ON`, or the `PARTITION BY`. Changes are confined to: the table (append `Units` — a
+    default or a data-migration for any pre-existing rows is unnecessary since CWG is
+    build-only/never loaded), the TVP `arm.CityForecastTvp` (append `Units` **last**, after
+    `Cdd`, to match the sink's `BuildTable` order), and `arm.usp_BulkMergeCityForecast`
+    (add `Units` to `SELECT` / `INSERT` / `UPDATE SET`). Column position: **append last**;
+    `FileLogId` stays the first TVP column.
+19. **Widen the CityForecast temperature `DECIMAL`s (preserve source precision)** — the
+    europe `_C` file's `Norm Mn` / `Norm Max` carry up to **5 decimal places**
+    (e.g. `7.74478`, `20.3699`) vs 1 dp in `_F`; `Fcst Mn/Mx/Avg` are 1 dp in both. The
+    loader **must not round** (row uses full-precision `decimal`), so the **table AND TVP**
+    columns must widen from `DECIMAL(5,1)` — **the TVP width matters too** (a `DECIMAL(5,1)`
+    TVP column would round the value on load). Requirement: `NormMin`/`NormMax` need scale
+    ≥ 5. **Recommended (DATABASE_DEVELOPER's exact `(p,s)` call):** widen all five temp
+    columns uniformly, e.g. `DECIMAL(8,5)` (covers F magnitudes ~≤130 and C ~≤55 with 5 dp),
+    in **both** `arm.CityForecast` and `arm.CityForecastTvp`. Fcst columns widen only for
+    consistency (their data stays 1 dp).
+20. **`arm.Endpoint` seed URL template** — CityForecast's single seed row `Url` must change
+    from `…/city15dfcst_{region}_{date}_F.csv` to `…/city15dfcst_{region}_{date}_{units}.csv`
+    (one endpoint, one seed row — no new `arm.Endpoint` row). `arm.Region` needs no change
+    (`northamerica`/`europe` already seeded; `asia` simply stops being requested).
+21. **Compare-script scoping (`CompareLegacyDboVsArm.sql` §1)** — `arm.CityForecast` will now
+    hold europe `_C` rows and **no** `asia` rows, while legacy `dbo.CityForecast` is
+    northamerica/°F only. The CityForecast comparison currently joins arm↔dbo on
+    `(ProductionDate, ForecastDate, Station)` with **no** region/units scope, so europe rows
+    (and any europe station code colliding with a US one) would be miscounted as
+    `ExtraInArm` or spuriously paired. **Scope the arm side like-for-like:** restrict every
+    `arm.CityForecast` predicate (row count, `MatchedKeys`, `ExtraInArm`, value-mismatch
+    join, and the `1b`/`1c` detail selects) to `a.Units = 'F'` **and** `a.Region =
+    'northamerica'` so only the comparable NA/°F subset is measured. DATABASE_DEVELOPER owns
+    the script edit.
+22. **API-doc reconciliation (note for DATABASE_DEVELOPER, not this doc):** `docs/apis/CWG.md`
+    §1 briefly lists `Units` inside the CityForecast **natural key**. That is now incorrect —
+    `Units` is an attribute, not a key. Fix the one line in the API doc so the field reference
+    matches this design (key stays `Region + Station + ProductionDate + Date`).
+
 ---
 
-## Coverage checklist — all 15 endpoints
+## Coverage checklist — all 18 endpoints
 
 | # | Endpoint | Descriptor (§2.1) | Work-unit / key rule (§3) | Shape (§4) | FileLog identity (§5) | Column map (§6) |
 |---|----------|:----------------:|:--------------------------:|:---------:|:---------------------:|:---------------:|
-| 1 | CityForecast | ✔ | dated stable, geo×date | A | Endpoint+geo+date | ✔ |
+| 1 | CityForecast | ✔ | dated stable, geo×date (geo={na,europe}) | A | Endpoint+geo+units(F/C)+date | ✔ |
 | 2 | CityGasForecast | ✔ | undated hot (RunDate) | A | Endpoint (nulls) | ✔ |
 | 3 | CityObservation | ✔ | dated stable, off −1 | A | Endpoint+geo+date | ✔ |
 | 4 | DailyNormal | ✔ | undated hot (RunDate) | B | Endpoint (nulls) | ✔ |
@@ -712,7 +1010,12 @@ Parent-agent decisions on the designer's open items (apply these):
 | 13 | WindTotalCapacityMW | ✔ | dated stable, ×date | E(3) | Endpoint+date | ✔ |
 | 14 | WindTotalCapacityPct | ✔ | dated stable, ×date | E(3) | Endpoint+date | ✔ |
 | 15 | Station | ✔ | undated hot (RunDate), geo | A | Endpoint+geo | ✔ |
+| 16 | Regions5DegreeDays | ✔ | dated stable, ×date (per RunDate) | A | Endpoint+na+`5region`+date | ✔ |
+| 17 | Regions9DegreeDays | ✔ | dated stable, ×date (per RunDate) | A | Endpoint+na+`9region`+date | ✔ |
+| 18 | ISODegreeDays | ✔ | dated stable, ×date (per RunDate) | A | Endpoint+na+`iso`+date | ✔ |
 
-All 15 endpoints have a descriptor, a work-unit/keying rule, a parse-shape assignment, a
-FileLog identity, and a complete column mapping. Ready for DATABASE_DEVELOPER (tables +
-TVPs + merge procs + `arm.FileLog`/`arm.usp_UpsertFileLog`) and CODER.
+All 18 endpoints have a descriptor, a work-unit/keying rule, a parse-shape assignment, a
+FileLog identity, and a complete column mapping. Ready for DATABASE_DEVELOPER (three new
+tables + TVPs + merge procs + `arm.Endpoint` seed rows; `arm.FileLog`/`arm.usp_UpsertFileLog`
+and `arm.Region` unchanged) and CODER (three row types + `From(...)` factories + sinks +
+descriptors + module registrations; one shared `END.` skip in `ShapeAParser`).

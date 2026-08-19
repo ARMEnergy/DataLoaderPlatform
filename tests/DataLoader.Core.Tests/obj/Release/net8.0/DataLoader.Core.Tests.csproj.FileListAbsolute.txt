@@ -155,3 +155,4 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Core.T
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Core.Tests\obj\Release\net8.0\DataLoader.Core.Tests.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Core.Tests\obj\Release\net8.0\DataLoader.Core.Tests.genruntimeconfig.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Core.Tests\obj\Release\net8.0\ref\DataLoader.Core.Tests.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Core.Tests\obj\Release\net8.0\DataLoader.Core.Tests.sourcelink.json

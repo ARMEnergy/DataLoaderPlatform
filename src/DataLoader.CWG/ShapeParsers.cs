@@ -95,6 +95,16 @@ public sealed class ShapeAParser : ICwgShapeParser<CwgTabularRecord>
         for (var i = 1; i < records.Count; i++)
         {
             var cells = records[i];
+            // Skip the trailing sentinel row emitted by the `wdd` family (national + 5region +
+            // 9region + iso): a literal `END.` in the first cell (design §4). Placed AHEAD of the
+            // short-row guard so the bare `END.` row does not log a spurious width Warning. Purely
+            // additive — the non-`wdd` Shape-A endpoints never emit an `END.` row.
+            if (cells.Length > 0 && cells[0].Trim() == "END.")
+            {
+                log.LogDebug("[CWG {Endpoint}] {File} line {Line}: skipping 'END.' footer row",
+                    d.EndpointId, unit.Filename, i + 1);
+                continue;
+            }
             if (cells.Length < n)
             {
                 if (!d.AllowShortRows)
@@ -319,18 +329,23 @@ public sealed class ShapeEParser : ICwgShapeParser<CwgCapacityRow>
             if (row.Length == 0) continue;
             var t0 = row[0].Trim();
 
-            // Title rows drive the current block.
+            // Title rows drive the current block. The prior-forecast and Change titles carry
+            // the actual weekday name (e.g. "Friday's Forecast" / "Change from Friday's
+            // Forecast" on a Monday), so match by SHAPE, not a fixed "Yesterday". Order
+            // matters: check Change BEFORE the generic "…Forecast" (a Change title also ends
+            // with "Forecast"). The middle block always maps to the literal 'Yesterday' the
+            // schema's Block CHECK expects, whatever weekday the title names.
             if (t0.EndsWith("Across All Regions", StringComparison.OrdinalIgnoreCase))
             {
                 block = "Current"; blocks.Add(block); continue;
             }
-            if (t0.Equals("Yesterday's Forecast", StringComparison.OrdinalIgnoreCase))
-            {
-                block = "Yesterday"; blocks.Add(block); continue;
-            }
-            if (t0.Equals("Change from Yesterday's Forecast", StringComparison.OrdinalIgnoreCase))
+            if (t0.StartsWith("Change from", StringComparison.OrdinalIgnoreCase))
             {
                 block = "Change"; blocks.Add(block); continue;
+            }
+            if (t0.EndsWith("Forecast", StringComparison.OrdinalIgnoreCase))
+            {
+                block = "Yesterday"; blocks.Add(block); continue;
             }
 
             // Header row (empty region label) or a blank row → skip.
@@ -350,14 +365,22 @@ public sealed class ShapeEParser : ICwgShapeParser<CwgCapacityRow>
                 continue;
             }
 
-            if (row.Length < 5)
+            if (row.Length < 2)
             {
-                log.LogWarning("[CWG {Endpoint}] {File}: capacity row '{Region}' has {Count} columns (< 5); skipping",
-                    d.EndpointId, unit.Filename, t0, row.Length);
+                // A region label with no value cells at all — nothing to load.
+                log.LogDebug("[CWG {Endpoint}] {File}: capacity row '{Region}' has no value columns; skipping",
+                    d.EndpointId, unit.Filename, t0);
                 continue;
             }
 
-            rows.Add(new CwgCapacityRow(block, t0, row[1], row[2], row[3], row[4]));
+            // Read positionally; a short block (e.g. a Change block that omits the trailing
+            // 11-15 horizon) leaves the absent cells empty → the row factory maps them to
+            // NULL instead of dropping the row (count the cells between the commas).
+            rows.Add(new CwgCapacityRow(block, t0,
+                1 < row.Length ? row[1] : string.Empty,
+                2 < row.Length ? row[2] : string.Empty,
+                3 < row.Length ? row[3] : string.Empty,
+                4 < row.Length ? row[4] : string.Empty));
         }
 
         if (d.ExpectedBlocks is { } expected && blocks.Count != expected)

@@ -2,7 +2,7 @@
 -- 003_CreateCwgProcedures.sql
 -- Stored procedures for the CWG loader (schema [arm]):
 --   * arm.usp_UpsertFileLog                 — per-request hub upsert; RETURNS FileLogId.
---   * arm.usp_BulkMerge<Table>  (×15)       — TVP bulk upsert into each fact table.
+--   * arm.usp_BulkMerge<Table>  (×18)       — TVP bulk upsert into each fact table.
 --
 -- LOAD ORDER the procs imply (per request/file, StormVista posture):
 --   1) arm.usp_UpsertFileLog(...) -> returns FileLogId (called for EVERY outcome:
@@ -32,10 +32,11 @@ GO
 -- FileLogId. Called once per request for ALL outcomes. Region / Variant /
 -- RepresentativeDate are NULL-able; the MERGE matches them with explicit
 -- NULL-equality (col = col OR (col IS NULL AND col IS NULL)) so undated /
--- no-region requests reuse a single stable hub row. Endpoint / Status are passed
--- by name and validated by the FKs FK_FileLog_Endpoint / FK_FileLog_Status against
--- the pre-seeded arm.Endpoint / arm.Status catalogs (001) — always satisfied since
--- all 15 endpoints + 3 statuses are seeded. No proc signature change.
+-- no-region requests reuse a single stable hub row. Endpoint / Status are still
+-- passed BY NAME (unchanged signature) and resolved here to their surrogate
+-- arm.Endpoint / arm.Status .Id (a miss RAISERRORs — fixed catalogs seeded in
+-- 001); Region is passed by name and get-or-created in arm.Region (non-NULL
+-- only), its Id stored as RegionId. No proc signature change.
 --
 -- RETURN CONTRACT: emits exactly one result set, one row, one column "FileLogId"
 -- (the C# reads it with ExecuteScalar), captured via MERGE ... OUTPUT inserted.Id
@@ -61,31 +62,63 @@ BEGIN
         RETURN;
     END
 
+    -- ---- Resolve the lookup surrogate Ids ------------------------------------
+    -- Endpoint / Status are fixed catalogs (seeded in 001) — a miss is a bug, so
+    -- fail loudly rather than feed a NULL into the NOT NULL FK columns.
+    DECLARE @EndpointId INT = (SELECT Id FROM arm.Endpoint WHERE [Name] = @Endpoint);
+    IF @EndpointId IS NULL
+    BEGIN
+        RAISERROR('usp_UpsertFileLog: unknown Endpoint ''%s''.', 16, 1, @Endpoint);
+        RETURN;
+    END
+
+    DECLARE @StatusId INT = (SELECT Id FROM arm.Status WHERE [Name] = @StatusLabel);
+    IF @StatusId IS NULL
+    BEGIN
+        RAISERROR('usp_UpsertFileLog: unknown Status ''%s''.', 16, 1, @StatusLabel);
+        RETURN;
+    END
+
+    -- Region is get-or-create, and only for a non-NULL filename region; a NULL
+    -- region stays a NULL RegionId (never registers a row). Re-select after the
+    -- guarded insert so a concurrent insert of the same name is tolerated.
+    DECLARE @RegionId INT = NULL;
+    IF @Region IS NOT NULL
+    BEGIN
+        SELECT @RegionId = Id FROM arm.Region WHERE [Name] = @Region;
+        IF @RegionId IS NULL
+        BEGIN
+            INSERT arm.Region ([Name])
+            SELECT @Region WHERE NOT EXISTS (SELECT 1 FROM arm.Region WHERE [Name] = @Region);
+            SELECT @RegionId = Id FROM arm.Region WHERE [Name] = @Region;
+        END
+    END
+
     -- ---- Upsert the hub row, capturing the resulting Id ----------------------
     DECLARE @Out TABLE (FileLogId INT NOT NULL);
 
     MERGE arm.FileLog AS tgt
-    USING (SELECT @Endpoint           AS Endpoint,
-                  @Region             AS Region,
-                  @Variant            AS Variant,
+    USING (SELECT @EndpointId AS EndpointId,
+                  @RegionId   AS RegionId,
+                  @Variant    AS Variant,
                   @RepresentativeDate AS RepresentativeDate) AS src
-       ON  tgt.Endpoint = src.Endpoint
-       AND (tgt.Region  = src.Region  OR (tgt.Region  IS NULL AND src.Region  IS NULL))
-       AND (tgt.Variant = src.Variant OR (tgt.Variant IS NULL AND src.Variant IS NULL))
+       ON  tgt.EndpointId = src.EndpointId
+       AND (tgt.RegionId = src.RegionId OR (tgt.RegionId IS NULL AND src.RegionId IS NULL))
+       AND (tgt.Variant  = src.Variant  OR (tgt.Variant  IS NULL AND src.Variant  IS NULL))
        AND (tgt.RepresentativeDate = src.RepresentativeDate
             OR (tgt.RepresentativeDate IS NULL AND src.RepresentativeDate IS NULL))
     WHEN MATCHED THEN UPDATE SET
-        [Status]       = @StatusLabel,
+        StatusId       = @StatusId,
         HttpStatus     = @HttpStatus,
         RequestPath    = @RequestPath,
         [RowCount]     = @RowCount,
         LastCheckedUtc = SYSUTCDATETIME(),
         ModifiedAtUtc  = SYSUTCDATETIME()
     WHEN NOT MATCHED BY TARGET THEN
-        INSERT (Endpoint, Region, Variant, RepresentativeDate,
-                [Status], HttpStatus, [RowCount], RequestPath, LastCheckedUtc, ModifiedAtUtc)
-        VALUES (src.Endpoint, src.Region, src.Variant, src.RepresentativeDate,
-                @StatusLabel, @HttpStatus, @RowCount, @RequestPath, SYSUTCDATETIME(), SYSUTCDATETIME())
+        INSERT (EndpointId, RegionId, Variant, RepresentativeDate,
+                StatusId, HttpStatus, [RowCount], RequestPath, LastCheckedUtc, ModifiedAtUtc)
+        VALUES (src.EndpointId, src.RegionId, src.Variant, src.RepresentativeDate,
+                @StatusId, @HttpStatus, @RowCount, @RequestPath, SYSUTCDATETIME(), SYSUTCDATETIME())
     OUTPUT inserted.Id INTO @Out (FileLogId);
 
     SELECT TOP (1) FileLogId FROM @Out;
@@ -104,7 +137,7 @@ BEGIN
     MERGE arm.CityForecast AS tgt
     USING (
         SELECT FileLogId, Region, ProductionDate, ForecastDate, Station,
-               FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd
+               FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd, Units
         FROM (
             SELECT *,
                    ROW_NUMBER() OVER (PARTITION BY Region, Station, ProductionDate, ForecastDate
@@ -126,12 +159,13 @@ BEGIN
         NormMax       = src.NormMax,
         Hdd           = src.Hdd,
         Cdd           = src.Cdd,
+        Units         = src.Units,
         ModifiedAtUtc = SYSUTCDATETIME()
     WHEN NOT MATCHED BY TARGET THEN
         INSERT (FileLogId, Region, ProductionDate, ForecastDate, Station,
-                FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd)
+                FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd, Units)
         VALUES (src.FileLogId, src.Region, src.ProductionDate, src.ForecastDate, src.Station,
-                src.FcstMin, src.FcstMax, src.FcstAvg, src.NormMin, src.NormMax, src.Hdd, src.Cdd);
+                src.FcstMin, src.FcstMax, src.FcstAvg, src.NormMin, src.NormMax, src.Hdd, src.Cdd, src.Units);
 
     SELECT @@ROWCOUNT AS RecordsProcessed;
 END
@@ -405,6 +439,178 @@ BEGIN
         VALUES (src.FileLogId, src.RunDate, src.Dates, src.NgHdd, src.NgHdd30y, src.NgHdd10y, src.NgHddLastY,
                 src.PopCdd, src.PopCdd30y, src.PopCdd10y, src.PopCddLastY,
                 src.ElecCdd, src.ElecCdd30y, src.ElecCdd10y, src.ElecCddLastY, src.IsForecast);
+
+    SELECT @@ROWCOUNT AS RecordsProcessed;
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 16. arm.usp_BulkMergeRegions5DegreeDays — key (RunDate, Dates, RegionName).
+-- ----------------------------------------------------------------------------
+CREATE OR ALTER PROCEDURE arm.usp_BulkMergeRegions5DegreeDays
+    @Records arm.Regions5DegreeDaysTvp READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    MERGE arm.Regions5DegreeDays AS tgt
+    USING (
+        SELECT FileLogId, RunDate, Dates, RegionName,
+               NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
+               PopCdd, PopCdd30y, PopCdd10y, PopCddLastY,
+               ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
+               IsForecast, GasWeight, ElctWeight, PopWeight
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY RunDate, Dates, RegionName ORDER BY (SELECT NULL)) AS rn
+            FROM @Records
+        ) AS d
+        WHERE d.rn = 1
+    ) AS src
+       ON  tgt.RunDate    = src.RunDate
+       AND tgt.Dates      = src.Dates
+       AND tgt.RegionName = src.RegionName
+    WHEN MATCHED THEN UPDATE SET
+        FileLogId     = src.FileLogId,
+        NgHdd         = src.NgHdd,
+        NgHdd30y      = src.NgHdd30y,
+        NgHdd10y      = src.NgHdd10y,
+        NgHddLastY    = src.NgHddLastY,
+        PopCdd        = src.PopCdd,
+        PopCdd30y     = src.PopCdd30y,
+        PopCdd10y     = src.PopCdd10y,
+        PopCddLastY   = src.PopCddLastY,
+        ElecCdd       = src.ElecCdd,
+        ElecCdd30y    = src.ElecCdd30y,
+        ElecCdd10y    = src.ElecCdd10y,
+        ElecCddLastY  = src.ElecCddLastY,
+        IsForecast    = src.IsForecast,
+        GasWeight     = src.GasWeight,
+        ElctWeight    = src.ElctWeight,
+        PopWeight     = src.PopWeight,
+        ModifiedAtUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (FileLogId, RunDate, Dates, RegionName,
+                NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
+                PopCdd, PopCdd30y, PopCdd10y, PopCddLastY,
+                ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
+                IsForecast, GasWeight, ElctWeight, PopWeight)
+        VALUES (src.FileLogId, src.RunDate, src.Dates, src.RegionName,
+                src.NgHdd, src.NgHdd30y, src.NgHdd10y, src.NgHddLastY,
+                src.PopCdd, src.PopCdd30y, src.PopCdd10y, src.PopCddLastY,
+                src.ElecCdd, src.ElecCdd30y, src.ElecCdd10y, src.ElecCddLastY,
+                src.IsForecast, src.GasWeight, src.ElctWeight, src.PopWeight);
+
+    SELECT @@ROWCOUNT AS RecordsProcessed;
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 17. arm.usp_BulkMergeRegions9DegreeDays — key (RunDate, Dates, RegionName).
+--     Identical column set to #16 (Regions5), only the RegionName value set differs.
+-- ----------------------------------------------------------------------------
+CREATE OR ALTER PROCEDURE arm.usp_BulkMergeRegions9DegreeDays
+    @Records arm.Regions9DegreeDaysTvp READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    MERGE arm.Regions9DegreeDays AS tgt
+    USING (
+        SELECT FileLogId, RunDate, Dates, RegionName,
+               NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
+               PopCdd, PopCdd30y, PopCdd10y, PopCddLastY,
+               ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
+               IsForecast, GasWeight, ElctWeight, PopWeight
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY RunDate, Dates, RegionName ORDER BY (SELECT NULL)) AS rn
+            FROM @Records
+        ) AS d
+        WHERE d.rn = 1
+    ) AS src
+       ON  tgt.RunDate    = src.RunDate
+       AND tgt.Dates      = src.Dates
+       AND tgt.RegionName = src.RegionName
+    WHEN MATCHED THEN UPDATE SET
+        FileLogId     = src.FileLogId,
+        NgHdd         = src.NgHdd,
+        NgHdd30y      = src.NgHdd30y,
+        NgHdd10y      = src.NgHdd10y,
+        NgHddLastY    = src.NgHddLastY,
+        PopCdd        = src.PopCdd,
+        PopCdd30y     = src.PopCdd30y,
+        PopCdd10y     = src.PopCdd10y,
+        PopCddLastY   = src.PopCddLastY,
+        ElecCdd       = src.ElecCdd,
+        ElecCdd30y    = src.ElecCdd30y,
+        ElecCdd10y    = src.ElecCdd10y,
+        ElecCddLastY  = src.ElecCddLastY,
+        IsForecast    = src.IsForecast,
+        GasWeight     = src.GasWeight,
+        ElctWeight    = src.ElctWeight,
+        PopWeight     = src.PopWeight,
+        ModifiedAtUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (FileLogId, RunDate, Dates, RegionName,
+                NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
+                PopCdd, PopCdd30y, PopCdd10y, PopCddLastY,
+                ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
+                IsForecast, GasWeight, ElctWeight, PopWeight)
+        VALUES (src.FileLogId, src.RunDate, src.Dates, src.RegionName,
+                src.NgHdd, src.NgHdd30y, src.NgHdd10y, src.NgHddLastY,
+                src.PopCdd, src.PopCdd30y, src.PopCdd10y, src.PopCddLastY,
+                src.ElecCdd, src.ElecCdd30y, src.ElecCdd10y, src.ElecCddLastY,
+                src.IsForecast, src.GasWeight, src.ElctWeight, src.PopWeight);
+
+    SELECT @@ROWCOUNT AS RecordsProcessed;
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 18. arm.usp_BulkMergeISODegreeDays — key (RunDate, Dates, RegionName).
+--     DIVERGENT 11-col shape: POP_HDD family, no ELEC family, no weight columns.
+-- ----------------------------------------------------------------------------
+CREATE OR ALTER PROCEDURE arm.usp_BulkMergeISODegreeDays
+    @Records arm.ISODegreeDaysTvp READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    MERGE arm.ISODegreeDays AS tgt
+    USING (
+        SELECT FileLogId, RunDate, Dates, RegionName,
+               PopHdd, PopHdd30y, PopHdd10y, PopHddLastY,
+               PopCdd, PopCdd30y, PopCdd10y, PopCddLastY, IsForecast
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY RunDate, Dates, RegionName ORDER BY (SELECT NULL)) AS rn
+            FROM @Records
+        ) AS d
+        WHERE d.rn = 1
+    ) AS src
+       ON  tgt.RunDate    = src.RunDate
+       AND tgt.Dates      = src.Dates
+       AND tgt.RegionName = src.RegionName
+    WHEN MATCHED THEN UPDATE SET
+        FileLogId     = src.FileLogId,
+        PopHdd        = src.PopHdd,
+        PopHdd30y     = src.PopHdd30y,
+        PopHdd10y     = src.PopHdd10y,
+        PopHddLastY   = src.PopHddLastY,
+        PopCdd        = src.PopCdd,
+        PopCdd30y     = src.PopCdd30y,
+        PopCdd10y     = src.PopCdd10y,
+        PopCddLastY   = src.PopCddLastY,
+        IsForecast    = src.IsForecast,
+        ModifiedAtUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (FileLogId, RunDate, Dates, RegionName,
+                PopHdd, PopHdd30y, PopHdd10y, PopHddLastY,
+                PopCdd, PopCdd30y, PopCdd10y, PopCddLastY, IsForecast)
+        VALUES (src.FileLogId, src.RunDate, src.Dates, src.RegionName,
+                src.PopHdd, src.PopHdd30y, src.PopHdd10y, src.PopHddLastY,
+                src.PopCdd, src.PopCdd30y, src.PopCdd10y, src.PopCddLastY, src.IsForecast);
 
     SELECT @@ROWCOUNT AS RecordsProcessed;
 END

@@ -18,6 +18,11 @@ namespace DataLoader.CWG;
 /// <param name="RegionPlaceholder">Token name in the template (e.g. "region"), or null if none / literal.</param>
 /// <param name="Regions">Enum values for the region placeholder (empty if none).</param>
 /// <param name="ExtraPlaceholders">Extra named placeholders, e.g. subregion=["national"].</param>
+/// <param name="RegionUnits">OPTIONAL, index-aligned 1:1 with <see cref="Regions"/> — the per-region
+/// <c>{units}</c> filename token (CityForecast: <c>{"F","C"}</c> for <c>{"northamerica","europe"}</c>);
+/// null on the other 17 endpoints. A trailing optional ctor param (like <see cref="ExpectedColumns"/>/
+/// <see cref="AllowShortRows"/>), so the other 17 descriptor literals are untouched. When set it must
+/// have the same length as <see cref="Regions"/> (enforced by the registry invariant in the static ctor).</param>
 /// <param name="WideRegionColumns">Shape B in-file region column set (ordered); null otherwise.</param>
 /// <param name="KeyColumns">Shape B leading key-column count (1: DATE / UTC_HOUR_ENDING).</param>
 /// <param name="ExpectedBlocks">Shape E: 1 (Climo) or 3 (MW/Pct); null otherwise.</param>
@@ -47,17 +52,24 @@ public sealed record CwgEndpointDescriptor(
     string TargetTvp,
     string TargetProc,
     int? ExpectedColumns = null,
-    bool AllowShortRows = false)
+    bool AllowShortRows = false,
+    string[]? RegionUnits = null)
 {
     /// <summary>Undated endpoints use the RunDate/RunId hot key (design §3.1).</summary>
     public bool IsHot => !Dated;
 }
 
-/// <summary>The 15 concrete CWG endpoint descriptors (design §2.1) — the static discovery result.</summary>
+/// <summary>The 18 concrete CWG endpoint descriptors (design §2.1) — the static discovery result.</summary>
 public static class CwgDescriptors
 {
     private static readonly (string, string[])[] NoExtras = System.Array.Empty<(string, string[])>();
     private static readonly string[] Geographies = { "northamerica", "asia", "europe" };
+
+    // CityForecast enumerates only northamerica + europe (asia dropped) and fetches each region in
+    // its native unit — northamerica in _F, europe in _C — via the {units} filename token. RegionUnits
+    // is index-aligned 1:1 with CityForecastRegions (northamerica↔F, europe↔C); design §2.1 #1.
+    private static readonly string[] CityForecastRegions = { "northamerica", "europe" };
+    private static readonly string[] CityForecastUnits = { "F", "C" };
 
     // Shape B in-file region column sets (docs/apis §4/§7/§11).
     private static readonly string[] DailyNormalRegions =
@@ -76,11 +88,15 @@ public static class CwgDescriptors
         { "ERCOT", "CAISO", "MISO", "PJM", "SPP", "UK", "GERMANY", "FRANCE" };
 
     public static readonly CwgEndpointDescriptor CityForecast = new(
+        // Regions drop 'asia' (structurally, not via the Geographies setting) and carry per-region
+        // units: northamerica→F (_F file), europe→C (_C file). The {units} token selects the file,
+        // fills the FileLog Variant and populates the new arm.CityForecast.Units attribute column.
         "CityForecast", "City 15-day Forecast", CwgParseShape.A,
-        "city15dfcst_{region}_{date}_F.csv", true, CwgDateToken.Ymd, 0,
-        CwgRegionKind.Geography, "region", Geographies, NoExtras,
+        "city15dfcst_{region}_{date}_{units}.csv", true, CwgDateToken.Ymd, 0,
+        CwgRegionKind.Geography, "region", CityForecastRegions, NoExtras,
         null, 0, null,
-        "arm.CityForecast", "arm.CityForecastTvp", "arm.usp_BulkMergeCityForecast", ExpectedColumns: 10);
+        "arm.CityForecast", "arm.CityForecastTvp", "arm.usp_BulkMergeCityForecast",
+        ExpectedColumns: 10, RegionUnits: CityForecastUnits);
 
     public static readonly CwgEndpointDescriptor CityGasForecast = new(
         "CityGasForecast", "City Gas-day Forecast", CwgParseShape.A,
@@ -184,19 +200,67 @@ public static class CwgDescriptors
         null, 0, null,
         "arm.Station", "arm.StationTvp", "arm.usp_BulkMergeStation", ExpectedColumns: 9, AllowShortRows: true);
 
-    /// <summary>All 15 descriptors in registration order.</summary>
+    // Regions5/9/ISO degree-days (design §2.1 #16–#18): per-region siblings of
+    // NationalDegreeDays (#8) in the same northamerica_{subregion}_wdd_{date}.csv family.
+    // Like National, RegionKind.None with the fixed 'northamerica' baked in (NOT subject to
+    // the Geographies filter); {subregion} selects 5region / 9region / iso. Each adds an
+    // in-file REGION_NAME to the merge key (read in the row factory, not the unit).
+    public static readonly CwgEndpointDescriptor Regions5DegreeDays = new(
+        "Regions5DegreeDays", "5-Region Weighted Degree Days", CwgParseShape.A,
+        "northamerica_{subregion}_wdd_{date}.csv", true, CwgDateToken.Ymd, 0,
+        CwgRegionKind.None, null, new[] { "northamerica" },
+        new[] { ("subregion", new[] { "5region" }) },
+        null, 0, null,
+        "arm.Regions5DegreeDays", "arm.Regions5DegreeDaysTvp", "arm.usp_BulkMergeRegions5DegreeDays", ExpectedColumns: 18);
+
+    public static readonly CwgEndpointDescriptor Regions9DegreeDays = new(
+        "Regions9DegreeDays", "9-Region Weighted Degree Days", CwgParseShape.A,
+        "northamerica_{subregion}_wdd_{date}.csv", true, CwgDateToken.Ymd, 0,
+        CwgRegionKind.None, null, new[] { "northamerica" },
+        new[] { ("subregion", new[] { "9region" }) },
+        null, 0, null,
+        "arm.Regions9DegreeDays", "arm.Regions9DegreeDaysTvp", "arm.usp_BulkMergeRegions9DegreeDays", ExpectedColumns: 18);
+
+    public static readonly CwgEndpointDescriptor ISODegreeDays = new(
+        "ISODegreeDays", "ISO Weighted Degree Days", CwgParseShape.A,
+        "northamerica_{subregion}_wdd_{date}.csv", true, CwgDateToken.Ymd, 0,
+        CwgRegionKind.None, null, new[] { "northamerica" },
+        new[] { ("subregion", new[] { "iso" }) },
+        null, 0, null,
+        "arm.ISODegreeDays", "arm.ISODegreeDaysTvp", "arm.usp_BulkMergeISODegreeDays", ExpectedColumns: 11);
+
+    /// <summary>All 18 descriptors in registration order.</summary>
     public static readonly CwgEndpointDescriptor[] All =
     {
         CityForecast, CityGasForecast, CityObservation, DailyNormal, SolarForecast,
         SolarForecastChange, SolarHourly, NationalDegreeDays, WindForecast, WindForecastSubRegion,
-        WindHourly, WindTotalCapacityClimatology, WindTotalCapacityMW, WindTotalCapacityPct, Station
+        WindHourly, WindTotalCapacityClimatology, WindTotalCapacityMW, WindTotalCapacityPct, Station,
+        Regions5DegreeDays, Regions9DegreeDays, ISODegreeDays
     };
 
-    /// <summary>The 15 endpoint ids (default <see cref="CwgSettings.EnabledEndpoints"/>).</summary>
+    /// <summary>
+    /// Registry invariant (design §2/§3): <see cref="CwgEndpointDescriptor.RegionUnits"/>, when
+    /// present, is index-aligned 1:1 with <see cref="CwgEndpointDescriptor.Regions"/>. Fail fast at
+    /// startup (first static access) rather than mis-substituting the <c>{units}</c> token later.
+    /// (Static field initializers run before this body, so <see cref="All"/> is fully populated.)
+    /// </summary>
+    static CwgDescriptors()
+    {
+        foreach (var d in All)
+        {
+            if (d.RegionUnits is not null && d.RegionUnits.Length != d.Regions.Length)
+                throw new InvalidOperationException(
+                    $"CWG descriptor '{d.EndpointId}': RegionUnits length {d.RegionUnits.Length} must " +
+                    $"equal Regions length {d.Regions.Length} — they are index-aligned 1:1.");
+        }
+    }
+
+    /// <summary>The 18 endpoint ids (default <see cref="CwgSettings.EnabledEndpoints"/>).</summary>
     public static readonly string[] AllIds =
     {
         "CityForecast", "CityGasForecast", "CityObservation", "DailyNormal", "SolarForecast",
         "SolarForecastChange", "SolarHourly", "NationalDegreeDays", "WindForecast", "WindForecastSubRegion",
-        "WindHourly", "WindTotalCapacityClimatology", "WindTotalCapacityMW", "WindTotalCapacityPct", "Station"
+        "WindHourly", "WindTotalCapacityClimatology", "WindTotalCapacityMW", "WindTotalCapacityPct", "Station",
+        "Regions5DegreeDays", "Regions9DegreeDays", "ISODegreeDays"
     };
 }

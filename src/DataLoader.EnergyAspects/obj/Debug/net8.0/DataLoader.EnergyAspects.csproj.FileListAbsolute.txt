@@ -13,3 +13,4 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.EnergyAs
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.EnergyAspects\obj\Debug\net8.0\refint\DataLoader.EnergyAspects.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.EnergyAspects\obj\Debug\net8.0\DataLoader.EnergyAspects.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.EnergyAspects\obj\Debug\net8.0\ref\DataLoader.EnergyAspects.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.EnergyAspects\obj\Debug\net8.0\DataLoader.EnergyAspects.sourcelink.json
