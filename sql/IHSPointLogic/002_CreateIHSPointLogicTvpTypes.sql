@@ -125,7 +125,7 @@ IF TYPE_ID('arm.PointMetadataTvp') IS NULL
         FlowDirectionId     INT           NULL,
         FlowDirection       NVARCHAR(32)  NULL,
         DisplayName         NVARCHAR(200) NULL,
-        LocProp             NVARCHAR(64)  NULL,
+        LocProp             NVARCHAR(500)  NULL,
         PointLatitude       DECIMAL(9,6)  NULL,
         PointLongitude      DECIMAL(9,6)  NULL,
         CountyId            INT           NULL,

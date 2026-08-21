@@ -221,21 +221,22 @@ public class WorkUnitProviderTests
         Assert.Equal(3, units.Count);
         Assert.Equal(1, points.Calls); // point reference read exactly once
 
-        // Deterministic zero-padded batch tokens in order.
-        Assert.Equal(new[] { "0000", "0001", "0002" }, units.Select(u => u.BatchToken).ToArray());
+        // Deterministic start-date-stamped batch tokens in order (all ids have a NULL watermark → the
+        // default backfill floor 2020-01-01 → prefix 20200101, in-group sub-index 0000/0001/0002).
+        Assert.Equal(new[] { "20200101-0000", "20200101-0001", "20200101-0002" }, units.Select(u => u.BatchToken).ToArray());
         Assert.All(units, u => Assert.Equal("Batch", u.Variant));
         Assert.All(units, u => Assert.Equal(new DateOnly(2026, 8, 18), u.RepresentativeDate));
 
-        // First batch: pointIds CSV = 1..50 on the volumeHistory/point path.
+        // First batch: pointIds CSV = 1..50 on the volumeHistory/point path + the &startDate= floor.
         var b0 = units[0];
         Assert.StartsWith("cs/v1/pointlogic/volumeHistory/point?pointIds=1,2,3,", b0.RequestPath);
-        Assert.Equal("cs/v1/pointlogic/volumeHistory/point?pointIds=" + string.Join(",", Enumerable.Range(1, 50)), b0.RequestPath);
-        Assert.StartsWith("pl:PointVolume:0000:run=", b0.Key);
-        Assert.Equal("0000", b0.ParamKey);
+        Assert.Equal("cs/v1/pointlogic/volumeHistory/point?pointIds=" + string.Join(",", Enumerable.Range(1, 50)) + "&startDate=2020-01-01", b0.RequestPath);
+        Assert.StartsWith("pl:PointVolume:20200101-0000:run=", b0.Key);
+        Assert.Equal("20200101-0000", b0.ParamKey);
 
         // Last batch: the 25 remaining ids (101..125).
         var b2 = units[2];
-        Assert.Equal("cs/v1/pointlogic/volumeHistory/point?pointIds=" + string.Join(",", Enumerable.Range(101, 25)), b2.RequestPath);
+        Assert.Equal("cs/v1/pointlogic/volumeHistory/point?pointIds=" + string.Join(",", Enumerable.Range(101, 25)) + "&startDate=2020-01-01", b2.RequestPath);
     }
 
     [Fact]

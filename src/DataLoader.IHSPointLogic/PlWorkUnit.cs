@@ -30,7 +30,7 @@ public sealed class PlWorkUnit : WorkUnit
     /// <summary>D: the reportDate param; B-stamped: the run's UTC date; null otherwise.</summary>
     public DateOnly? ReportDate { get; init; }
 
-    /// <summary>PointVolume batch label (e.g. "0001"); null otherwise.</summary>
+    /// <summary>PointVolume batch label — start-date-stamped <c>{startDate:yyyyMMdd}-{subIndex:D4}</c> (e.g. "20200101-0000"); null otherwise.</summary>
     public string? BatchToken { get; init; }
 
     /// <summary>FileLog sub-slot (param-kind label / "Batch"); null for A/B.</summary>
@@ -262,10 +262,15 @@ public sealed class PlDiscoveryDatedFactWorkUnitProvider : IWorkUnitProvider<PlW
 }
 
 /// <summary>
-/// Archetype E (design §4): chunks the reference point-id list into
-/// ≤ <see cref="IHSPointLogicSettings.PointVolumeBatchSize"/>-id batches and emits one hot unit per
-/// batch, with <c>?pointIds={csv}</c>. Each <c>Data[]</c> row carries its own <c>id</c>, so a
-/// multi-point batch splits cleanly per row (no unit-side attribution needed).
+/// Archetype E — PointVolume incremental backfill (design Section C). Reads each active point with its
+/// watermark (<c>arm.PointMetadata.MaxDateQueued</c>), resolves a per-point start date
+/// <c>S = MaxDateQueued ?? DefaultStartDateForPointVolume</c>, GROUPS points by <c>S</c> (collapsing the
+/// NULL group and any point already at the default into one group, so byte-identical <c>startDate</c>
+/// queries share a group and tokens stay unique), then splits each group into
+/// ≤ <see cref="IHSPointLogicSettings.PointVolumeBatchSize"/>-id contiguous sub-chunks. Each slice emits
+/// one hot unit with <c>?pointIds={csv}&amp;startDate={S:yyyy-MM-dd}</c>; the batch token is
+/// start-date-stamped (<c>{S:yyyyMMdd}-{subIndex:D4}</c>). Each <c>Data[]</c> row carries its own
+/// <c>id</c>, so a multi-point batch splits cleanly per row (no unit-side attribution needed).
 /// </summary>
 public sealed class PlBatchedFactWorkUnitProvider : IWorkUnitProvider<PlWorkUnit>
 {
@@ -290,35 +295,66 @@ public sealed class PlBatchedFactWorkUnitProvider : IWorkUnitProvider<PlWorkUnit
 
     public async Task<IReadOnlyList<PlWorkUnit>> GetWorkUnitsAsync(LoaderRunContext context)
     {
-        var pointIds = await _pointProvider.GetPointIdsAsync(context.CancellationToken).ConfigureAwait(false);
+        var points = await _pointProvider.GetPointsAsync(context.CancellationToken).ConfigureAwait(false);
 
         var runDate = DateOnly.FromDateTime(context.StartedAtUtc);
         var hot = PlResumeKey.HotToken(_settings.HotZoneKeyStrategy, context); // §B.4: RunHour default
 
+        var defaultStart = ParseDefaultStartDate(_settings.DefaultStartDateForPointVolume);
         var batchSize = Math.Max(1, _settings.PointVolumeBatchSize);
-        var units = new List<PlWorkUnit>((pointIds.Count / batchSize) + 1);
 
-        var batchIndex = 0;
-        for (var i = 0; i < pointIds.Count; i += batchSize)
+        // Group by the RESOLVED start date S (Section C.4-step-3). Sort by PointId FIRST (OrderBy is
+        // stable) so within-group order — and therefore batch membership and the ordinal-in-group
+        // token/resume key — is deterministic regardless of the row order arm.usp_GetPointIds returns.
+        // Order the groups by S for legibility.
+        var groups = points
+            .OrderBy(p => p.PointId)
+            .GroupBy(p => p.MaxDateQueued ?? defaultStart)
+            .OrderBy(g => g.Key);
+
+        var units = new List<PlWorkUnit>();
+        foreach (var group in groups)
         {
-            var chunk = pointIds.Skip(i).Take(batchSize).ToList();
-            var csv = string.Join(",", chunk.Select(id => id.ToString(Inv)));
-            var token = batchIndex.ToString("D4", Inv); // stable, deterministic from the ordered id list
+            var start = group.Key;
+            var startPath = start.ToString("yyyy-MM-dd", Inv);
+            var startStamp = start.ToString("yyyyMMdd", Inv);
+            var ids = group.Select(p => p.PointId).ToList();
 
-            units.Add(new PlWorkUnit
+            var subIndex = 0;
+            for (var i = 0; i < ids.Count; i += batchSize)
             {
-                EndpointId = _d.EndpointId,
-                RequestPath = $"{_d.PathTemplate}?pointIds={csv}",
-                BatchToken = token,
-                Variant = "Batch",
-                RepresentativeDate = runDate,
-                KeyValue = $"pl:{_d.EndpointId}:{token}:run={hot}"
-            });
-            batchIndex++;
+                var csv = string.Join(",", ids.GetRange(i, Math.Min(batchSize, ids.Count - i)).Select(id => id.ToString(Inv)));
+                var token = $"{startStamp}-{subIndex.ToString("D4", Inv)}"; // start-date-stamped + in-group index
+
+                units.Add(new PlWorkUnit
+                {
+                    EndpointId = _d.EndpointId,
+                    RequestPath = $"{_d.PathTemplate}?pointIds={csv}&startDate={startPath}",
+                    BatchToken = token,
+                    Variant = "Batch",
+                    RepresentativeDate = runDate,
+                    KeyValue = $"pl:{_d.EndpointId}:{token}:run={hot}"
+                });
+                subIndex++;
+            }
         }
 
         _logger.LogDebug("[IHSPointLogic {Endpoint}] enumerated {Batches} batch unit(s) over {Points} point(s)",
-            _d.EndpointId, units.Count, pointIds.Count);
+            _d.EndpointId, units.Count, points.Count);
         return units;
+    }
+
+    /// <summary>
+    /// Parses <see cref="IHSPointLogicSettings.DefaultStartDateForPointVolume"/> (invariant
+    /// <c>yyyy-MM-dd</c>) FAIL-FAST (design Section C.11): a global backfill-floor typo has no safe
+    /// default, so surface it loudly rather than silently backfill from an unexpected date.
+    /// </summary>
+    private static DateOnly ParseDefaultStartDate(string value)
+    {
+        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", Inv, DateTimeStyles.None, out var parsed))
+            throw new InvalidOperationException(
+                $"IHSPointLogic setting 'DefaultStartDateForPointVolume' (\"{value}\") is not a valid yyyy-MM-dd date — " +
+                "fix the configuration; the PointVolume backfill floor has no safe default.");
+        return parsed;
     }
 }

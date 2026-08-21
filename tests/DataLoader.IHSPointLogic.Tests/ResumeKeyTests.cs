@@ -166,7 +166,7 @@ public class ResumeKeyTests
         var noonAgain = (await provider.GetWorkUnitsAsync(Context(Utc(2026, 8, 18, 12, 40)))).Single().Key;
         var onePm = (await provider.GetWorkUnitsAsync(Context(Utc(2026, 8, 18, 13, 0)))).Single().Key;
 
-        Assert.Equal("pl:PointVolume:0000:run=2026081812", noon);
+        Assert.Equal("pl:PointVolume:20200101-0000:run=2026081812", noon); // NULL watermarks → default 2020-01-01 floor
         Assert.Equal(noon, noonAgain);
         Assert.NotEqual(noon, onePm);
     }

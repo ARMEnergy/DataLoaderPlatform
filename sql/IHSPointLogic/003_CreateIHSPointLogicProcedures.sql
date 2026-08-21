@@ -869,7 +869,15 @@ BEGIN
 END
 GO
 
--- §25 arm.usp_BulkMergePointVolume — key (PointId, Date).
+-- §25 arm.usp_BulkMergePointVolume — key (PointId, Date). Also advances the
+-- per-point incremental-backfill watermark arm.PointMetadata.MaxDateQueued in the
+-- SAME round-trip (design Section C.7). Order is load-bearing: MERGE -> capture
+-- @@ROWCOUNT into @merged (the PointVolume rows merged) -> advance the watermark
+-- -> return the CAPTURED @merged, so the follow-up UPDATE's own row count never
+-- leaks into the reported RecordsProcessed. The watermark UPDATE joins a per-point
+-- MAX([Date]) from the TVP and only advances (monotonic non-decreasing) via the
+-- WHERE mx.MaxDate > ISNULL(pm.MaxDateQueued,'00010101') guard. Points absent from
+-- @Records (a zero-row pull) are never joined, so their watermark is untouched.
 CREATE OR ALTER PROCEDURE arm.usp_BulkMergePointVolume
     @Records arm.PointVolumeTvp READONLY
 AS
@@ -890,7 +898,21 @@ BEGIN
     WHEN NOT MATCHED BY TARGET THEN
         INSERT (FileLogId, PointId, [Date], Volume)
         VALUES (src.FileLogId, src.PointId, src.[Date], src.Volume);
-    SELECT @@ROWCOUNT AS RecordsProcessed;
+
+    -- Capture the MERGE row count IMMEDIATELY (before the watermark UPDATE) so the
+    -- returned RecordsProcessed reflects only PointVolume rows merged (Section C.7).
+    DECLARE @merged INT = @@ROWCOUNT;
+
+    -- Advance each point's watermark to the newest date just stored. Monotonic
+    -- guard so it only ever moves forward (never regresses).
+    UPDATE pm
+       SET pm.MaxDateQueued = mx.MaxDate
+      FROM arm.PointMetadata AS pm
+      JOIN (SELECT PointId, MAX([Date]) AS MaxDate FROM @Records GROUP BY PointId) AS mx
+        ON mx.PointId = pm.PointId
+     WHERE mx.MaxDate > ISNULL(pm.MaxDateQueued, '00010101');
+
+    SELECT @merged AS RecordsProcessed;
 END
 GO
 
@@ -952,15 +974,19 @@ BEGIN
 END
 GO
 
--- arm.usp_GetPointIds — ACTIVE PointId list (feeds PointVolume T2 batching). Scope
--- = active points only: reads arm.PointMetadata WHERE PointIsActive = 1 (design
--- §11.3 / decision 3). This table is the FK target for arm.PointVolume(PointId),
--- so every returned id is a valid FK parent.
+-- arm.usp_GetPointIds — ACTIVE points + their incremental-backfill watermark
+-- (feeds PointVolume T2 group-by-watermark batching, design Section C.3). Scope =
+-- active points only: reads arm.PointMetadata WHERE PointIsActive = 1 (design
+-- §11.3 / decision 3). Returns TWO columns (PointId, MaxDateQueued); PointId is the
+-- table PK so the row is already one-per-point (no DISTINCT/GROUP BY needed), and
+-- the ascending order makes the loader's batch slicing deterministic. This table is
+-- the FK target for arm.PointVolume(PointId), so every returned id is a valid FK
+-- parent. MaxDateQueued is NULL for a point never queued (backfills from the default).
 CREATE OR ALTER PROCEDURE arm.usp_GetPointIds
 AS
 BEGIN
     SET NOCOUNT ON;
-    SELECT DISTINCT PointId
+    SELECT PointId, MaxDateQueued
     FROM arm.PointMetadata
     WHERE PointIsActive = 1
       AND PointId IS NOT NULL

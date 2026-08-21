@@ -60,4 +60,12 @@ public sealed class IHSPointLogicSettings : LoaderSettingsBase
 
     /// <summary><c>pointIds</c> chunk size for the PointVolume batched fact (design §4 E). Default 50.</summary>
     public int PointVolumeBatchSize { get; set; } = 50;
+
+    /// <summary>
+    /// <c>startDate</c> floor (invariant <c>yyyy-MM-dd</c>) used for any point whose watermark
+    /// (<c>arm.PointMetadata.MaxDateQueued</c>) is NULL — the initial PointVolume incremental-backfill
+    /// floor (design Section C.11). Parsed <b>fail-fast</b> at the point of use (a bad global date has no
+    /// safe default). <b>Not a secret — never <c>SEE_DB</c>.</b>
+    /// </summary>
+    public string DefaultStartDateForPointVolume { get; set; } = "2020-01-01";
 }

@@ -435,6 +435,12 @@ StartedAtUtc:yyyyMMddHH` (default) | `RunDate → runDate:yyyyMMdd` | `RunId →
   multi-point batch splits cleanly per row (no unit-side attribution needed).
 - **MERGE:** by `(PointId, Date)`; FK `PointId → arm.PointMetadata` (the active-scope source; §A.1).
 
+> **Superseded for the incremental backfill by Section C.** PointVolume is now an *incremental*
+> per-point fact: batches are grouped by the `arm.PointMetadata.MaxDateQueued` watermark and issue
+> `&startDate=`, the batch token becomes `{startDate:yyyyMMdd}-{subIndex}`, and the merge proc advances
+> the watermark. The one-hot-unit-per-batch shape, the `(PointId, Date)` MERGE, and the `RunHour` hot
+> key are unchanged. See Section C.
+
 ---
 
 ## 5. Shared plumbing — Basic auth, the tolerant JSON pager, FileLog flow
@@ -879,6 +885,7 @@ Inherited: `ConnectionString` (the `IHSPointLogic` DB), `MaxConcurrentWorkUnits`
 | `HotZoneKeyStrategy` | `RunHour`\|`RunDate`\|`RunId` | `RunHour` | hot-zone + snapshot re-pull cadence; default flips to `RunHour` for the hourly schedule (§B.4) |
 | `RequestsPerSecond` | double? | conservative (e.g. `2`) | global client-side throttle; null/≤0 = unlimited. Probe surfaced no limit — pace gently, back off on `429` |
 | `PointVolumeBatchSize` | int | 50 | `pointIds` chunk size for PointVolume (§4 E) |
+| `DefaultStartDateForPointVolume` | string (`yyyy-MM-dd`) | `"2020-01-01"` | `startDate` floor for any point whose `MaxDateQueued IS NULL` (PointVolume incremental backfill, Section C). **Not a secret — NOT `SEE_DB`.** |
 
 (`PageSize = 10000` is a design constant in the reader, not a config field — the API fixes it; paging is
 by `pageIndex` regardless — open item §11.)
@@ -886,7 +893,8 @@ by `pageIndex` regardless — open item §11.)
 `appsettings.json` `Loaders:IHSPointLogic` mirrors the CWG/AGSI block: `ConnectionString`
 (`Server=…;Database=IHSPointLogic;Integrated Security=SSPI;TrustServerCertificate=True;`),
 `ClientId:"SEE_DB"`, `ClientSecret:"SEE_DB"`, the tuning knobs above, `EnabledEndpoints`, `DaysBack:21`,
-`SettledAfterDays:7`, `HotZoneKeyStrategy:"RunHour"` (§B.4), `RequestsPerSecond`, `PointVolumeBatchSize:50`.
+`SettledAfterDays:7`, `HotZoneKeyStrategy:"RunHour"` (§B.4), `RequestsPerSecond`, `PointVolumeBatchSize:50`,
+`DefaultStartDateForPointVolume:"2020-01-01"` (Section C).
 **Leave `"IHSPointLogic"` OUT of `Platform:EnabledLoaders`** (build-only pass — loader disabled by
 default). Real credentials live in `core.Param(LoaderName='IHSPointLogic', ParamName='ClientId'|
 'ClientSecret')` (or env `DATALOADER_Loaders__IHSPointLogic__ClientId` / `…__ClientSecret`), never in
@@ -986,9 +994,11 @@ reconciliation is the deferred `DATA_QUALITY_VALIDATOR` step.
 9. **`PageSize = 10000`** is a reader constant; the probe saw it fixed but couldn't confirm it is
    client-adjustable (cosmetic — the loader pages by `pageIndex` regardless). Confirm no need to expose
    it as config.
-10. **`volumeHistory/point` date-range** (API-doc open item) — no `startDate`/`endDate` confirmed; the
-    endpoint returns recent history for the requested `pointIds`. Revisit if a longer window is needed
-    (would add query params to the E archetype's `RequestPath`).
+10. **`volumeHistory/point` date-range** — RESOLVED: `startDate` (`yyyy-MM-dd`, `date >= startDate`) is
+    confirmed (API doc §25) and is now the basis of the **PointVolume incremental backfill in Section C**
+    (per-point `arm.PointMetadata.MaxDateQueued` watermark, group-by-watermark batching, write-back in
+    `arm.usp_BulkMergePointVolume`, new `DefaultStartDateForPointVolume` setting). See Section C for the
+    DATABASE_DEVELOPER + CODER contract. (`endDate` remains unconfirmed and unused.)
 11. **Rate limit / 429** — set a conservative `RequestsPerSecond` default and confirm `429` back-off /
     `Retry-After` in the Polly policy (none surfaced in the probe).
 12. **`arm.usp_ValidateLoad`** (§10) — the per-table counts, PK null/dup, referential sanity, and
@@ -1299,3 +1309,256 @@ idempotently skips.
 - **B:** `HotZoneKeyStrategy` default flips to `RunHour` (hourly re-pull cadence change).
 - **B:** whether a gated-off (out-of-hour) pipeline records a synthetic "skipped" result or just a log
   line (B.3).
+
+---
+
+## Section C — PointVolume incremental backfill (`startDate` + `arm.PointMetadata.MaxDateQueued`)
+
+**What changes:** PointVolume (archetype **E**, endpoint #25, `cs/v1/pointlogic/volumeHistory/point`)
+becomes an **incremental, per-point** fact. Each active point remembers how far its volume history has
+already been pulled in a new watermark column `arm.PointMetadata.MaxDateQueued DATE NULL`; the batched
+work-unit provider groups points by that watermark, appends `&startDate=yyyy-MM-dd` per group so the API
+returns only rows `date >= startDate`, and the PointVolume merge proc advances each point's watermark to
+the newest date it just stored — **all in the one round-trip the sink already makes**. No re-pull of the
+whole history on every run.
+
+This is **PointVolume-only.** No other endpoint, archetype, table, TVP, merge/read proc, reference
+provider, row, sink, or descriptor changes (boundary in C.13). Names below were reconciled against the
+shipped `src/DataLoader.IHSPointLogic/*` and `sql/IHSPointLogic/001–003+999` so they match reality; this
+section is the authoritative contract for the PointVolume backfill and **supersedes** the plain-batch
+description of archetype E in §4-E and the "no startDate" open item in §11.10.
+
+> **Build-only posture (unchanged).** The loader stays **out of `Platform:EnabledLoaders`** and is not
+> deployed/loaded this pass, so there is **no live `DATA_QUALITY_VALIDATOR` stage** for this change. It
+> is coded + unit-tested + buildable only, exactly like Sections A and B. (The `startDate` param itself
+> was live-confirmed on §25 of the API doc.)
+
+### C.1 API contract (confirmed)
+
+`GET cs/v1/pointlogic/volumeHistory/point?pointIds={csv, ≤50}&startDate={yyyy-MM-dd}` — WRAPPER envelope;
+`Data[]` rows `{id, volume, date}`. `startDate` filters history to rows with `date >= startDate`;
+combines with `pointIds` and `pageIndex`. Row shape, PK `(PointId, Date)`, and the mapping
+`id→PointId`, `date→Date`, `volume→Volume` are unchanged (§7 §25 / API doc §25). Absent `startDate` the
+API returns only *recent* history — the whole point of this feature is to make the window explicit and
+per-point.
+
+### C.2 DB — new watermark column `arm.PointMetadata.MaxDateQueued`
+
+- **Column:** `arm.PointMetadata.MaxDateQueued DATE NULL` (no default). `NULL` means "never queued" →
+  the point backfills from `DefaultStartDateForPointVolume` (C.11) on its next PointVolume pull.
+  **Deliberately on `arm.PointMetadata`, NOT `arm.Point`** — PointVolume's batching/scope and the
+  `arm.PointVolume.PointId` FK are both driven by `arm.usp_GetPointIds` reading
+  `arm.PointMetadata WHERE PointIsActive = 1` (§A.1(b)), which is the superset of `arm.Point` this loader
+  actually iterates; putting the watermark anywhere else would decouple it from the id list that drives
+  the pulls.
+- **`001`** — add the column two ways so it lands on both fresh and already-deployed databases (the
+  Section B `RunHoursCST` idempotent-ADD precedent): (a) include `MaxDateQueued DATE NULL` in the
+  `CREATE TABLE arm.PointMetadata` column list; and (b) a guarded idempotent ALTER outside the create
+  guard — `IF COL_LENGTH('arm.PointMetadata','MaxDateQueued') IS NULL ALTER TABLE arm.PointMetadata ADD
+  MaxDateQueued DATE NULL;`. No `DF_` default constraint (NULL is the meaningful "never queued" state).
+- **`arm.PointMetadataTvp` and `arm.usp_BulkMergePointMetadata` do NOT gain the column.** The Tier-0
+  PointMetadata refresh maps the API payload only (which carries no watermark), so `MaxDateQueued` is
+  absent from that TVP and from both the merge proc's `INSERT` and `UPDATE SET` lists. **Consequence
+  (required):** a daily PointMetadata refresh **never touches an existing point's watermark**, and a
+  newly-discovered point is inserted with `MaxDateQueued = NULL` (→ backfills from the default on its
+  first PointVolume pull). Only `arm.usp_BulkMergePointVolume` (C.7) writes this column.
+- **`999`** — no new drop statement needed; the column is dropped with `arm.PointMetadata`.
+
+### C.3 Id-source contract — `arm.usp_GetPointIds` + `IPlPointProvider`
+
+- **`arm.usp_GetPointIds` returns `(PointId INT, MaxDateQueued DATE NULL)` pairs** (was: a single
+  DISTINCT `PointId` column). Body:
+  `SELECT PointId, MaxDateQueued FROM arm.PointMetadata WHERE PointIsActive = 1 ORDER BY PointId;`
+  (`PointId` is the table PK so the row is already 1-per-point — no `DISTINCT`/`GROUP BY` needed; the
+  active-scope filter and ascending order are retained, the ascending order making the batch slicing in
+  C.4 deterministic). Name and `999` drop entry unchanged.
+- **C# `IPlPointProvider` / `SqlPlPointProvider` (`ReferenceProviders.cs` ~lines 135–145) carry the
+  nullable date.** Introduce a tiny value type
+  `public readonly record struct PlPointRef(int PointId, DateOnly? MaxDateQueued);` and change the
+  contract to `Task<IReadOnlyList<PlPointRef>> GetPointsAsync(CancellationToken ct)` (rename from
+  `GetPointIdsAsync` to signal the payload changed; the only caller is
+  `PlBatchedFactWorkUnitProvider`). Because the read is now two-column, `SqlPlPointProvider` **stops
+  deriving from the single-`INT` `SqlPlIntIdProvider` base** and gets a bespoke load-once/fail-fast
+  reader **mirroring `SqlPlSubregionProvider`** (double-checked `SemaphoreSlim`, cache the list, throw
+  `InvalidOperationException` if empty). Read the date as
+  `reader.IsDBNull(1) ? (DateOnly?)null : DateOnly.FromDateTime(reader.GetDateTime(1))`. The other four
+  reference providers (Region/State/PointType/Subregion) and the shared `SqlPlIntIdProvider` base are
+  **unchanged**.
+
+### C.4 Batching by watermark (`PlBatchedFactWorkUnitProvider`, `PlWorkUnit.cs` ~lines 270–324)
+
+Replace the single flat "chunk all ids into ≤50 slices" loop with a **group-then-slice**:
+
+1. `points = await pointProvider.GetPointsAsync(ct)` → `IReadOnlyList<PlPointRef>` (already ascending by
+   `PointId`).
+2. Resolve each point's start date `S(point) = point.MaxDateQueued ?? DefaultStartDate`, where
+   `DefaultStartDate` is the parsed `DefaultStartDateForPointVolume` setting (C.11).
+3. **Group by the resolved start date `S`** (a `DateOnly`), preserving ascending `PointId` order within
+   each group. Grouping on the *resolved* `S` (rather than the raw nullable `MaxDateQueued`) is the
+   deliberate reading of the locked "group by `MaxDateQueued` value" decision: it collapses the `NULL`
+   group and any point whose `MaxDateQueued` already equals the default into **one** group — they issue
+   byte-identical `startDate` queries, so they belong together, and it removes the token collision two
+   separate groups mapping to the same `startDate` would otherwise cause (C.6, and the open decision in
+   C.14). Groups are naturally ordered by `S` for legibility.
+4. **Sub-chunk each group** into ≤ `PointVolumeBatchSize` (=50) **contiguous** slices; `subIndex` counts
+   `0,1,2,…` **within the group** (reset per group). Emit one hot `PlWorkUnit` per slice.
+
+Because `points` is deterministic (ordered `PointId`, stable `S` map), the whole group→slice partition —
+and therefore every batch token (C.6) — is deterministic for a given DB state.
+
+### C.5 Request composition (provider owns it)
+
+Per slice the provider builds
+`RequestPath = "cs/v1/pointlogic/volumeHistory/point?pointIds={csv}&startDate={S:yyyy-MM-dd}"` (CSV =
+the slice's ids, invariant culture; `S` formatted `yyyy-MM-dd`). The provider owns query composition;
+`PlSourceReader.BuildPageUri` already appends `&pageIndex=N` with the correct separator because the path
+already contains `?` (no reader change). `S` is invariant-culture formatted.
+
+### C.6 Batch token, resume key, and `arm.FileLog` ParamKey
+
+The batch composition now depends on the per-group `startDate`, so the token **encodes the start date +
+the in-group sub-index** (was: a single zero-padded global batch index):
+
+- **`BatchToken = $"{S:yyyyMMdd}-{subIndex:D4}"`** — e.g. `20200101-0000`, `20200101-0001`,
+  `20260812-0000`. Stable and legible; the `startDate` prefix makes a batch self-describing in the log
+  and in `arm.FileLog`. **Uniqueness within a run:** `(S, subIndex)` pairs are unique → tokens are
+  unique (this is why C.3-step-3 groups on the resolved `S`: two raw watermark values that resolve to the
+  same `S` must not both mint a `…-0000`).
+- **Resume key** stays the archetype-E shape with the richer token:
+  `KeyValue = $"pl:PointVolume:{BatchToken}:run={hot}"` (`{hot}` = the shared UTC `RunHour` token,
+  §B.4 — **unchanged**).
+- **`arm.FileLog` identity** is unchanged in *shape* (§6 row E): `PlWorkUnit.ParamKey` already returns
+  `BatchToken ?? ParamId`, so the hub natural key is
+  `(Endpoint='PointVolume', ParamKey='{S:yyyyMMdd}-{subIndex}', Variant='Batch',
+  RepresentativeDate=run's UTC capture date)` → one hub row per (endpoint, batch, capture day). Only the
+  *content* of the `ParamKey` slot changed (now start-date-stamped); no hub/DDL change. Keep
+  `Variant = "Batch"` and `RepresentativeDate = runDate` as today.
+
+### C.7 Write-back — extend `arm.usp_BulkMergePointVolume` (one round-trip)
+
+The watermark advance happens **inside the existing PointVolume merge proc**, in the same call the sink
+already makes (`PointVolumeSqlSink` → `SqlSinkBase.WriteAsync`, `ProcedureReturnsRowCount => true` →
+`ExecuteScalar`). The proc's TVP (`arm.PointVolumeTvp`: `FileLogId, PointId, Date, Volume`), its
+signature, and the sink C# are **all unchanged** — only the proc *body* grows a trailing UPDATE:
+
+1. Run the existing `MERGE arm.PointVolume … ;` on PK `(PointId, Date)`.
+2. **Capture the merge count immediately, before the write-back:**
+   `DECLARE @merged INT = @@ROWCOUNT;`.
+3. **Advance the watermark from the TVP** (per-point MAX of the dates just stored):
+   ```
+   UPDATE pm
+      SET pm.MaxDateQueued = mx.MaxDate
+     FROM arm.PointMetadata AS pm
+     JOIN (SELECT PointId, MAX([Date]) AS MaxDate FROM @Records GROUP BY PointId) AS mx
+       ON mx.PointId = pm.PointId
+    WHERE mx.MaxDate > ISNULL(pm.MaxDateQueued, '00010101');
+   ```
+   The `WHERE … > ISNULL(...)` guard makes the watermark **monotonic non-decreasing** (defensive — since
+   `startDate = MaxDateQueued` and the API returns `date >= startDate`, `MAX(Date) ≥ MaxDateQueued`
+   always, so this only ever advances or no-ops; it never regresses).
+4. **Return the captured merge count as the scalar** (`SELECT @merged;`) so
+   `SqlSinkBase.WriteAsync`'s `ExecuteScalar` — and therefore the pipeline's `RecordsProcessed` /
+   `core.LoadLog` — reflects **PointVolume rows merged**, unaffected by the write-back UPDATE's own
+   `@@ROWCOUNT`. (This is the load-bearing ordering: capture → update → select the captured value.)
+
+The date field written back is the JSON `date` → `PointVolumeRow.Date` (`DateOnly`) → TVP `Date` (`DATE`)
+→ `MAX([Date])`. De-dup in the sink is on `(PointId, Date)`, which does not change `MAX(Date)`.
+
+### C.8 Zero-row pulls leave the watermark untouched (explicit)
+
+Two layers guarantee a point that returned nothing keeps its watermark:
+
+- A batch that returns **no rows at all** never reaches the proc — `SqlSinkBase.WriteAsync` short-circuits
+  on `rows.Count == 0` (and the reader logs `NotAvailable`), so no UPDATE runs.
+- A mixed batch (some points return rows, others don't) sends a TVP that **only contains the points that
+  returned rows**; the `JOIN … (SELECT … FROM @Records GROUP BY PointId)` in C.7-step-3 therefore
+  touches only those points. Points absent from the payload are not in `@Records` → their `MaxDateQueued`
+  is left exactly as it was. This is intentional: an empty pull must not falsely advance the watermark.
+
+### C.9 Idempotency, resume, and same-hour re-run (accepted behavior)
+
+- **Steady state:** on a normal run each point pulls `date >= its watermark`, stores the tail, and the
+  watermark advances to the newest stored date. The MERGE on `(PointId, Date)` makes re-storing the
+  boundary day idempotent.
+- **Same-hour manual re-run (accepted, no extra machinery):** after a successful pull the watermark has
+  advanced, so a second run in the same UTC hour re-reads the advanced `(PointId, MaxDateQueued)` list,
+  **recomposes** groups/batches (the `startDate` prefixes — and thus the batch tokens and `core.LoadLog`
+  keys — differ from the first run), and re-pulls **incrementally** from the new watermark (a small
+  window, idempotent MERGE). It is deliberately **not** a `core.LoadLog` no-op. Per the locked decision
+  we do **not** add batch-token/resume-key complexity to force a no-op; the hot key stays `RunHour`/UTC
+  (§B.4). The cost is one small incremental re-pull, which is correct and cheap.
+- **Crash/resume within a run:** work units are enumerated once at `GetWorkUnitsAsync`, so batch
+  composition is fixed for the life of a run. A resumed run (after the overlap guard releases) re-reads
+  the now-partially-advanced watermarks and recomposes — already-completed points re-pull their small
+  advanced tail (idempotent), not-yet-done points pull from their unchanged watermark. No duplicates, no
+  data loss; the overlap guard still prevents two hosts running at once.
+
+### C.10 Backfill operator workflow (locked mechanism)
+
+To force a point (or set of points) to re-pull full history from `DefaultStartDateForPointVolume` on the
+next run, an operator sets its watermark back to NULL directly in the DB:
+
+```
+UPDATE arm.PointMetadata SET MaxDateQueued = NULL WHERE PointId IN (…);   -- or any predicate
+```
+
+On the next PointVolume run those points fall into the `NULL → DefaultStartDate` group and re-pull from
+the default forward; the write-back then re-advances their watermark. This is the intended, no-redeploy
+backfill lever (retune in the DB, like Section B's `RunHoursCST`). Setting it to a **specific** date
+(e.g. `'2023-01-01'`) instead of NULL backfills from that date forward — same mechanism.
+
+### C.11 New setting `DefaultStartDateForPointVolume`
+
+| Setting | Type | Default | Purpose |
+|---------|------|---------|---------|
+| `DefaultStartDateForPointVolume` | string (`yyyy-MM-dd`) | `"2020-01-01"` | `startDate` used for any point whose `MaxDateQueued IS NULL` (the initial backfill floor). **Not a secret — NOT `SEE_DB`.** |
+
+- Add to `IHSPointLogicSettings` (a plain `string` with the `"2020-01-01"` default) and to the
+  `appsettings.json` `Loaders:IHSPointLogic` block alongside `PointVolumeBatchSize`.
+- **Parse once** (invariant `DateOnly.ParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture)`) in
+  `PlBatchedFactWorkUnitProvider` (or a shared settings-validation helper). On a blank/unparseable value
+  **fail fast** with a clear message (`InvalidOperationException`) — a global backfill floor typo must
+  surface loudly, not silently backfill from an unexpected date. (Contrast Section B's fail-*open* parse:
+  there a per-endpoint schedule typo must not disable an endpoint; here a bad global date has no safe
+  default, so fail-*closed*.)
+
+### C.12 Concurrency / write-gate notes
+
+- `PointVolumeSqlSink.WriteAsync` auto-acquires `SqlWriteGate` on `arm.usp_BulkMergePointVolume`
+  (unchanged). The write-back UPDATE to `arm.PointMetadata` now rides **inside that same gated call**, so
+  concurrent PointVolume batches serialize on the one PointVolume-proc key — and because batches partition
+  the points into **disjoint** id sets, their `arm.PointMetadata` UPDATEs touch disjoint rows anyway (no
+  logical conflict, no deadlock).
+- No contention with the Tier-0 `arm.usp_BulkMergePointMetadata` (a different gate key): Tier 0 and
+  Tier 2 are separated by the §1.4 tier barrier and never run concurrently in one host run;
+  cross-process is the overlap guard's job. No new gate key is required.
+
+### C.13 Boundary — what does NOT change
+
+Only PointVolume's batching/keying, `arm.PointMetadata` (one column), `arm.usp_GetPointIds`,
+`IPlPointProvider`/`SqlPlPointProvider`, `PlBatchedFactWorkUnitProvider`,
+`arm.usp_BulkMergePointVolume` (body only), and the new setting change. **Unchanged:** the other 24
+endpoints, archetypes A/B/C/D, the `PlWorkUnit`/`PlSourceReader`/`PlPipeline` plumbing, the hot-key
+strategy and `RunHour` cadence (§B.4), the `arm.FileLog` hub DDL and `arm.usp_UpsertFileLog`, the
+PointVolume row/sink/TVP/descriptor identifiers and the `arm.PointVolume` table + PK, and the four other
+reference providers + `SqlPlIntIdProvider` base. `arm.usp_ValidateLoad` need not change (optionally it
+could gain a watermark sanity check — MaxDateQueued not in the future / not before the default — but that
+is out of scope for this pass).
+
+### C.14 Open decisions for the reviewer to confirm
+
+- **Grouping key:** group on the **resolved** `startDate` `S = MaxDateQueued ?? Default` (C.3-step-3),
+  which collapses the `NULL` group and any point already at the default into one group. This is the
+  design's reading of the locked "group by `MaxDateQueued` value" decision and is what removes the
+  duplicate-token risk; confirm it is acceptable (the alternative — grouping on the raw nullable value —
+  would need an extra discriminator in the token to stay unique).
+- **`IPlPointProvider` method rename** `GetPointIdsAsync → GetPointsAsync` returning `PlPointRef` — taken
+  as a DECISION here; existing unit tests that reference `GetPointIdsAsync` / the `int` list are updated
+  by the CODE_TESTER stage.
+- **Watermark monotonic guard** `WHERE mx.MaxDate > ISNULL(pm.MaxDateQueued, '00010101')` in the
+  write-back UPDATE (C.7) — recommended as defensive; confirm keep vs drop (functionally a no-op given
+  `MAX(Date) ≥ startDate`).
+- **`DefaultStartDateForPointVolume` parse failure = fail-fast** (C.11) — confirm fail-closed here vs
+  Section B's fail-open schedule parse.
+- **Backfill lever is a manual DB `UPDATE … SET MaxDateQueued = NULL`** (C.10) — confirm no dedicated
+  proc/CLI is wanted for the build-only pass.

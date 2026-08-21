@@ -26,6 +26,9 @@
     <ProjectReference Include="..\DataLoader.CWG\DataLoader.CWG.csproj" />
     <ProjectReference Include="..\DataLoader.AGSI\DataLoader.AGSI.csproj" />
     <ProjectReference Include="..\DataLoader.IHSPointLogic\DataLoader.IHSPointLogic.csproj" />
+    <ProjectReference Include="..\DataLoader.IIR\DataLoader.IIR.csproj" />
+    <ProjectReference Include="..\DataLoader.OPIS\DataLoader.OPIS.csproj" />
+    <ProjectReference Include="..\DataLoader.NGI\DataLoader.NGI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

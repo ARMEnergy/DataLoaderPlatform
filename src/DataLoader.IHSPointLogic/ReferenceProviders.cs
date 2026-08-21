@@ -18,7 +18,19 @@ namespace DataLoader.IHSPointLogic;
 public interface IPlRegionProvider { Task<IReadOnlyList<int>> GetRegionIdsAsync(CancellationToken cancellationToken); }
 public interface IPlStateProvider { Task<IReadOnlyList<int>> GetStateIdsAsync(CancellationToken cancellationToken); }
 public interface IPlPointTypeProvider { Task<IReadOnlyList<int>> GetPointTypeIdsAsync(CancellationToken cancellationToken); }
-public interface IPlPointProvider { Task<IReadOnlyList<int>> GetPointIdsAsync(CancellationToken cancellationToken); }
+
+/// <summary>
+/// An active point plus its PointVolume incremental-backfill watermark
+/// (<c>arm.PointMetadata.MaxDateQueued</c>): <c>null</c> = never queued → backfills from
+/// <c>DefaultStartDateForPointVolume</c> on its next pull (design Section C.3).
+/// </summary>
+public readonly record struct PlPointRef(int PointId, DateOnly? MaxDateQueued);
+
+/// <summary>
+/// Active point reference — surfaces each <c>PointId</c> with its watermark so
+/// <c>PlBatchedFactWorkUnitProvider</c> can group by resolved <c>startDate</c> (design Section C).
+/// </summary>
+public interface IPlPointProvider { Task<IReadOnlyList<PlPointRef>> GetPointsAsync(CancellationToken cancellationToken); }
 
 /// <summary>
 /// Sub-region reference provider — surfaces BOTH the <c>SubRegionId</c> list (to enumerate work
@@ -132,16 +144,72 @@ public sealed class SqlPlPointTypeProvider : SqlPlIntIdProvider, IPlPointTypePro
     public Task<IReadOnlyList<int>> GetPointTypeIdsAsync(CancellationToken cancellationToken) => GetOrLoadAsync(cancellationToken);
 }
 
-/// <summary>Active PointId list (feeds PointVolume T2 batching). Reads <c>arm.usp_GetPointIds</c>.</summary>
-public sealed class SqlPlPointProvider : SqlPlIntIdProvider, IPlPointProvider
+/// <summary>
+/// Active point reference cache (design §3 / Section C.3) — loads the <c>(PointId, MaxDateQueued)</c>
+/// pairs from <c>arm.usp_GetPointIds</c> (active scope, ascending <c>PointId</c>) ONCE behind a
+/// double-checked <see cref="SemaphoreSlim"/> and serves the cached list thereafter (mirrors
+/// <see cref="SqlPlSubregionProvider"/>'s two-column read; does NOT derive from the single-INT
+/// <see cref="SqlPlIntIdProvider"/> base since the read now carries a nullable watermark). Fail fast if
+/// empty. The nullable watermark drives the PointVolume incremental-backfill batching in
+/// <c>PlBatchedFactWorkUnitProvider</c>.
+/// </summary>
+public sealed class SqlPlPointProvider : IPlPointProvider
 {
+    private const string ReadProc = "arm.usp_GetPointIds";
+
+    private readonly IHSPointLogicSettings _settings;
+    private readonly ILogger<SqlPlPointProvider> _logger;
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
+
+    private IReadOnlyList<PlPointRef>? _cache;
+
     public SqlPlPointProvider(IOptions<IHSPointLogicSettings> settings, ILogger<SqlPlPointProvider> logger)
-        : base(settings.Value, logger) { }
+    {
+        _settings = settings.Value;
+        _logger = logger;
+    }
 
-    protected override string ReadProc => "arm.usp_GetPointIds";
-    protected override string EntityLabel => "Point";
+    public async Task<IReadOnlyList<PlPointRef>> GetPointsAsync(CancellationToken cancellationToken)
+    {
+        if (_cache is not null) return _cache;
 
-    public Task<IReadOnlyList<int>> GetPointIdsAsync(CancellationToken cancellationToken) => GetOrLoadAsync(cancellationToken);
+        await _loadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_cache is not null) return _cache;
+            _cache = await LoadAsync(cancellationToken).ConfigureAwait(false);
+            return _cache;
+        }
+        finally
+        {
+            _loadLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<PlPointRef>> LoadAsync(CancellationToken ct)
+    {
+        await using var conn = new SqlConnection(_settings.ConnectionString);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+
+        await using var cmd = new SqlCommand(ReadProc, conn) { CommandType = CommandType.StoredProcedure };
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+
+        var points = new List<PlPointRef>();
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            if (reader.IsDBNull(0)) continue;
+            var pointId = reader.GetInt32(0);
+            DateOnly? maxDateQueued = reader.IsDBNull(1) ? null : DateOnly.FromDateTime(reader.GetDateTime(1));
+            points.Add(new PlPointRef(pointId, maxDateQueued));
+        }
+
+        if (points.Count == 0)
+            throw new InvalidOperationException(
+                $"IHSPointLogic Point reference is empty (via {ReadProc}) — run the feeding tier first, or check the discovery load.");
+
+        _logger.LogInformation("IHSPointLogic Point reference loaded: {Count} active point(s)", points.Count);
+        return points;
+    }
 }
 
 /// <summary>

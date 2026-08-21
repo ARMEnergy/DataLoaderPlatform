@@ -1,12 +1,13 @@
 {
   "version": 2,
-  "dgSpecHash": "v/Mbfg0RcLE=",
+  "dgSpecHash": "o6Bto8+GwPg=",
   "success": true,
   "projectFilePath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Host\\DataLoader.Host.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\azure.core\\1.38.0\\azure.core.1.38.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\azure.identity\\1.11.3\\azure.identity.1.11.3.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\bouncycastle.cryptography\\2.4.0\\bouncycastle.cryptography.2.4.0.nupkg.sha512",
+    "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\fluentftp\\53.0.1\\fluentftp.53.0.1.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.bcl.asyncinterfaces\\1.1.1\\microsoft.bcl.asyncinterfaces.1.1.1.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.csharp\\4.5.0\\microsoft.csharp.4.5.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\microsoft.data.sqlclient\\5.2.1\\microsoft.data.sqlclient.5.2.1.nupkg.sha512",

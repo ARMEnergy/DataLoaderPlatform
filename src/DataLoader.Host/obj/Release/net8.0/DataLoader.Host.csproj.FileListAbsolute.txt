@@ -187,3 +187,10 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.AGSI.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.IHSPointLogic.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.IHSPointLogic.pdb
+c:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.IIR.dll
+c:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.IIR.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\FluentFTP.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.OPIS.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.OPIS.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.NGI.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.NGI.pdb

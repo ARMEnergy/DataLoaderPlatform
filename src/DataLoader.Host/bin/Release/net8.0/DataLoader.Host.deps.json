@@ -13,6 +13,9 @@
           "DataLoader.Core": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
           "DataLoader.IHSPointLogic": "1.0.0",
+          "DataLoader.IIR": "1.0.0",
+          "DataLoader.NGI": "1.0.0",
+          "DataLoader.OPIS": "1.0.0",
           "DataLoader.Platts": "1.0.0",
           "DataLoader.StormVista": "1.0.0",
           "DataLoader.Vulcan": "1.0.0",
@@ -65,6 +68,14 @@
           "lib/net6.0/BouncyCastle.Cryptography.dll": {
             "assemblyVersion": "2.0.0.0",
             "fileVersion": "2.4.0.33771"
+          }
+        }
+      },
+      "FluentFTP/53.0.1": {
+        "runtime": {
+          "lib/net8.0/FluentFTP.dll": {
+            "assemblyVersion": "53.0.1.0",
+            "fileVersion": "53.0.1.0"
           }
         }
       },
@@ -771,6 +782,40 @@
           }
         }
       },
+      "DataLoader.IIR/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.IIR.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "DataLoader.NGI/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.NGI.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "DataLoader.OPIS/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0",
+          "FluentFTP": "53.0.1"
+        },
+        "runtime": {
+          "DataLoader.OPIS.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.Platts/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0",
@@ -833,6 +878,13 @@
       "sha512": "sha512-SwXsAV3sMvAU/Nn31pbjhWurYSjJ+/giI/0n6tCrYoupEK34iIHCuk3STAd9fx8yudM85KkLSVdn951vTng/vQ==",
       "path": "bouncycastle.cryptography/2.4.0",
       "hashPath": "bouncycastle.cryptography.2.4.0.nupkg.sha512"
+    },
+    "FluentFTP/53.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-GzT+G6CsMQx+UeLiYmWsXUDDQpKIzo6NML21vgbZv7zyRFNx386eabGiuv3xkdCqxiTFYY4mGla9WdOLR1HAMA==",
+      "path": "fluentftp/53.0.1",
+      "hashPath": "fluentftp.53.0.1.nupkg.sha512"
     },
     "Microsoft.Bcl.AsyncInterfaces/1.1.1": {
       "type": "package",
@@ -1254,6 +1306,21 @@
       "sha512": ""
     },
     "DataLoader.IHSPointLogic/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.IIR/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.NGI/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.OPIS/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

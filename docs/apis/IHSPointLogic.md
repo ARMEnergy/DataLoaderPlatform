@@ -531,11 +531,19 @@ from `arm.Subregion` (§22, the SubRegionId→RegionId map) and inject it**, alo
 
 **PK:** `(SubRegionId, RegionId, Date, Product)`.
 
-## 25. PointVolume — `GET cs/v1/pointlogic/volumeHistory/point?pointIds={csv, ≤50}` → `arm.PointVolume`
+## 25. PointVolume — `GET cs/v1/pointlogic/volumeHistory/point?pointIds={csv, ≤50}[&startDate=yyyy-MM-dd]` → `arm.PointVolume`
 
 **WRAPPER**; `Data` rows `{id, volume, date}`. `pointIds` is a **comma-separated list** —
 confirmed format `pointIds=689,690,691` — **batch ≤ 50 point ids per request** (`id` in each row =
-the `PointId`, so a multi-point batch splits cleanly). Returns **recent** history rows.
+the `PointId`, so a multi-point batch splits cleanly). Without a start date the call returns
+**recent** history rows.
+
+**Query params:**
+
+| Param | Type | Required | Notes |
+|-------|------|----------|-------|
+| `pointIds` | CSV of `INT` | Yes | ≤ 50 point ids per request; `id` in each row echoes the `PointId`. |
+| `startDate` | `date` (`yyyy-MM-dd`) | No | **Confirmed.** Filters history to rows with `date >= startDate`; controls how far back volume history is returned. Combines with `pointIds` and `pageIndex`. |
 
 | Field | JSON | SQL type | Null? | Notes |
 |-------|------|----------|-------|-------|
@@ -599,8 +607,9 @@ is documented and **excluded**.
 
 1. **Max `page_size`:** observed fixed at **10 000/page**; whether it is client-adjustable is
    unconfirmed (the loader pages via `pageIndex` regardless, so this is cosmetic).
-2. **`volumeHistory/point` date-range:** a `startDate`/`endDate` param was not confirmed — the call
-   returned recent history for the given `pointIds`. Revisit if a longer window is needed.
+2. **`volumeHistory/point` date-range:** RESOLVED — `startDate` (`yyyy-MM-dd`) is confirmed and
+   documented on §25; it filters history to `date >= startDate`. (`endDate` remains unconfirmed and
+   is not currently needed.)
 3. **Rate limits / 429:** none surfaced during the probe — pace conservatively and back off on
    `429` if it ever appears.
 4. **`gasproduction_producingarea.reporteddate` key granularity:** it carries `HH:mm`; modeled as

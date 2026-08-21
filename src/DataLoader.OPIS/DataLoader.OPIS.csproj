@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.OPIS</RootNamespace>
+    <AssemblyName>DataLoader.OPIS</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- FluentFTP (MIT) — plain FTP client for ftp.opisnet.com:21. The platform's
+         only other remote file driver is Platts' SSH.NET SFTP one, which cannot
+         speak FTP; System.Net.FtpWebRequest is obsolete (SYSLIB0014) in net8.0. -->
+    <PackageReference Include="FluentFTP" Version="53.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.OPIS.Tests" />
+  </ItemGroup>
+</Project>

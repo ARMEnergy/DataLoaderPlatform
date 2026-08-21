@@ -60,6 +60,19 @@
           }
         }
       },
+      "FluentFTP/53.0.1": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/FluentFTP.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/FluentFTP.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "Microsoft.Bcl.AsyncInterfaces/1.1.1": {
         "type": "package",
         "compile": {
@@ -1179,6 +1192,46 @@
           "bin/placeholder/DataLoader.IHSPointLogic.dll": {}
         }
       },
+      "DataLoader.IIR/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.IIR.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.IIR.dll": {}
+        }
+      },
+      "DataLoader.NGI/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.NGI.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.NGI.dll": {}
+        }
+      },
+      "DataLoader.OPIS/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0",
+          "FluentFTP": "53.0.1"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.OPIS.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.OPIS.dll": {}
+        }
+      },
       "DataLoader.Platts/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -1278,6 +1331,35 @@
         "lib/netstandard2.0/BouncyCastle.Cryptography.dll",
         "lib/netstandard2.0/BouncyCastle.Cryptography.xml",
         "packageIcon.png"
+      ]
+    },
+    "FluentFTP/53.0.1": {
+      "sha512": "GzT+G6CsMQx+UeLiYmWsXUDDQpKIzo6NML21vgbZv7zyRFNx386eabGiuv3xkdCqxiTFYY4mGla9WdOLR1HAMA==",
+      "type": "package",
+      "path": "fluentftp/53.0.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE.TXT",
+        "fluentftp.53.0.1.nupkg.sha512",
+        "fluentftp.nuspec",
+        "lib/net462/FluentFTP.dll",
+        "lib/net462/FluentFTP.xml",
+        "lib/net472/FluentFTP.dll",
+        "lib/net472/FluentFTP.xml",
+        "lib/net5.0/FluentFTP.dll",
+        "lib/net5.0/FluentFTP.xml",
+        "lib/net6.0/FluentFTP.dll",
+        "lib/net6.0/FluentFTP.xml",
+        "lib/net7.0/FluentFTP.dll",
+        "lib/net7.0/FluentFTP.xml",
+        "lib/net8.0/FluentFTP.dll",
+        "lib/net8.0/FluentFTP.xml",
+        "lib/netstandard2.0/FluentFTP.dll",
+        "lib/netstandard2.0/FluentFTP.xml",
+        "lib/netstandard2.1/FluentFTP.dll",
+        "lib/netstandard2.1/FluentFTP.xml",
+        "logo-nuget.png"
       ]
     },
     "Microsoft.Bcl.AsyncInterfaces/1.1.1": {
@@ -3220,6 +3302,21 @@
       "path": "../DataLoader.IHSPointLogic/DataLoader.IHSPointLogic.csproj",
       "msbuildProject": "../DataLoader.IHSPointLogic/DataLoader.IHSPointLogic.csproj"
     },
+    "DataLoader.IIR/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.IIR/DataLoader.IIR.csproj",
+      "msbuildProject": "../DataLoader.IIR/DataLoader.IIR.csproj"
+    },
+    "DataLoader.NGI/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.NGI/DataLoader.NGI.csproj",
+      "msbuildProject": "../DataLoader.NGI/DataLoader.NGI.csproj"
+    },
+    "DataLoader.OPIS/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.OPIS/DataLoader.OPIS.csproj",
+      "msbuildProject": "../DataLoader.OPIS/DataLoader.OPIS.csproj"
+    },
     "DataLoader.Platts/1.0.0": {
       "type": "project",
       "path": "../DataLoader.Platts/DataLoader.Platts.csproj",
@@ -3243,6 +3340,9 @@
       "DataLoader.Core >= 1.0.0",
       "DataLoader.EnergyAspects >= 1.0.0",
       "DataLoader.IHSPointLogic >= 1.0.0",
+      "DataLoader.IIR >= 1.0.0",
+      "DataLoader.NGI >= 1.0.0",
+      "DataLoader.OPIS >= 1.0.0",
       "DataLoader.Platts >= 1.0.0",
       "DataLoader.StormVista >= 1.0.0",
       "DataLoader.Vulcan >= 1.0.0",
@@ -3291,6 +3391,15 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IHSPointLogic\\DataLoader.IHSPointLogic.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IHSPointLogic\\DataLoader.IHSPointLogic.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IIR\\DataLoader.IIR.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IIR\\DataLoader.IIR.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.NGI\\DataLoader.NGI.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.NGI\\DataLoader.NGI.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.OPIS\\DataLoader.OPIS.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.OPIS\\DataLoader.OPIS.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Platts\\DataLoader.Platts.csproj"

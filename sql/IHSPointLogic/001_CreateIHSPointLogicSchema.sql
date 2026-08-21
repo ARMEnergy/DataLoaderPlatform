@@ -433,12 +433,24 @@ BEGIN
         PointLongitude      DECIMAL(9,6)  NULL,
         CountyId            INT           NULL,
         RegionId            INT           NULL,
+        MaxDateQueued       DATE          NULL,        -- PointVolume incremental-backfill watermark (design Section C); NULL = never queued -> backfills from DefaultStartDateForPointVolume. Written ONLY by arm.usp_BulkMergePointVolume; never touched by the PointMetadata refresh.
         ModifiedAtUtc       DATETIME2(3)  NOT NULL CONSTRAINT DF_PointMetadata_ModifiedAtUtc DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_PointMetadata PRIMARY KEY (PointId),
         CONSTRAINT FK_PointMetadata_FileLog FOREIGN KEY (FileLogId) REFERENCES arm.FileLog (Id),
         INDEX IX_PointMetadata_FileLogId NONCLUSTERED (FileLogId)
     );
 END
+GO
+
+-- PointVolume incremental-backfill watermark (design Section C). Added idempotently so a
+-- previously deployed arm.PointMetadata gains the column without a rebuild: a fresh CREATE
+-- above adds it in the column list, and this guarded ALTER adds it to an existing table
+-- (the same idempotent-ADD precedent as arm.Endpoint.RunHoursCST above). DATE NULL, no
+-- default constraint -- NULL is the meaningful "never queued" state. Written ONLY by
+-- arm.usp_BulkMergePointVolume; the daily PointMetadata refresh never reads/writes it.
+IF COL_LENGTH('arm.PointMetadata', 'MaxDateQueued') IS NULL
+    ALTER TABLE arm.PointMetadata
+        ADD MaxDateQueued DATE NULL;
 GO
 
 -- ----------------------------------------------------------------------------

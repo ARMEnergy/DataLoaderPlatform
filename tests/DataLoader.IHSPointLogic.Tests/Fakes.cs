@@ -92,22 +92,28 @@ internal sealed class ThrowingPlFileLog : IPlFileLog
 }
 
 /// <summary>
-/// A point reference-provider fake that serves a preassembled id list with no DB access, counting how
-/// many times it was asked (to assert the batched-fact provider reads the reference exactly once).
+/// A point reference-provider fake that serves a preassembled <see cref="PlPointRef"/> list (each carrying
+/// the nullable <c>MaxDateQueued</c> watermark that drives the PointVolume incremental-backfill batching)
+/// with no DB access, counting how many times it was asked (to assert the batched-fact provider reads the
+/// reference exactly once). The bare-<c>int</c> overload maps every id to a NULL watermark (never queued →
+/// backfills from the default), preserving the pre-Section-C call sites.
 /// </summary>
 internal sealed class CountingPointProvider : IPlPointProvider
 {
-    private readonly IReadOnlyList<int> _ids;
+    private readonly IReadOnlyList<PlPointRef> _points;
     private int _calls;
 
-    public CountingPointProvider(IEnumerable<int> ids) => _ids = ids.ToList();
+    public CountingPointProvider(IEnumerable<int> ids)
+        : this(ids.Select(id => new PlPointRef(id, null))) { }
+
+    public CountingPointProvider(IEnumerable<PlPointRef> points) => _points = points.ToList();
 
     public int Calls => _calls;
 
-    public Task<IReadOnlyList<int>> GetPointIdsAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<PlPointRef>> GetPointsAsync(CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _calls);
-        return Task.FromResult(_ids);
+        return Task.FromResult(_points);
     }
 }
 
