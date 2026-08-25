@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Executive Token Usage Brief</title>
+  <style>
+    :root {
+      --ink: #112033;
+      --muted: #496078;
+      --line: #d7e2ee;
+      --card: #ffffff;
+      --bg: #f3f7fc;
+      --accent: #0e7661;
+      --accent2: #0ea5a1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Aptos", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf2fb 0%, var(--bg) 200px);
+    }
+    .page {
+      max-width: 940px;
+      margin: 22px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(10, 30, 60, 0.06);
+      padding: 20px;
+      margin-bottom: 12px;
+    }
+    h1 { margin: 0 0 6px; font-size: 30px; }
+    h2 { margin: 0 0 8px; font-size: 18px; }
+    p, li { margin: 0; font-size: 14px; line-height: 1.45; }
+    .sub { color: var(--muted); font-size: 13px; }
+    .grid {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, 1fr);
+    }
+    .kpi {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 10px;
+    }
+    .kpi .l { color: var(--muted); text-transform: uppercase; font-size: 11px; }
+    .kpi .v { font-weight: 700; margin-top: 4px; font-size: 20px; }
+    .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    ul { margin: 8px 0 0 18px; padding: 0; }
+    .barrow { margin-top: 8px; }
+    .barlabel { font-size: 13px; color: var(--muted); }
+    .barwrap {
+      margin-top: 5px;
+      height: 11px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #edf3fa;
+      overflow: hidden;
+    }
+    .bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
+    .foot { font-size: 12px; color: var(--muted); }
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .cols { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="card">
+      <h1>Claude Token Usage: Executive Brief</h1>
+      <p class="sub">DataLoaderPlatform | 2026-08-24 | For internal engineering alignment</p>
+      <div class="grid">
+        <div class="kpi">
+          <div class="l">Static prompt overhead</div>
+          <div class="v">~24.5k</div>
+        </div>
+        <div class="kpi">
+          <div class="l">API docs corpus</div>
+          <div class="v">~76.5k</div>
+        </div>
+        <div class="kpi">
+          <div class="l">Design docs corpus</div>
+          <div class="v">~144.4k</div>
+        </div>
+        <div class="kpi">
+          <div class="l">Savings opportunity</div>
+          <div class="v">45%-80%</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card cols">
+      <div>
+        <h2>What is driving cost</h2>
+        <ul>
+          <li>Default routing to multi-stage agent chains.</li>
+          <li>Repeated reloading of long global instructions.</li>
+          <li>Multiple agents re-reading large API/design docs.</li>
+          <li>Review and test loops with broad context each cycle.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>What to change</h2>
+        <ul>
+          <li>Adopt fast lane by default for non-schema changes.</li>
+          <li>Reserve full lane for new loaders and shape changes.</li>
+          <li>Compress prompts to checklist format.</li>
+          <li>Run scoped tests first; escalate only when needed.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Expected token savings</h2>
+      <div class="barrow">
+        <div class="barlabel">New loader builds: 45% to 65%</div>
+        <div class="barwrap"><div class="bar" style="width:55%"></div></div>
+      </div>
+      <div class="barrow">
+        <div class="barlabel">Existing loader changes: 60% to 80%</div>
+        <div class="barwrap"><div class="bar" style="width:70%"></div></div>
+      </div>
+      <div class="barrow">
+        <div class="barlabel">Review/test loops: 30% to 50%</div>
+        <div class="barwrap"><div class="bar" style="width:40%"></div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Execution readiness</h2>
+      <p>The implementation playbook is already prepared and ready to run immediately after loader delivery.</p>
+      <ul>
+        <li>docs/superpowers/plans/2026-08-24-claude-token-usage-optimization-playbook.md</li>
+      </ul>
+      <p class="foot" style="margin-top:8px;">Prepared by GitHub Copilot (GPT-5.3-Codex). Method: repository instruction audit and measured-size token estimation.</p>
+    </section>
+  </div>
+</body>
+</html>

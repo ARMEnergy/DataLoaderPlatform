@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude Token Usage Assessment</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --ink: #112033;
+      --muted: #4f647a;
+      --accent: #0f6e5c;
+      --warn: #b45309;
+      --line: #dbe4ef;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #eef3f9 0%, var(--bg) 220px);
+      color: var(--ink);
+      font-family: "Segoe UI", "Aptos", "Trebuchet MS", sans-serif;
+      line-height: 1.45;
+    }
+    .page {
+      max-width: 980px;
+      margin: 24px auto 48px;
+      padding: 0 20px;
+    }
+    .hero {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 6px 22px rgba(9, 30, 66, 0.06);
+    }
+    h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.2; }
+    .sub { color: var(--muted); margin: 0; font-size: 14px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .kpi {
+      background: #f8fbff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+    .kpi .val { font-size: 24px; margin-top: 6px; font-weight: 700; }
+    .section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      margin-top: 14px;
+    }
+    h2 { margin: 0 0 10px; font-size: 20px; }
+    p, li { font-size: 14px; }
+    ul { margin: 10px 0 0 18px; padding: 0; }
+    .rank {
+      border-top: 1px dashed var(--line);
+      padding-top: 12px;
+      margin-top: 12px;
+    }
+    .rank:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .sev {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #fff7ed;
+      color: #92400e;
+      border: 1px solid #fed7aa;
+      margin-right: 8px;
+    }
+    .sev.high {
+      background: #ecfeff;
+      color: #155e75;
+      border-color: #a5f3fc;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 9px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f1f6fc; }
+    .barwrap {
+      width: 100%;
+      background: #eef3f9;
+      border: 1px solid #dae5f1;
+      border-radius: 999px;
+      height: 12px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .bar { height: 100%; background: linear-gradient(90deg, #0f6e5c, #2a9d8f); }
+    .note {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .footer {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 16px;
+    }
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>Claude Code Token Usage Assessment</h1>
+      <p class="sub">Repository: DataLoaderPlatform | Date: 2026-08-24 | Audience: Engineering Team</p>
+      <div class="grid">
+        <div class="kpi">
+          <div class="label">Static instruction corpus</div>
+          <div class="val">~24.5k tokens</div>
+        </div>
+        <div class="kpi">
+          <div class="label">API + design docs corpus</div>
+          <div class="val">~220.9k tokens</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Expected savings after optimization</div>
+          <div class="val">45% to 80%</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Executive Summary</h2>
+      <p>High token usage is structural, not accidental. The current workflow enforces multi-stage agent orchestration with repeated ingestion of large instruction and documentation context. This compounds cost per loader task, especially when review/test loops are triggered.</p>
+    </section>
+
+    <section class="section">
+      <h2>Measured Context Load</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Measured Size</th>
+            <th>Approx Tokens</th>
+            <th>Why It Matters</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>CLAUDE.md + 8 agent prompt files</td>
+            <td>97,986 bytes</td>
+            <td>~24,496</td>
+            <td>Heavy baseline loaded across many stages.</td>
+          </tr>
+          <tr>
+            <td>docs/apis/*.md</td>
+            <td>305,917 bytes</td>
+            <td>~76,479</td>
+            <td>Large field references repeatedly consulted.</td>
+          </tr>
+          <tr>
+            <td>docs/design/*.md</td>
+            <td>577,761 bytes</td>
+            <td>~144,440</td>
+            <td>Design docs are extensive and frequently re-read.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">Token approximation used: bytes / 4 (practical planning heuristic).</p>
+    </section>
+
+    <section class="section">
+      <h2>Primary Drivers of Token Spend</h2>
+
+      <div class="rank">
+        <span class="sev">Critical</span><strong>Mandatory multi-stage orchestration</strong>
+        <ul>
+          <li>Most loader tasks route through manager and full specialist chain.</li>
+          <li>Each stage adds prompt + artifact + summary overhead.</li>
+        </ul>
+      </div>
+
+      <div class="rank">
+        <span class="sev">Critical</span><strong>Repeated ingestion of large static guidance</strong>
+        <ul>
+          <li>Global conventions are rich and repeated across agent prompts.</li>
+          <li>Instruction payload is paid repeatedly across stage loops.</li>
+        </ul>
+      </div>
+
+      <div class="rank">
+        <span class="sev high">High</span><strong>Re-reading large API and design documents</strong>
+        <ul>
+          <li>Documentation-first flow is valuable but expensive when over-applied.</li>
+          <li>Same large docs are often re-consulted by multiple agents for one task.</li>
+        </ul>
+      </div>
+
+      <div class="rank">
+        <span class="sev high">High</span><strong>Loop amplification (review/test/fix)</strong>
+        <ul>
+          <li>Quality loops are correct, but broad context and long summaries increase cost per loop.</li>
+          <li>Solution-wide test defaults further increase loop footprint.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Proposed Solutions and Expected Savings</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Proposal</th>
+            <th>Process Change</th>
+            <th>Expected Savings</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Fast lane vs full lane routing</td>
+            <td>Default to Coder -> Reviewer -> Tester for non-schema/non-API-shape changes; full chain only when needed.</td>
+            <td>Existing loader changes: 60% to 80%</td>
+          </tr>
+          <tr>
+            <td>Prompt compression to checklist style</td>
+            <td>Shorten CLAUDE + agent prompts; remove duplicated narrative while retaining hard quality gates.</td>
+            <td>All scenarios: 20% to 35% incremental</td>
+          </tr>
+          <tr>
+            <td>Scoped testing default</td>
+            <td>Run loader-scoped tests first; escalate to full-solution tests only for cross-cutting changes.</td>
+            <td>Review/test loops: 30% to 50%</td>
+          </tr>
+          <tr>
+            <td>Response-size discipline</td>
+            <td>Structured short outputs (files changed, decisions, risks, pass/fail); avoid large inline dumps.</td>
+            <td>Loop stages: 10% to 25%</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px;">
+        <strong>Scenario impact overview</strong>
+        <div style="margin-top:8px; font-size:13px;">New loader build (estimated 45% to 65% savings)</div>
+        <div class="barwrap"><div class="bar" style="width:55%;"></div></div>
+        <div style="margin-top:8px; font-size:13px;">Existing loader enhancement/bugfix (estimated 60% to 80% savings)</div>
+        <div class="barwrap"><div class="bar" style="width:70%;"></div></div>
+        <div style="margin-top:8px; font-size:13px;">Review/test loops (estimated 30% to 50% savings)</div>
+        <div class="barwrap"><div class="bar" style="width:40%;"></div></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Implementation Readiness</h2>
+      <p>A detailed execution playbook is already prepared for post-loader implementation:</p>
+      <ul>
+        <li>docs/superpowers/plans/2026-08-24-claude-token-usage-optimization-playbook.md</li>
+      </ul>
+      <p>This includes sequence, guardrails, validation checks, and rollback guidance.</p>
+    </section>
+
+    <p class="footer">Prepared by: GitHub Copilot (GPT-5.3-Codex) | Method: repository instruction audit + measured file-size token approximation</p>
+  </div>
+</body>
+</html>
