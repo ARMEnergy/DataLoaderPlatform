@@ -71,6 +71,16 @@ one precedent) — and justify it explicitly.
     `RunHour` (`yyyyMMddHH`, once per hour), `RunId` (every run).
   * **content-stamped** — the key embeds a source timestamp so a unit reruns
     only when the source changed (Platts embeds the SFTP `LastModified`).
+  * **hot-only, no settled zone** — *every* unit gets a run-varying key, so the
+    whole window re-pulls on every new period and nothing is ever frozen.
+    ModernCommodities. Choose this when the source **revises history**: its
+    trades endpoints filter the date window on `Last Updated`, not the execution
+    timestamp (proven — 5 of 98 rows in one window were executed weeks before it,
+    zero fell outside it on last-updated), so a months-old trade can still flip
+    Finalized→Cancelled. A settled key would record such a unit "done" and freeze
+    the stale row forever. **Ask which timestamp the window filters on before
+    choosing a resume key** — it is the difference between a loader that captures
+    revisions and one that silently serves stale rows.
   Keep the key's clock explicit and monotonic: IHSPointLogic stamps report dates
   in **UTC** while *scheduling* in US-Central, precisely so the key never goes
   backwards across a DST shift.
@@ -113,6 +123,27 @@ one precedent) — and justify it explicitly.
 - **Design the audit + validation surface too:** the per-loader `FileLog` row
   for each endpoint pull, and the `usp_ValidateLoad` checks a post-load
   validator will run (observational — warnings, never a thrown run failure).
+  Where the fact tables carry **no `FileLogId`** (ModernCommodities — the user's
+  DDL has none), `FileLog` becomes the *only* lineage, so do not upsert it over a
+  stable key: give each pull its own row, or you erase the fact that the 03:00
+  pull returned 0 rows after the 02:00 pull returned 20.
+- **Size the window against the vendor's record cap, and check whether the cap is
+  actually reachable.** Where a request is rejected for returning too many rows,
+  the window becomes a correctness constraint, not a tuning knob: derive rows/day
+  from real captures, state the day count at which the cap trips, and make the
+  chunk size configurable. ModernCommodities' `allTrades` is ~58 rows/day and
+  trips a 10,000-row cap at ~172 days, so a 30-day window is safe but a deep
+  backfill **must** chunk. Measure per *published* period, not per calendar day —
+  its settlements feed publishes ~721 rows on each publishing date and nothing on
+  weekends, which is the difference between "cap unreachable" and "94% of cap".
+- **Pin the window's clock and its clamps in ONE shared helper** used by both the
+  work-unit provider and the validator, so they cannot drift (NGI's `NgiTime`,
+  ModernCommodities' `ModComTime`). State the timezone basis and why. Clamp to
+  the vendor's history limit **in the limit's own units** — a calendar-month limit
+  clamped with a day count is wrong twice a year. And say explicitly whether the
+  window bounds are inclusive: ModernCommodities' `DaysBack=30` spans 31 inclusive
+  days on purpose, and writing that down is what stops a later "fix" from
+  introducing a silent one-day gap.
 
 ## Multi-endpoint loaders are descriptor-driven
 When a loader has more than a handful of endpoints, do NOT design N hand-written

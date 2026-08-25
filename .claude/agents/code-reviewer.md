@@ -44,6 +44,16 @@ against; read it and the loader's `docs/design/<Loader>.md` first.
     lift; it then passes an *empty* name array and returns `null` for every row.
     This is exactly how NGI dropped all 163 of its location rows. Check that
     each parse-helper call reaches the overload the author meant.
+  * **A culture-sensitive or wrong-shaped date/number format.** Verify every
+    parse *and* every value formatted into a URL passes
+    `CultureInfo.InvariantCulture`, and that the format string matches the
+    payload's real shape. ModernCommodities timestamps are 12-hour
+    (`yyyy-MM-dd hh:mm:ss tt`), where an `HH` pattern or a bare `DateTime.Parse`
+    shifts every afternoon value by twelve hours on well-formed input.
+  * **A naive CSV split.** `line.Split(',')` on a quoted payload silently shifts
+    every column after the first field that contains a comma. Confirm an RFC4180
+    tokenizer is used, and that a tokenizer copied from another loader did not
+    bring a foreign file-format quirk with it.
   * **Unmatched property names.** A payload whose JSON names contain spaces or
     punctuation (`"Point Code"`, `"Issue Date"`) cannot be bound by a
     `System.Text.Json` naming policy. Confirm the reader looks names up
@@ -65,6 +75,14 @@ against; read it and the loader's `docs/design/<Loader>.md` first.
   forever and a date that was merely not-yet-published is never re-probed.
   Verify the configuration keeps such units hot, and that the code warns if it
   is tightened.
+- **Deliberate deviations are not findings.** Where the user supplied the schema,
+  it outranks house convention: a misspelled column reproduced verbatim
+  (ModernCommodities' `PieplineTerminal`, which is inside its PK), an absent
+  `Id`/`DateCreated`/`FileLogId`, a TVP that therefore starts at the first payload
+  column, or columns a vendor always returns blank. Check the design doc and the
+  script's header comment before filing one, and if the caller lists
+  pre-approved deviations, spend the pass elsewhere. Do flag a deviation that is
+  **undocumented** — that is the one worth catching.
 - **Text width vs. the TVP.** Non-key text should be clamped to the declared
   VARCHAR width (with a counter/warning) rather than left to fail the merge with
   a truncation `SqlException`; a merge **key** must never be truncated — drop it

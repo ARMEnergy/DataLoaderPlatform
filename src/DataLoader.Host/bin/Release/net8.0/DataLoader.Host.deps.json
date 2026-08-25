@@ -14,6 +14,7 @@
           "DataLoader.EnergyAspects": "1.0.0",
           "DataLoader.IHSPointLogic": "1.0.0",
           "DataLoader.IIR": "1.0.0",
+          "DataLoader.ModernCommodities": "1.0.0",
           "DataLoader.NGI": "1.0.0",
           "DataLoader.OPIS": "1.0.0",
           "DataLoader.Platts": "1.0.0",
@@ -793,6 +794,17 @@
           }
         }
       },
+      "DataLoader.ModernCommodities/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.ModernCommodities.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.NGI/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0"
@@ -1311,6 +1323,11 @@
       "sha512": ""
     },
     "DataLoader.IIR/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.ModernCommodities/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

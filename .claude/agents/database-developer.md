@@ -140,7 +140,15 @@ row. Therefore:
   decides what is a hard failure. Typical checks: row counts per table/run date,
   out-of-range measures, null/duplicate natural keys, advisory FK coverage gaps,
   and consistency of any derived column against its inputs. See
-  `sql/AGSI/003`, `sql/StormVista/003`, `sql/IIR/003`, `sql/NGI/003`.
+  `sql/AGSI/003`, `sql/StormVista/003`, `sql/IIR/003`, `sql/NGI/003`,
+  `sql/ModernCommodities/003`.
+  Signature note: `@RunDate` suits a run-stamped loader, but a **window-driven**
+  loader takes `(@DateFrom DATE, @DateTo DATE)` instead — match how the design
+  actually resolves its load window (ModernCommodities is the window-driven case).
+  Where a check has no meaningful expectation, still emit the row and say so in
+  `Detail` rather than omitting it: ModernCommodities reports its always-NULL
+  anonymised columns *informationally*, because the vendor blanks that whole
+  counterparty block in one endpoint and populates it in another.
 
 ## How you work each loader
 1. Read the loader's design spec `docs/design/<Loader>.md` (and
@@ -183,6 +191,63 @@ row. Therefore:
   teardown (999, if the object set changed) → and flag the C# `BuildTable` for
   CODER. Half a rename is a positional corruption, not a compile error.
 - Check whether `usp_ValidateLoad` referenced the column you removed.
+
+## Verify: parse-check every script before you report done
+**Nothing in this repo ever compiles or executes your SQL.** `dotnet build` and
+`dotnet test` being green says *nothing* about whether your scripts parse, and
+most recent loaders ship **build-only** (SQL never deployed). A syntax error can
+therefore sit in a shipped script until a human finally runs it. One did: a
+`usp_ValidateLoad` check in `sql/ModernCommodities/003` was written as
+`(a = '-') <> (b = '-')`, and the user hit
+`Incorrect syntax near '<'` on first execution.
+
+So **parse-check what you wrote** — it needs no SQL Server, no LocalDB and no
+connection. `sqlcmd`/`sqlpackage` are not installed; use the ScriptDom parser:
+
+```
+dotnet new console -o sqlcheck && cd sqlcheck
+dotnet add package Microsoft.SqlServer.TransactSql.ScriptDom
+# TSql160Parser(false).Parse(reader, out IList<ParseError> errors) for each *.sql
+dotnet run -- <repo>/sql/<Vendor>
+```
+
+Report the real result. Two caveats: confirm the checker is non-vacuous (point it
+at a deliberately broken copy first and see it fail), and remember it catches
+**syntax only** — a missing object, a TVP whose column count drifted from its
+table, or a type mismatch still needs a real deployment.
+
+### T-SQL traps that a C#/Python reflex produces
+- **There is no boolean *value* type.** A predicate is legal only in a condition
+  position (`WHERE`, `CASE WHEN`, `HAVING`, `ON`); it can never be an *operand*.
+  `(a = 1) <> (b = 1)` is a parse error, not an XOR. Spell an XOR out:
+  `CASE WHEN (a = 1 AND b <> 1) OR (a <> 1 AND b = 1) THEN 1 ELSE 0 END`.
+- `NULL` is not comparable with `=`/`<>`; use `IS [NOT] NULL`. In a nullable
+  XOR/equality check, decide explicitly whether NULL counts as a difference.
+- Integer division truncates (`7/2 = 3`); cast before dividing for a ratio.
+- `SUM()` over zero rows returns `NULL`, not `0` — wrap it in `ISNULL(…, 0)`,
+  which is why every count in `usp_ValidateLoad` does.
+
+## When the user supplies the DDL
+Sometimes the user hands you the exact `CREATE TABLE` script. **It is
+authoritative and outranks every house convention in this file.** Reproduce it
+character-for-character and put a header comment saying so, so CODE_REVIEWER does
+not "fix" it:
+- **Reproduce misspellings verbatim** if they are part of a key or a column name
+  the user's downstream consumers already read. `arm.Settlements` in
+  ModernCommodities has `PieplineTerminal` [sic] *inside its PK*; correcting it
+  would silently break the user's own queries. Flag it, never fix it.
+- If the user's DDL has **no `FileLogId`**, do not add one — provenance then
+  lives in `arm.FileLog` alone, the TVP starts at the **first payload column**
+  instead of `FileLogId`, and `usp_ValidateLoad` cannot join facts to the hub, so
+  base its checks on the load window and `ModifiedAtUtc`. Say all of this in a
+  comment; it is a deliberate break from the convention above.
+- Same for an absent `Id`/`DateCreated`, or a column the user tells you to drop.
+- Do flag (without changing) a type whose headroom is thin: ModernCommodities'
+  `Volume DECIMAL(9,2)` ceilings at 9,999,999.99 against an observed max of
+  300,000, and an over-range value is a **hard arithmetic-overflow error**, not a
+  truncation. State the risk and let the user decide.
+- If you deviate from the user's script at all — even a `DEFAULT` — say so
+  explicitly in both the script comment and your summary.
 
 ## What to return
 - **Return to the caller a short summary — do not paste full SQL script bodies

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DataLoader.ModernCommodities\DataLoader.ModernCommodities.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Committed CSV fixtures, copied next to the test assembly and read at run time, so the
+         whole suite is offline: no network, no database, no credential.
+
+         Samples\allTrades_live_slice.csv  - a VERBATIM slice of a real live 200 (the vendor
+              anonymises all 14 counterparty columns on this endpoint, so it carries no PII).
+         Samples\settlements_live_slice.csv - a VERBATIM slice of a real live 200 (no PII at all).
+         Samples\myTrades_header_only.csv  - the REAL header-only 200 body, byte-for-byte.
+         Samples\myTrades_anonymised.csv   - ANONYMISED per decision D9: the live myTrades capture
+              carries real trader names, counterparty legal entities and street addresses, so the
+              names/companies/addresses here are INVENTED while the SHAPE is preserved exactly
+              (a comma-laden quoted address, PM + noon-hour timestamps, a blank commission, a
+              negative price, True/False bits, a spread group). See FixtureFactsTests, which
+              asserts those traps are still present so the fixture cannot be sanitised into
+              uselessness. -->
+    <Content Include="Samples\**\*.csv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

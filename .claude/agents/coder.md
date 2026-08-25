@@ -71,13 +71,34 @@ serialization inside a loader — they exist in `DataLoader.Core`.
   `"None"`, and without the guard `Region`/`PricingPoint` would store `"None"`.
   Keep a *narrower* sentinel list for key fields than for measures — a
   defensively-wide list (`"NA"`, `"-"`, …) will silently drop a legitimate key
-  that happens to look like a sentinel.
+  that happens to look like a sentinel. ModernCommodities is the proof: `-` is its
+  settlements placeholder *and* sits inside a `NOT NULL` six-column PK, so
+  reusing CWG's defensive `-`→NULL mapping there would null a key column. Copy a
+  sentinel list only after checking it against the target's keys.
 - **JSON property names that contain spaces or punctuation defeat implicit
   binding.** NGI publishes `"Point Code"`, `"Issue Date"`, `"Pricing Point"`.
   Default `System.Text.Json` POCO binding with a naming policy matches none of
   them and yields a **silently all-NULL table** — no exception, no warning. Read
   such payloads with `JsonNode`/`JsonElement` and explicit candidate names, and
-  never rely on a naming policy for a name you have not literally tested.
+  never rely on a naming policy for a name you have not literally tested. The
+  same rule holds for CSV headers: ModernCommodities publishes
+  `Pipeline/Terminal`, `GT&C` and `Click & Trade`, so build a header→ordinal map
+  from row 0 keyed on the **literal** vendor strings and read every field through
+  it — never by position, and never by a "tidied" name.
+- **CSV: never `line.Split(',')`.** Quoted fields legitimately contain commas —
+  one ModernCommodities address (`"1001 Fannin Street, Suite 1500, Houston, TX
+  77002"`) becomes six fields under a naive split, shifting every later column.
+  Use the repo's RFC4180 tokenizer (`CwgCsv`/`ModComCsv`) and check whether the
+  one you copy carries a file-format quirk that does not apply (CWG's `END.`
+  terminator is CWG-only).
+- **Parse dates and numbers with an explicit format and `InvariantCulture`.**
+  ModernCommodities timestamps are **12-hour with a meridiem**:
+  `yyyy-MM-dd hh:mm:ss tt` (`2026-08-24 01:44:41 PM`). An `HH` pattern or a bare
+  `DateTime.Parse` mangles every afternoon value by twelve hours — silently, on
+  well-formed input, and invisibly to any test that runs only in the morning or
+  only under a US locale. Route every parse and every date you *format into a URL*
+  through one invariant helper, and store a timestamp carrying no offset exactly
+  as given rather than shifting it.
 - **Watch overload resolution in the parse helpers.** A one-argument call like
   `Str(element)` will bind to a `Str(JsonElement, params string[])` overload in
   preference to `Str(JsonElement?)`, because the identity conversion beats the

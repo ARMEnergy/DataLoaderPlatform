@@ -1205,6 +1205,19 @@
           "bin/placeholder/DataLoader.IIR.dll": {}
         }
       },
+      "DataLoader.ModernCommodities/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.ModernCommodities.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.ModernCommodities.dll": {}
+        }
+      },
       "DataLoader.NGI/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -3307,6 +3320,11 @@
       "path": "../DataLoader.IIR/DataLoader.IIR.csproj",
       "msbuildProject": "../DataLoader.IIR/DataLoader.IIR.csproj"
     },
+    "DataLoader.ModernCommodities/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.ModernCommodities/DataLoader.ModernCommodities.csproj",
+      "msbuildProject": "../DataLoader.ModernCommodities/DataLoader.ModernCommodities.csproj"
+    },
     "DataLoader.NGI/1.0.0": {
       "type": "project",
       "path": "../DataLoader.NGI/DataLoader.NGI.csproj",
@@ -3341,6 +3359,7 @@
       "DataLoader.EnergyAspects >= 1.0.0",
       "DataLoader.IHSPointLogic >= 1.0.0",
       "DataLoader.IIR >= 1.0.0",
+      "DataLoader.ModernCommodities >= 1.0.0",
       "DataLoader.NGI >= 1.0.0",
       "DataLoader.OPIS >= 1.0.0",
       "DataLoader.Platts >= 1.0.0",
@@ -3394,6 +3413,9 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IIR\\DataLoader.IIR.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IIR\\DataLoader.IIR.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.ModernCommodities\\DataLoader.ModernCommodities.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.ModernCommodities\\DataLoader.ModernCommodities.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.NGI\\DataLoader.NGI.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.NGI\\DataLoader.NGI.csproj"

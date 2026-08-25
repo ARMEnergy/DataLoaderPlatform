@@ -19,7 +19,16 @@ CODE_REVIEWER, and you report results clearly.
   `ParseTests`, `ModuleTests`, …). `tests/DataLoader.IIR.Tests/` and
   `tests/DataLoader.AGSI.Tests/` are the reference shapes;
   `tests/DataLoader.NGI.Tests/` additionally shows real captured payloads used as
-  committed fixtures.
+  committed fixtures, and `tests/DataLoader.ModernCommodities.Tests/` shows a
+  `FixtureFactsTests` that asserts the fixtures still *contain* the traps they
+  exist to cover (an embedded-comma field, a PM timestamp, a negative price, a
+  sentinel), so a fixture cannot be sanitised into uselessness without a test
+  going red.
+- **Anonymise a fixture that carries real-world PII.** ModernCommodities'
+  `myTrades` captures hold real trader names, counterparty legal entities and
+  street addresses; the committed fixtures invent all of those while preserving
+  the *shape* that matters (a comma-laden quoted address, PM timestamps, a blank
+  commission). Keep the raw capture out of the repo, and never commit a credential.
 
 ## What to test
 
@@ -69,6 +78,25 @@ resolution slip made every point code `null`: the loader returned HTTP 200,
 threw nothing, and silently wrote zero rows. Tests of this shape are the only
 net under a whole class of silent-null failures, so write them even when the
 code "obviously" works.
+
+**Run at least one parse test under a non-US culture.** Temporarily set
+`CultureInfo.CurrentCulture` to something like `de-DE` or `fr-FR` and assert the
+same expected value. A culture-sensitive date or decimal parse passes every test
+on a US-locale machine and corrupts data elsewhere; ModernCommodities' 12-hour
+`hh:mm:ss tt` timestamps are the case in point, where the wrong format string
+shifts every afternoon value by twelve hours on well-formed input.
+
+**Prove your assertion can fail before you trust it.** After pinning a
+positional contract (a TVP column list, a header→ordinal map), deliberately break
+the expectation once — swap two adjacent columns — and confirm the test goes red,
+then restore it. A pinning test that was written against the implementation
+rather than the spec will otherwise agree with a corrupted implementation
+forever. Report that you did this.
+
+**Assert boundary units, not just the happy path.** For a window/clamp, pin the
+exact dates so a later "simplification" fails loudly, and pick cases that
+actually discriminate: a calendar-month clamp and a 183-day clamp *coincide* on
+some dates, so choose a date where they differ or the test proves nothing.
 
 **Pin the status matrix, not just the happy path.** Assert that a status meaning
 "legitimately no data" produces zero rows *and a succeeding work unit*, that a

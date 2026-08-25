@@ -74,8 +74,18 @@ State plainly, per endpoint, how you know what you know:
 
 This distinction is load-bearing: `IHSPointLogic` was verified live, `IIR`'s
 `detail` field casing was reconstructed and still carries an open checklist, and
-`NGI` is the first loader documented with a **fully live-verified, zero-
+`NGI` then `ModernCommodities` are documented with a **fully live-verified, zero-
 reconstruction** field set. Never present reconstruction as verification.
+
+**Recount from the captures rather than trusting a prior summary — including
+one handed to you by the caller.** Doing exactly that on ModernCommodities
+overturned three "facts" in the brief it was given: `Clearing ID` was listed as
+an anonymised column but is blank in *both* endpoints (so the anonymised set is
+14, not 15, and a check demanding a value there fails every row); the settlements
+row rate was stated per *day* when it is really ~721 per *published* date, which
+flipped a "cap unreachable" conclusion into "a 6-month pull is 94% of the cap";
+and the observed max `Volume` was 300,000, not 10,000. Cite counts as
+`n/total` from the file you actually parsed.
 
 ## The vendor's own spec is evidence, not truth
 
@@ -105,7 +115,21 @@ and how it differs from an error. NGI returns `404` for a date with no
 publication — the *normal* case for a monthly feed, and roughly 58 of every 60
 requests — while `400` means a malformed request, i.e. a caller bug. Conflating
 those two is the difference between a loader that works and one that fails ~97%
-of its work units.
+of its work units. The convention does **not** generalise: ModernCommodities
+answers "nothing to report" with a **`200` and a header-only CSV**, and there
+every non-2xx is a genuine failure — the exact inverse of NGI. Document which
+regime each endpoint is in; never carry one loader's tolerance into the next.
+
+**Quote every distinct error body verbatim, because they mask one another.**
+ModernCommodities returns four different `400`s, and two of them collide: a wide
+`allTrades` request fails with `Request returns more than the limit of 10000 rows`
+even when its start date is *also* out of range, which is how an early reading
+recorded the history limit as "183 days". It is not — it is exactly **six
+calendar months** (`today.AddMonths(-6)`; probed to the day, `2026-02-24`
+accepted and `2026-02-23` rejected). So when a limit could be a day count or a
+calendar offset, **probe the boundary** and say which it is, and check whether a
+row/record cap can shadow the answer. Also record limits the vendor never
+mentions: whether a future `endDate` is accepted, and what an inverted range does.
 
 Coordinate with the DATABASE_DEVELOPER agent on the table structures that will
 store this data, but do not design the schema yourself and do not write loader

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.ModernCommodities</RootNamespace>
+    <AssemblyName>DataLoader.ModernCommodities</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core brings Microsoft.Data.SqlClient, Microsoft.Extensions.Http(.Polly) and
+         Polly in transitively. The payloads are CSV, so there is no JSON dependency
+         at all here (and HttpJsonSourceReaderBase is deliberately unused - design 5). -->
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.ModernCommodities.Tests" />
+  </ItemGroup>
+</Project>

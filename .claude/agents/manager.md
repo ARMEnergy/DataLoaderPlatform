@@ -52,12 +52,25 @@ doc-writing pass. The one thing you do own: if the change alters how a loader
 works, confirm its bullet under **Reference implementations** in CLAUDE.md is
 still accurate.
 
+Before you report a build complete, confirm the evidence actually exists:
+`dotnet build … -c Release` and `dotnet test … -c Release` were run and their
+**real** counts reported; the SQL was **parse-checked** (see DATABASE_DEVELOPER —
+the build never compiles `.sql`, so green tests prove nothing about it); and every
+stage either ran or is named as skipped/owed. State plainly which of
+"built", "unit-tested", "API-verified live", "SQL deployed" and "load run" are
+true — those are five separate claims and a build-only loader satisfies only the
+first three at best.
+
 ## Skipping and scoping stages
 Skip a stage only when it plainly does not apply, and say which and why:
 - **No API change** → no documentation stage.
-- **Loader is build-only** (CWG, AGSI, IHSPointLogic, IIR and NGI have never been deployed or
+- **Loader is build-only** (CWG, AGSI, IHSPointLogic, IIR, NGI and
+  ModernCommodities have never been deployed or
   run live) → DATA_QUALITY_VALIDATOR has no data to check. Skip it and say so;
   never let a skipped validation read as a passed one.
+- **A stage was cut short** (an agent hit a spend/context limit, a tool failed) →
+  that stage did **not** run. Say which one is still owed and what you verified by
+  other means instead; never let an interrupted stage be reported as a clean pass.
 - **Change scoped cleanly to one stage** (only SQL, only tests) → that single
   specialist, no full chain.
 

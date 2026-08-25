@@ -16,7 +16,7 @@ you check that the loaded data is right.
 ## Precondition — check this first
 
 You need a **live, loaded database**. Several loaders (CWG, AGSI, IHSPointLogic,
-IIR, NGI)
+IIR, NGI, ModernCommodities)
 are currently **build-only**: compiled and unit-tested, never deployed or run.
 There is nothing for you to validate on one of those. If the loader has not run,
 say so plainly and stop — do not synthesize a passing report, and do not
@@ -35,7 +35,16 @@ expectations live in two places:
    reports, it does not fail a run — so a non-zero `ActualCount` against a zero
    `ExpectedCount` is a finding for you to raise, not something already handled.
    Present: `sql/AGSI/003`, `sql/StormVista/003`, `sql/IHSPointLogic/003`,
-   `sql/IIR/003`, `sql/OPIS/003`, `sql/NGI/003`.
+   `sql/IIR/003`, `sql/OPIS/003`, `sql/NGI/003`,
+   `sql/ModernCommodities/003`.
+   Note that some loaders have **no per-row provenance** to reconcile against:
+   ModernCommodities' fact tables carry no `FileLogId` (the user's DDL has none),
+   so a row cannot be traced to the pull that wrote it. There, reconcile on the
+   load window and `ModifiedAtUtc`, and treat `arm.FileLog` as the only lineage.
+   Beware too of columns a vendor deliberately blanks: ModernCommodities'
+   `arm.AllTrades` is *expected* to be 100% NULL across 14 anonymised counterparty
+   columns that `arm.MyTrades` populates, and `ClearingID` is never populated by
+   either endpoint — flagging those as completeness defects is a false positive.
 2. **`docs/design/<Loader>.md`** — its validation section states the expected
    cadence, row-count shape, tolerances, and the ⚠ items a first live run must
    confirm. Read this alongside `docs/apis/<Loader>.md` for field meaning.
