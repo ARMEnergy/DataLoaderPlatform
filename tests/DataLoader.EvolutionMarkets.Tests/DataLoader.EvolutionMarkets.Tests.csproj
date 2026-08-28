@@ -1,0 +1,34 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DataLoader.EvolutionMarkets\DataLoader.EvolutionMarkets.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Committed JSON fixtures, copied next to the test assembly and read at run time, so the whole
+         suite is offline: no network, no database, no credential.
+
+         Samples\history_live_slice.json - a VERBATIM 5-record slice of a real live 200 for
+              2026-08-24, captured with the full pinned `field` projection. It carries no PII (the
+              feed is instrument prices only) and no credential (the API key is a request HEADER and
+              never appears in a URL or a body). The 5 records were chosen to preserve the traps:
+              a row WITH tenor and rows WITHOUT it, negative ask/bid/mid, change == 0, change > 0,
+              change < 0, and the nine fields the dataset never populates being ABSENT rather than
+              null. FixtureFactsTests asserts those traps are still present so the fixture cannot be
+              tidied into uselessness.
+
+         Samples\history_empty.json - the REAL body returned for a non-publishing day, byte-for-byte.
+              Two characters, and the single most important fixture in the suite: an empty 200 is a
+              routine weekend/holiday, NOT an error. -->
+    <Content Include="Samples\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

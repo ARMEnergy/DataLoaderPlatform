@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.EvolutionMarkets</RootNamespace>
+    <AssemblyName>DataLoader.EvolutionMarkets</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core brings Microsoft.Data.SqlClient, Microsoft.Extensions.Http(.Polly) and Polly in
+         transitively; System.Text.Json is in-box for net8.0, so this loader needs no extra
+         packages. -->
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.EvolutionMarkets.Tests" />
+  </ItemGroup>
+</Project>

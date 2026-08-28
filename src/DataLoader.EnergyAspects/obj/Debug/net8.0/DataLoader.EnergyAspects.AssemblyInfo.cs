@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.EnergyAspects")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+414dd5c36ff33039ac455ce2680d668ef401374e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b20677727b2af38e76b1ec5bc4bc3b2fa7ebb2fb")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.EnergyAspects")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.EnergyAspects")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

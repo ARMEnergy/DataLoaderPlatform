@@ -30,6 +30,7 @@
     <ProjectReference Include="..\DataLoader.OPIS\DataLoader.OPIS.csproj" />
     <ProjectReference Include="..\DataLoader.NGI\DataLoader.NGI.csproj" />
     <ProjectReference Include="..\DataLoader.ModernCommodities\DataLoader.ModernCommodities.csproj" />
+    <ProjectReference Include="..\DataLoader.EvolutionMarkets\DataLoader.EvolutionMarkets.csproj" />
   </ItemGroup>
 
   <ItemGroup>
