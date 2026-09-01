@@ -198,3 +198,5 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.ModernCommodities.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.EvolutionMarkets.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.EvolutionMarkets.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.Argus.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Release\net8.0\DataLoader.Argus.pdb

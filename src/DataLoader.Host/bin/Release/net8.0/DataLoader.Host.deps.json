@@ -9,6 +9,7 @@
       "DataLoader.Host/1.0.0": {
         "dependencies": {
           "DataLoader.AGSI": "1.0.0",
+          "DataLoader.Argus": "1.0.0",
           "DataLoader.CWG": "1.0.0",
           "DataLoader.Core": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
@@ -730,6 +731,18 @@
           }
         }
       },
+      "DataLoader.Argus/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0",
+          "FluentFTP": "53.0.1"
+        },
+        "runtime": {
+          "DataLoader.Argus.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.Core/1.0.0": {
         "dependencies": {
           "Microsoft.Data.SqlClient": "5.2.1",
@@ -1310,6 +1323,11 @@
       "hashPath": "system.threading.tasks.extensions.4.5.4.nupkg.sha512"
     },
     "DataLoader.AGSI/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.Argus/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

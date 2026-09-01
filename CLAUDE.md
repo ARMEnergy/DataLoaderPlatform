@@ -122,7 +122,7 @@ Avoid large inline dumps of code, SQL, or logs.
 
 ## Build-only loaders
 
-CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets are build-only unless explicitly deployed and run.
+CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
 
 ## Key files

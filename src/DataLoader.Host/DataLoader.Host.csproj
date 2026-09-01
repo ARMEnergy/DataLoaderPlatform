@@ -31,6 +31,7 @@
     <ProjectReference Include="..\DataLoader.NGI\DataLoader.NGI.csproj" />
     <ProjectReference Include="..\DataLoader.ModernCommodities\DataLoader.ModernCommodities.csproj" />
     <ProjectReference Include="..\DataLoader.EvolutionMarkets\DataLoader.EvolutionMarkets.csproj" />
+    <ProjectReference Include="..\DataLoader.Argus\DataLoader.Argus.csproj" />
   </ItemGroup>
 
   <ItemGroup>
