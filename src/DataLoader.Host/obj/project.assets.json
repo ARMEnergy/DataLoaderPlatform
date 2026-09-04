@@ -1206,6 +1206,19 @@
           "bin/placeholder/DataLoader.EvolutionMarkets.dll": {}
         }
       },
+      "DataLoader.ICE/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.ICE.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.ICE.dll": {}
+        }
+      },
       "DataLoader.IHSPointLogic/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -3347,6 +3360,11 @@
       "path": "../DataLoader.EvolutionMarkets/DataLoader.EvolutionMarkets.csproj",
       "msbuildProject": "../DataLoader.EvolutionMarkets/DataLoader.EvolutionMarkets.csproj"
     },
+    "DataLoader.ICE/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.ICE/DataLoader.ICE.csproj",
+      "msbuildProject": "../DataLoader.ICE/DataLoader.ICE.csproj"
+    },
     "DataLoader.IHSPointLogic/1.0.0": {
       "type": "project",
       "path": "../DataLoader.IHSPointLogic/DataLoader.IHSPointLogic.csproj",
@@ -3396,6 +3414,7 @@
       "DataLoader.Core >= 1.0.0",
       "DataLoader.EnergyAspects >= 1.0.0",
       "DataLoader.EvolutionMarkets >= 1.0.0",
+      "DataLoader.ICE >= 1.0.0",
       "DataLoader.IHSPointLogic >= 1.0.0",
       "DataLoader.IIR >= 1.0.0",
       "DataLoader.ModernCommodities >= 1.0.0",
@@ -3452,6 +3471,9 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EvolutionMarkets\\DataLoader.EvolutionMarkets.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EvolutionMarkets\\DataLoader.EvolutionMarkets.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.ICE\\DataLoader.ICE.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.ICE\\DataLoader.ICE.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IHSPointLogic\\DataLoader.IHSPointLogic.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.IHSPointLogic\\DataLoader.IHSPointLogic.csproj"

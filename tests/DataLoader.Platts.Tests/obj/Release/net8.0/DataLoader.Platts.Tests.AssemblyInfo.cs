@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.Platts.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3d544677f837cfe664879f903a862d0ef1388522")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1f47f9cc6b94c6f12a2abae7060fe3be1cd7813b")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.Platts.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.Platts.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

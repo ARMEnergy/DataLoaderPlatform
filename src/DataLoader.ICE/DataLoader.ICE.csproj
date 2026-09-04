@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.ICE</RootNamespace>
+    <AssemblyName>DataLoader.ICE</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- No package references by design.
+         The one XLSX feed (IFLL_Options) is read with System.IO.Compression +
+         System.Xml.Linq, both in the net8.0 framework, rather than pulling in
+         ClosedXML/EPPlus for a single 12-column sheet. See IceXlsx. -->
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.ICE.Tests" />
+  </ItemGroup>
+</Project>

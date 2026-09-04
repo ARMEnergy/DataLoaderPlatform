@@ -32,6 +32,7 @@
     <ProjectReference Include="..\DataLoader.ModernCommodities\DataLoader.ModernCommodities.csproj" />
     <ProjectReference Include="..\DataLoader.EvolutionMarkets\DataLoader.EvolutionMarkets.csproj" />
     <ProjectReference Include="..\DataLoader.Argus\DataLoader.Argus.csproj" />
+    <ProjectReference Include="..\DataLoader.ICE\DataLoader.ICE.csproj" />
   </ItemGroup>
 
   <ItemGroup>
