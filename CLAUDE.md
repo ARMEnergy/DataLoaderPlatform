@@ -122,8 +122,11 @@ Avoid large inline dumps of code, SQL, or logs.
 
 ## Build-only loaders
 
-CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE are build-only unless explicitly deployed and run.
+CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
+
+Criterion is the only loader with a **relational (PostgreSQL) source**. Its read path is verified
+against live production; its SQL has never been deployed.
 
 ## Key files
 

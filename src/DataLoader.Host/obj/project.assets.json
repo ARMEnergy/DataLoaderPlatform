@@ -792,6 +792,22 @@
           }
         }
       },
+      "Npgsql/8.0.4": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Npgsql.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Npgsql.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "Polly/8.3.1": {
         "type": "package",
         "dependencies": {
@@ -1165,6 +1181,20 @@
         },
         "runtime": {
           "bin/placeholder/DataLoader.Core.dll": {}
+        }
+      },
+      "DataLoader.Criterion/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0",
+          "Npgsql": "8.0.4"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.Criterion.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.Criterion.dll": {}
         }
       },
       "DataLoader.CWG/1.0.0": {
@@ -2567,6 +2597,29 @@
         "microsoft.sqlserver.server.nuspec"
       ]
     },
+    "Npgsql/8.0.4": {
+      "sha512": "vaYEUlF/pB9m8bs21wQv3Da0kMHT4A9USe47VfY/L2BO97xz5KfIxhEu22QS9d68ZrLxvtL3wQDfDLPr2OjbjA==",
+      "type": "package",
+      "path": "npgsql/8.0.4",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "lib/net6.0/Npgsql.dll",
+        "lib/net6.0/Npgsql.xml",
+        "lib/net7.0/Npgsql.dll",
+        "lib/net7.0/Npgsql.xml",
+        "lib/net8.0/Npgsql.dll",
+        "lib/net8.0/Npgsql.xml",
+        "lib/netstandard2.0/Npgsql.dll",
+        "lib/netstandard2.0/Npgsql.xml",
+        "lib/netstandard2.1/Npgsql.dll",
+        "lib/netstandard2.1/Npgsql.xml",
+        "npgsql.8.0.4.nupkg.sha512",
+        "npgsql.nuspec",
+        "postgresql.png"
+      ]
+    },
     "Polly/8.3.1": {
       "sha512": "xN9AxOudus8u4a//Tfu6Wxd5Oj7S4pjh/651S6FfIiVrbxQ8TeM+ieZC8c0y7Qto70zKBM5g8rBTqbAJnbetOA==",
       "type": "package",
@@ -3345,6 +3398,11 @@
       "path": "../DataLoader.Core/DataLoader.Core.csproj",
       "msbuildProject": "../DataLoader.Core/DataLoader.Core.csproj"
     },
+    "DataLoader.Criterion/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.Criterion/DataLoader.Criterion.csproj",
+      "msbuildProject": "../DataLoader.Criterion/DataLoader.Criterion.csproj"
+    },
     "DataLoader.CWG/1.0.0": {
       "type": "project",
       "path": "../DataLoader.CWG/DataLoader.CWG.csproj",
@@ -3412,6 +3470,7 @@
       "DataLoader.Argus >= 1.0.0",
       "DataLoader.CWG >= 1.0.0",
       "DataLoader.Core >= 1.0.0",
+      "DataLoader.Criterion >= 1.0.0",
       "DataLoader.EnergyAspects >= 1.0.0",
       "DataLoader.EvolutionMarkets >= 1.0.0",
       "DataLoader.ICE >= 1.0.0",
@@ -3462,6 +3521,9 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Criterion\\DataLoader.Criterion.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Criterion\\DataLoader.Criterion.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CWG\\DataLoader.CWG.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CWG\\DataLoader.CWG.csproj"

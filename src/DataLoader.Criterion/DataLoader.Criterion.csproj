@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.Criterion</RootNamespace>
+    <AssemblyName>DataLoader.Criterion</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The only loader in this repo with a RELATIONAL source. Npgsql is the
+         PostgreSQL driver; version 8.0.x is the one that targets net8.0 without
+         pulling the .NET 9 runtime assemblies in.
+         System.Text.Json is in-box for net8.0, so the JSON unpivot needs no
+         package of its own. -->
+    <PackageReference Include="Npgsql" Version="8.0.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.Criterion.Tests" />
+  </ItemGroup>
+</Project>
