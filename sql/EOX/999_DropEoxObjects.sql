@@ -1,0 +1,60 @@
+-- =============================================================================
+-- 999_DropEoxObjects.sql
+-- Database : EOX
+-- Schema   : arm
+--
+-- Tear down everything 001-003 create, in dependency order:
+--     procedures -> table types -> tables -> schema
+--
+-- A table type cannot be ALTERed, so changing a TVP column means running this
+-- (or at least its procedure + type sections) and then re-running 002 and 003.
+--
+-- DESTRUCTIVE. This drops the loaded data. Guarded with IF EXISTS so it is
+-- re-runnable, but nothing here asks for confirmation.
+-- =============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 1) Procedures -- must go first: they hold references to the table types.
+-- ----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
+DROP PROCEDURE IF EXISTS arm.usp_BulkMergeNGL;
+DROP PROCEDURE IF EXISTS arm.usp_BulkMergeNaturalGas;
+DROP PROCEDURE IF EXISTS arm.usp_BulkMergeCrudeOil;
+DROP PROCEDURE IF EXISTS arm.usp_UpsertFileLog;
+GO
+
+-- ----------------------------------------------------------------------------
+-- 2) Table types.
+-- ----------------------------------------------------------------------------
+DROP TYPE IF EXISTS arm.NGLTvp;
+DROP TYPE IF EXISTS arm.NaturalGasTvp;
+DROP TYPE IF EXISTS arm.CrudeOilTvp;
+GO
+
+-- ----------------------------------------------------------------------------
+-- 3) Tables -- fact tables first, then the audit hub, then the lookup it
+--    references. The fact tables carry no FK to arm.FileLog (provenance runs
+--    through their FileName column), so only the FileLog -> Status FK constrains
+--    the order here.
+-- ----------------------------------------------------------------------------
+DROP TABLE IF EXISTS arm.NGL;
+DROP TABLE IF EXISTS arm.NaturalGas;
+DROP TABLE IF EXISTS arm.CrudeOil;
+DROP TABLE IF EXISTS arm.FileLog;
+DROP TABLE IF EXISTS arm.Status;
+GO
+
+-- ----------------------------------------------------------------------------
+-- 4) Schema -- only if this script emptied it. Another loader sharing the same
+--    database would leave objects behind, and dropping a non-empty schema fails
+--    anyway, so the guard keeps the script re-runnable rather than protective.
+-- ----------------------------------------------------------------------------
+IF EXISTS (SELECT 1 FROM sys.schemas WHERE [name] = 'arm')
+   AND NOT EXISTS (SELECT 1 FROM sys.objects AS o
+                   JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+                   WHERE s.[name] = 'arm')
+   AND NOT EXISTS (SELECT 1 FROM sys.types AS t
+                   JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+                   WHERE s.[name] = 'arm' AND t.is_table_type = 1)
+    EXEC ('DROP SCHEMA arm;');
+GO

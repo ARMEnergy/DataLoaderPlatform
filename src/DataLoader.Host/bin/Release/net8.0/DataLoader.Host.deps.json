@@ -13,6 +13,7 @@
           "DataLoader.CWG": "1.0.0",
           "DataLoader.Core": "1.0.0",
           "DataLoader.Criterion": "1.0.0",
+          "DataLoader.EOX": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
           "DataLoader.EvolutionMarkets": "1.0.0",
           "DataLoader.ICE": "1.0.0",
@@ -811,6 +812,18 @@
           }
         }
       },
+      "DataLoader.EOX/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0",
+          "FluentFTP": "53.0.1"
+        },
+        "runtime": {
+          "DataLoader.EOX.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.EvolutionMarkets/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0"
@@ -1391,6 +1404,11 @@
       "sha512": ""
     },
     "DataLoader.EnergyAspects/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.EOX/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

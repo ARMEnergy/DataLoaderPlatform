@@ -34,6 +34,7 @@
     <ProjectReference Include="..\DataLoader.Argus\DataLoader.Argus.csproj" />
     <ProjectReference Include="..\DataLoader.ICE\DataLoader.ICE.csproj" />
     <ProjectReference Include="..\DataLoader.Criterion\DataLoader.Criterion.csproj" />
+    <ProjectReference Include="..\DataLoader.EOX\DataLoader.EOX.csproj" />
   </ItemGroup>
 
   <ItemGroup>
