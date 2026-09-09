@@ -1160,6 +1160,20 @@
           "bin/placeholder/DataLoader.Argus.dll": {}
         }
       },
+      "DataLoader.CME/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0",
+          "SSH.NET": "2024.2.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.CME.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.CME.dll": {}
+        }
+      },
       "DataLoader.Core/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -3407,6 +3421,11 @@
       "path": "../DataLoader.Argus/DataLoader.Argus.csproj",
       "msbuildProject": "../DataLoader.Argus/DataLoader.Argus.csproj"
     },
+    "DataLoader.CME/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.CME/DataLoader.CME.csproj",
+      "msbuildProject": "../DataLoader.CME/DataLoader.CME.csproj"
+    },
     "DataLoader.Core/1.0.0": {
       "type": "project",
       "path": "../DataLoader.Core/DataLoader.Core.csproj",
@@ -3487,6 +3506,7 @@
     "net8.0": [
       "DataLoader.AGSI >= 1.0.0",
       "DataLoader.Argus >= 1.0.0",
+      "DataLoader.CME >= 1.0.0",
       "DataLoader.CWG >= 1.0.0",
       "DataLoader.Core >= 1.0.0",
       "DataLoader.Criterion >= 1.0.0",
@@ -3538,6 +3558,9 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Argus\\DataLoader.Argus.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Argus\\DataLoader.Argus.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CME\\DataLoader.CME.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.CME\\DataLoader.CME.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj"

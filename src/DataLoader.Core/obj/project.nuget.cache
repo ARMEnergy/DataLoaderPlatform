@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "Rjhyw86AxUk=",
+  "dgSpecHash": "Zoau7zY5yGY=",
   "success": true,
-  "projectFilePath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj",
+  "projectFilePath": "c:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Core\\DataLoader.Core.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\azure.core\\1.38.0\\azure.core.1.38.0.nupkg.sha512",
     "C:\\Users\\yaroslav.chekhuta\\.nuget\\packages\\azure.identity\\1.11.3\\azure.identity.1.11.3.nupkg.sha512",

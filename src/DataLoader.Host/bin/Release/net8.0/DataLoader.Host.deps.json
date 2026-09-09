@@ -10,6 +10,7 @@
         "dependencies": {
           "DataLoader.AGSI": "1.0.0",
           "DataLoader.Argus": "1.0.0",
+          "DataLoader.CME": "1.0.0",
           "DataLoader.CWG": "1.0.0",
           "DataLoader.Core": "1.0.0",
           "DataLoader.Criterion": "1.0.0",
@@ -757,6 +758,18 @@
           }
         }
       },
+      "DataLoader.CME/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0",
+          "SSH.NET": "2024.2.0"
+        },
+        "runtime": {
+          "DataLoader.CME.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.Core/1.0.0": {
         "dependencies": {
           "Microsoft.Data.SqlClient": "5.2.1",
@@ -1384,6 +1397,11 @@
       "sha512": ""
     },
     "DataLoader.Argus/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.CME/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

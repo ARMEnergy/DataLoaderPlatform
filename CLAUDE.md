@@ -122,7 +122,7 @@ Avoid large inline dumps of code, SQL, or logs.
 
 ## Build-only loaders
 
-CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion, EOX are build-only unless explicitly deployed and run.
+CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion, EOX, CME are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
 
 Criterion is the only loader with a **relational (PostgreSQL) source**. Its read path is verified
@@ -130,6 +130,11 @@ against live production; its SQL has never been deployed.
 
 EOX's read path is verified end to end against the live FTP drop (25 files, 2011-2026, parsed
 through the real reader); its SQL has never been deployed.
+
+CME is the only loader whose source is a **fixed-width report**, and the only one whose SFTP
+server rejects absolute paths (`/dir` fails, `./dir` works). Its read path is verified against
+16 live bulletins (757,360 rows, 8 feeds); its SQL has never been deployed. BALMO/day-label
+futures rows are **deliberately not loaded** — see `sql/CME/001` for why and what it costs.
 
 ## Key files
 

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.CME</RootNamespace>
+    <AssemblyName>DataLoader.CME</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- SSH.NET (Renci.SshNet, MIT) — SSH SFTP client for
+         sftp.cmeprod.datahex.rozettatech.com. The drop speaks SSH SFTP, so the
+         FluentFTP driver the OPIS/Argus/EOX loaders use cannot serve it.
+
+         PINNED to 2024.2.0 to match DataLoader.Platts. The host references every
+         loader project, so NuGet unifies this package across the whole app —
+         bumping it here would silently change Platts' runtime SSH stack too.
+         NOTE: 2024.2.0 carries advisory GHSA-q939-rpr3-3284; upgrading is a
+         solution-wide change (CME + Platts together, with a Platts regression
+         run) and is deliberately NOT bundled into this loader. -->
+    <PackageReference Include="SSH.NET" Version="2024.2.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.CME.Tests" />
+  </ItemGroup>
+</Project>

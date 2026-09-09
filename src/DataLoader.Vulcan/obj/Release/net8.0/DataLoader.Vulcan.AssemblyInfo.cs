@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.Vulcan")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ae1fb75e877d7fe44bfb738b750246c71ce878d0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4c5d11931a0b94b07c0970548cd52fc2ca6ae642")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.Vulcan")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.Vulcan")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
