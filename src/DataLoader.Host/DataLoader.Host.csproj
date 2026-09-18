@@ -36,6 +36,7 @@
     <ProjectReference Include="..\DataLoader.Criterion\DataLoader.Criterion.csproj" />
     <ProjectReference Include="..\DataLoader.EOX\DataLoader.EOX.csproj" />
     <ProjectReference Include="..\DataLoader.CME\DataLoader.CME.csproj" />
+    <ProjectReference Include="..\DataLoader.Genscape\DataLoader.Genscape.csproj" />
   </ItemGroup>
 
   <ItemGroup>

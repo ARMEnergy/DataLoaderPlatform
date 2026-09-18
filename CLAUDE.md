@@ -122,11 +122,19 @@ Avoid large inline dumps of code, SQL, or logs.
 
 ## Build-only loaders
 
-CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion, EOX, CME are build-only unless explicitly deployed and run.
+CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion, EOX, CME,
+Genscape are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
 
 Criterion is the only loader with a **relational (PostgreSQL) source**. Its read path is verified
 against live production; its SQL has never been deployed.
+
+Genscape (oil fundamentals, DB `Genscape`) is verified against the live API end to end; its SQL
+has never been deployed. Three of its behaviours are silent if you get them wrong: `endDate` is
+**exclusive**, responses are **capped at 5,000 rows** with no indication (oldest dropped), and the
+crude-storage endpoint's `week` is a week-of-**month**, so the loader derives `Year`/`Week` from
+`ReportDate` in C# — never with `DATEPART` in SQL, because `Week` is in the primary key and
+`DATEPART(week, …)` follows the session's `DATEFIRST`. See `docs/apis/Genscape.md`.
 
 EOX's read path is verified end to end against the live FTP drop (25 files, 2011-2026, parsed
 through the real reader); its SQL has never been deployed.

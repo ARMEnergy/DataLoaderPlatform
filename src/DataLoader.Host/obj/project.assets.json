@@ -1264,6 +1264,19 @@
           "bin/placeholder/DataLoader.EvolutionMarkets.dll": {}
         }
       },
+      "DataLoader.Genscape/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.Genscape.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.Genscape.dll": {}
+        }
+      },
       "DataLoader.ICE/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -3456,6 +3469,11 @@
       "path": "../DataLoader.EvolutionMarkets/DataLoader.EvolutionMarkets.csproj",
       "msbuildProject": "../DataLoader.EvolutionMarkets/DataLoader.EvolutionMarkets.csproj"
     },
+    "DataLoader.Genscape/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.Genscape/DataLoader.Genscape.csproj",
+      "msbuildProject": "../DataLoader.Genscape/DataLoader.Genscape.csproj"
+    },
     "DataLoader.ICE/1.0.0": {
       "type": "project",
       "path": "../DataLoader.ICE/DataLoader.ICE.csproj",
@@ -3513,6 +3531,7 @@
       "DataLoader.EOX >= 1.0.0",
       "DataLoader.EnergyAspects >= 1.0.0",
       "DataLoader.EvolutionMarkets >= 1.0.0",
+      "DataLoader.Genscape >= 1.0.0",
       "DataLoader.ICE >= 1.0.0",
       "DataLoader.IHSPointLogic >= 1.0.0",
       "DataLoader.IIR >= 1.0.0",
@@ -3579,6 +3598,9 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EvolutionMarkets\\DataLoader.EvolutionMarkets.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.EvolutionMarkets\\DataLoader.EvolutionMarkets.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Genscape\\DataLoader.Genscape.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.Genscape\\DataLoader.Genscape.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.ICE\\DataLoader.ICE.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.ICE\\DataLoader.ICE.csproj"

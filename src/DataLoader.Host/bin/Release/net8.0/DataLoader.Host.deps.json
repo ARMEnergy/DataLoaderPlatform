@@ -17,6 +17,7 @@
           "DataLoader.EOX": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
           "DataLoader.EvolutionMarkets": "1.0.0",
+          "DataLoader.Genscape": "1.0.0",
           "DataLoader.ICE": "1.0.0",
           "DataLoader.IHSPointLogic": "1.0.0",
           "DataLoader.IIR": "1.0.0",
@@ -848,6 +849,17 @@
           }
         }
       },
+      "DataLoader.Genscape/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.Genscape.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.ICE/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0"
@@ -1432,6 +1444,11 @@
       "sha512": ""
     },
     "DataLoader.EvolutionMarkets/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.Genscape/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
