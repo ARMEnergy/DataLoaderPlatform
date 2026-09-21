@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.Host")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4495979128a3e3d4605557404ea606b1140a665f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3fc75c9d6769ac2d8a2d15f84d31bbd843de8f44")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.Host")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.Host")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

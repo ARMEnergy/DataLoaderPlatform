@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.NGX</RootNamespace>
+    <AssemblyName>DataLoader.NGX</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core brings Microsoft.Data.SqlClient, Microsoft.Extensions.Http(.Polly)
+         and Polly in transitively; System.Xml.Linq is in-box for net8.0, so this
+         loader needs no extra packages. -->
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.NGX.Tests" />
+  </ItemGroup>
+</Project>

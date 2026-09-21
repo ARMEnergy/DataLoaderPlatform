@@ -123,7 +123,7 @@ Avoid large inline dumps of code, SQL, or logs.
 ## Build-only loaders
 
 CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion, EOX, CME,
-Genscape are build-only unless explicitly deployed and run.
+Genscape, NGX are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
 
 Criterion is the only loader with a **relational (PostgreSQL) source**. Its read path is verified
@@ -143,6 +143,19 @@ CME is the only loader whose source is a **fixed-width report**, and the only on
 server rejects absolute paths (`/dir` fails, `./dir` works). Its read path is verified against
 16 live bulletins (757,360 rows, 8 feeds); its SQL has never been deployed. BALMO/day-label
 futures rows are **deliberately not loaded** — see `sql/CME/001` for why and what it costs.
+
+NGX (ICE NGX clearing, DB `NGX`) is the only loader whose target database **already holds live
+incumbent tables** (`dbo.IndexPrice`, `dbo.StripTradingSummary`, still written by Conduit today);
+the new `arm.*` tables shadow them, and the loader reads `dbo.[Index]` but never writes `dbo`.
+Its read path is verified live end to end; its SQL has never been deployed. Four behaviours are
+silent if you get them wrong: auth is **HTTP Basic**, not the documented `/api/v2` bearer token
+(which these `.xml` paths ignore, answering 302 to ICE SSO — so redirects must never be
+followed); at most **10 `indexId` params** per request, and **one unentitled id returns 403 for
+the whole batch**; the index response **truncates at 50 rows** unless `pageSize` is sent, and the
+paging param is `page` (`pageNumber` and `size` are silently ignored); and every timestamp must
+be converted from the vendor's Mountain offset to **US Central**, which matters doubly because
+`TradeDateTime` is in the primary key. Amounts also carry thousands separators (`313,100`).
+See `docs/apis/NGX.md`.
 
 ## Key files
 
