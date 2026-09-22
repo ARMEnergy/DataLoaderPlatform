@@ -123,7 +123,7 @@ Avoid large inline dumps of code, SQL, or logs.
 ## Build-only loaders
 
 CWG, AGSI, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion, EOX, CME,
-Genscape, NGX are build-only unless explicitly deployed and run.
+Genscape, NGX, Marex are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
 
 Criterion is the only loader with a **relational (PostgreSQL) source**. Its read path is verified
@@ -156,6 +156,29 @@ paging param is `page` (`pageNumber` and `size` are silently ignored); and every
 be converted from the vendor's Mountain offset to **US Central**, which matters doubly because
 `TradeDateTime` is in the primary key. Amounts also carry thousands separators (`313,100`).
 See `docs/apis/NGX.md`.
+
+Marex (Neon crude market, DB `Marex`) is the only loader whose source **pushes rather than
+answers**, and the only one built on a **vendor SDK** — three .NET Framework 4.6.1 assemblies
+vendored in `lib/neon` (not on any NuGet feed). They run fine in-process on .NET 8; the vendor's
+own integration note says to build a separate net48 connector, and that is **not** necessary —
+see `lib/neon/README.md`. There is no request that fetches data: the client authenticates
+(Auth0 password grant), opens a SignalR websocket, and the gateway pushes one opening snapshot of
+every entity. So a run is connect once → capture → merge five tables → disconnect; the live
+`*Update` delta stream is deliberately not consumed, because that would need a resident process
+and this platform runs loaders as batch jobs under an overlap lock. Its read path is verified
+live end to end; its SQL has never been deployed. Four behaviours are silent if you get them
+wrong, and three of them contradict the vendor's own note: `NeonApiConfig.Name` is the SignalR
+**hub name** (`Gateway.Crude`, supplied by the SDK when null) and NOT a client label — a wrong
+value makes the gateway answer the negotiate with **HTTP 500** while the SDK retries every 5s
+forever and the status sits on `Connecting`; handlers must be attached **before** `Connect` and
+the run must wait on the **snapshots**, not on `ConnectionStatus == Connected`, which is reached
+*after* they arrive; `PasswordConnectionData` **does** carry `Domain` and `ClientId` (the note
+says it does not), so `GetToken` works and hand-rolling the Auth0 call is unnecessary; and
+`ClosingPriceDto.Time`/`.PreviousTime` are **non-nullable**, so "no value" arrives as
+`0001-01-01`, which `DATETIME2` stores silently. `ExchangeDate`/`TradeDate` exist in no DTO —
+they come only from the separate `ExchangeDateSnapshot` event and lead both fact tables' primary
+keys. Also note `MarketState` lives in `SignalRClient.Contracts`, not `Common.Core.Enums`.
+See `docs/apis/Marex.md`.
 
 ## Key files
 

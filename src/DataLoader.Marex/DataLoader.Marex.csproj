@@ -1,0 +1,87 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.Marex</RootNamespace>
+    <AssemblyName>DataLoader.Marex</AssemblyName>
+    <!-- NU1701: the three vendored Neon assemblies target .NETFramework 4.6.1. They are
+         referenced by path, not by package, and the framework-mismatch warning is
+         expected and verified-harmless - see lib/neon/README.md.
+         NU1902/NU1903: Auth0.AuthenticationApi 5.9.0 and log4net carry published
+         advisories. Neither version is chosen - both are dictated by the assembly
+         references compiled into the vendored SDK - and both are reachable only over
+         the vendor's own TLS connections to login.neon.markets / app-ca.neon.markets.
+         Revisit when Marex ships an SDK built against current dependencies. -->
+    <NoWarn>$(NoWarn);NU1701;NU1902;NU1903</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       The Marex Neon SDK. Not on any NuGet feed, so vendored under lib/neon and
+       referenced by path. Private=true copies them next to the host executable.
+       ========================================================================== -->
+  <ItemGroup>
+    <Reference Include="Neon.API">
+      <HintPath>..\..\lib\neon\Neon.API.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SignalRClient">
+      <HintPath>..\..\lib\neon\SignalRClient.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Common.Core">
+      <HintPath>..\..\lib\neon\Common.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       The SDK's runtime dependencies.
+
+       .NET resolves an assembly reference by SIMPLE NAME and accepts whatever it
+       finds as long as the found version is >= the requested one, so these only
+       have to meet the floor baked into the vendored DLLs:
+
+         SignalRClient.dll -> Microsoft.AspNet.SignalR.Client 2.3.0.0 (2.4.3 ships 2.4.0.0)
+         all three         -> Newtonsoft.Json              11.0.0.0  (13.0.3 ships 13.0.0.0)
+         all three         -> System.Reactive               4.0.0.0
+         Neon.API.dll      -> Auth0.AuthenticationApi / Auth0.Core  5.9.0.0
+         Neon.API.dll      -> System.IdentityModel.Tokens.Jwt /
+                              Microsoft.IdentityModel.Tokens        5.2.4.0
+         Common.Core.dll   -> log4net                       2.0.8.0
+         Common.Core.dll   -> System.Configuration (facade, in-box on net8.0)
+
+       System.IdentityModel.Tokens.Jwt is deliberately NOT pinned. The vendor's nuspec
+       asks for 5.2.4, but DataLoader.Core -> Microsoft.Data.SqlClient already pulls
+       Microsoft.IdentityModel.* 6.35.0 into this graph for its AAD auth path. Pinning
+       5.2.4 here produces NU1605 and would downgrade SqlClient's dependency; letting
+       6.35.0 win satisfies both, since 6.35.0.0 >= the 5.2.4.0 the SDK asks for. The
+       combination is verified live end to end (token + websocket handshake + all six
+       snapshots), which is the only thing that can prove a 5.x-compiled assembly is
+       happy on 6.x at run time.
+
+       System.Reactive is pinned to 4.x ON PURPOSE. Rx 5 and 6 dropped the
+       System.Reactive.Core / .Interfaces / .Linq / .PlatformServices facade assemblies
+       that a net461 consumer like Common.Core.dll binds against.
+
+       AutoMapper / Unity / Topshelf are referenced by Common.Core.dll but are NOT
+       listed here - no code path this loader touches reaches them, and .NET resolves
+       assembly references lazily. See lib/neon/README.md.
+       ========================================================================== -->
+  <ItemGroup>
+    <PackageReference Include="System.Reactive" Version="4.4.1" />
+    <PackageReference Include="Microsoft.AspNet.SignalR.Client" Version="2.4.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Auth0.AuthenticationApi" Version="5.9.0" />
+    <PackageReference Include="log4net" Version="2.0.15" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.Marex.Tests" />
+  </ItemGroup>
+</Project>

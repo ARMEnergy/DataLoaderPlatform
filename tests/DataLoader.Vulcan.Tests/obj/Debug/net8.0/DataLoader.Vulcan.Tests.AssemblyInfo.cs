@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DataLoader.Vulcan.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4495979128a3e3d4605557404ea606b1140a665f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+28596c398ac4074454ae23a87dcbd79a41e80e1c")]
 [assembly: System.Reflection.AssemblyProductAttribute("DataLoader.Vulcan.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DataLoader.Vulcan.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
