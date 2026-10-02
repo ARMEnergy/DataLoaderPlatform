@@ -76,10 +76,10 @@ public sealed class SinkAndDescriptorTests
     // ---------------------------------------------------------------- descriptors
 
     [Fact]
-    public void There_are_eighteen_feeds_and_twelve_tables()
+    public void There_are_twentyone_feeds_and_fourteen_tables()
     {
-        Assert.Equal(18, IceDescriptors.All.Count);
-        Assert.Equal(12, IceDescriptors.AllTables.Count);
+        Assert.Equal(21, IceDescriptors.All.Count);
+        Assert.Equal(14, IceDescriptors.AllTables.Count);
     }
 
     [Fact]
@@ -216,13 +216,19 @@ public sealed class SinkAndDescriptorTests
         Assert.DoesNotContain("?", url, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The XLSX feeds: the original IFLL one plus the three Settlement_Reports
+    /// environmentals reports. Pinned so a new feed cannot quietly pick the format
+    /// without someone confirming IceXlsx handles its sheet.
+    /// </summary>
     [Fact]
-    public void Xlsx_is_the_only_non_text_feed()
+    public void Xlsx_is_used_only_by_ifll_and_the_environmentals_reports()
     {
-        var xlsx = IceDescriptors.All.Where(f => f.Format == IceFileFormat.Xlsx).ToList();
+        var xlsx = IceDescriptors.All.Where(f => f.Format == IceFileFormat.Xlsx).Select(f => f.FeedId).ToList();
 
-        Assert.Single(xlsx);
-        Assert.Equal("IfllOptions", xlsx[0].FeedId);
+        Assert.Equal(
+            new[] { "IfllOptions", "IcePhysEnv", "NgxPhysEnv", "IcePhysEnvOptions" },
+            xlsx);
     }
 
     [Fact]

@@ -2,7 +2,7 @@
 
 Source contract: `docs/apis/ICE.md` (verified live 2026-09-01).
 
-Database `ICE`, schema `arm`. 18 file feeds → 12 fact tables, one pipeline per feed.
+Database `ICE`, schema `arm`. 21 file feeds → 14 fact tables, one pipeline per feed.
 
 ---
 
@@ -111,7 +111,7 @@ slips through — including requests made by *other* consumers of the same ICE a
 which the client-side limiter cannot see.
 
 **This setting, not bandwidth, governs run duration.** A cold run is
-18 feeds × 31 dates = 558 requests ≈ 22 minutes. That is why the local file cache
+21 feeds × 31 dates = 651 requests ≈ 26 minutes. That is why the local file cache
 (§4) matters as much as it does, and why the module logs the request count and
 estimated duration at startup — a 20-minute first run otherwise looks like a hang.
 
@@ -204,8 +204,8 @@ dropping everything is visible rather than silently empty.
 
 ## 6. SQL
 
-`sql/ICE/001` tables + `arm.Status` + `arm.FileLog`, `002` the 12 TVP types,
-`003` `usp_UpsertFileLog` + 12 merge procs + `usp_ValidateLoad`, `999` drop.
+`sql/ICE/001` tables + `arm.Status` + `arm.FileLog`, `002` the 14 TVP types,
+`003` `usp_UpsertFileLog` + 14 merge procs + `usp_ValidateLoad`, `999` drop.
 
 Conventions shared with the other loaders:
 
@@ -238,13 +238,54 @@ and the `ModifiedAtUtc` indexes — is reproduced verbatim.
 
 ---
 
+### 6.2 `arm.PhysEnvFutures` — one table, two publishing processes
+
+The `Settlement_Reports/Environmentals` XLSX set (feeds 19-21, added 2026-09-24)
+introduces the loader's first table written by feeds from **different sources**:
+`icecleared_physenv` and `ngxphysical_env` publish a column-for-column identical
+11-column sheet, so they share one table and are told apart by a discriminator.
+
+```sql
+CONSTRAINT PK_ARM_PhysEnvFutures PRIMARY KEY CLUSTERED (TradeDate, SourceSystem, Contract, ContractType, Strip)
+```
+
+`SourceSystem` (`VARCHAR(20)`, `ICECleared` / `NGXPhysical`) is a new kind of
+column for this loader: **loader-derived, like `SourcePath`, but REQUIRED and part
+of the key.** It comes from `IceFeedDescriptor.SourceSystem` and is never read
+from the sheet — `IceSourceReader.ResolveSourceSystem` throws if a table declaring
+the column is paired with a feed that supplies no value, because the alternative
+is a blank in a PK column that silently merges the two processes together.
+
+Two consequences worth knowing:
+
+* The two feeds address **disjoint row sets**, so merge order between them is
+  irrelevant and no ordering guard is needed — but they do share
+  `arm.usp_BulkMergePhysEnvFutures`, and `SqlWriteGate` keys on the proc name, so
+  they serialize against each other.
+* `arm.usp_ValidateLoad` reports `arm.PhysEnvFutures` row counts **per
+  `SourceSystem`** (check 8) and flags any value outside the known set (check 9).
+  Because the column is a key component, a mis-wired value would fork the key
+  space rather than collide, so nothing else would ever complain.
+
+These tables are **new**, not a replacement: `arm.EnvFutures` / `arm.EnvOptions`
+keep loading the `.dat` publication from `Settlement_Reports_CSV`, and nothing
+de-duplicates across the two.
+
+---
+
 ## 7. Status and known gaps
 
 **Build-only.** SQL is ScriptDom parse-checked but **never deployed**; no row has
 been written to a real database. Do not report data validation as passed.
 
-1. Live-verified end to end through *parsing* (all 18 feeds downloaded and parsed
-   from real 2026-08-28 responses). The SQL half is unexecuted.
+1. Live-verified end to end through *parsing* (all 18 `_CSV` feeds downloaded and
+   parsed from real 2026-08-28 responses). The SQL half is unexecuted.
+1a. **Feeds 19-21 were never downloaded by the loader.** The three real files were
+   supplied directly and parsed offline on 2026-09-24, so the column mapping,
+   sparse-cell handling and numeric edge cases are verified against real bytes —
+   but the URL template, the entitlement (§1.3 of the API doc lists only
+   `SETTLEMENT_REPORTS_CSV_ENVIRONMENTALS`) and the classifier path for this
+   directory are all unexercised. One live run is needed.
 2. `arm.ICE_Crude_Oil_Index_Trades` merges a cumulative window, so its row count
    grows within an index month and plateaus — normal, not a duplication bug.
 3. The loader ships **disabled** (`Platform:EnabledLoaders` unchanged) and must be

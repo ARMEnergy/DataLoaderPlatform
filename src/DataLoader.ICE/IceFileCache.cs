@@ -10,7 +10,7 @@ namespace DataLoader.ICE;
 /// <para>
 /// This is a real cache, not a scratch directory. With the shipped all-hot 30-day
 /// window (<see cref="IceSettings.SettledAfterDays"/>) every run revisits ~31 trade
-/// dates across 18 feeds; a day of ICE files is roughly 100 MB, so re-downloading
+/// dates across 21 feeds; a day of ICE files is roughly 100 MB, so re-downloading
 /// the whole window every run would be ~3 GB. Reusing a file that is already on
 /// disk reduces that to genuinely new dates plus whatever retention has expired.
 /// </para>

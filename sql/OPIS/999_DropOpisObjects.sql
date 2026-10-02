@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropOpisObjects.sql
 -- Database : OPIS
 -- Schema   : arm
@@ -18,6 +18,7 @@
 -- =============================================================================
 
 -- ---- 1) Procedures ----------------------------------------------------------
+IF OBJECT_ID(N'arm.usp_CompareArmToDbo', 'P')          IS NOT NULL DROP PROCEDURE arm.usp_CompareArmToDbo;
 IF OBJECT_ID(N'arm.usp_ValidateLoad', 'P')      IS NOT NULL DROP PROCEDURE arm.usp_ValidateLoad;
 IF OBJECT_ID(N'arm.usp_BulkMergeLPReport', 'P') IS NOT NULL DROP PROCEDURE arm.usp_BulkMergeLPReport;
 IF OBJECT_ID(N'arm.usp_UpsertFileLog', 'P')     IS NOT NULL DROP PROCEDURE arm.usp_UpsertFileLog;

@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropIHSPointLogicObjects.sql
 -- TEARDOWN for the IHSPointLogic (S&P Global / IHS Markit PointLogic) loader. Drops
 -- every object created by
@@ -62,6 +62,7 @@ GO
 -- ============================================================================
 RAISERROR('IHSPointLogic teardown: dropping [arm] stored procedures...', 10, 1) WITH NOWAIT;
 GO
+IF OBJECT_ID(N'arm.usp_CompareArmToDbo', 'P')          IS NOT NULL DROP PROCEDURE arm.usp_CompareArmToDbo;
 IF OBJECT_ID(N'arm.usp_UpsertFileLog', 'P')                            IS NOT NULL DROP PROCEDURE arm.usp_UpsertFileLog;
 IF OBJECT_ID(N'arm.usp_ValidateLoad', 'P')                            IS NOT NULL DROP PROCEDURE arm.usp_ValidateLoad;
 -- Read procs

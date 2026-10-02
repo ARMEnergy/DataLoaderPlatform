@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropNgxObjects.sql
 -- Database : NGX
 -- Schema   : arm
@@ -17,6 +17,7 @@
 -- =============================================================================
 
 -- ---- procedures -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeIndexPrice;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeStripTradingSummary;

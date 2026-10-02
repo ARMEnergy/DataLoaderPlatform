@@ -14,13 +14,16 @@
          sftp.cmeprod.datahex.rozettatech.com. The drop speaks SSH SFTP, so the
          FluentFTP driver the OPIS/Argus/EOX loaders use cannot serve it.
 
-         PINNED to 2024.2.0 to match DataLoader.Platts. The host references every
-         loader project, so NuGet unifies this package across the whole app —
-         bumping it here would silently change Platts' runtime SSH stack too.
-         NOTE: 2024.2.0 carries advisory GHSA-q939-rpr3-3284; upgrading is a
-         solution-wide change (CME + Platts together, with a Platts regression
-         run) and is deliberately NOT bundled into this loader. -->
-    <PackageReference Include="SSH.NET" Version="2024.2.0" />
+         Kept in lockstep with DataLoader.Platts: the host references every
+         loader project, so NuGet unifies this package across the whole app and
+         a one-sided bump would silently change Platts' SSH stack too.
+
+         2026.0.0 clears advisory GHSA-q939-rpr3-3284 / CVE-2026-48798 (path
+         traversal in ScpClient's recursive download). Neither loader uses
+         ScpClient — both drivers only ever call SftpClient.ListDirectory and
+         .DownloadFile — so the fix is about the NU1903 build warning, not an
+         exposure either loader had. -->
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DataLoader.CME.Tests" />

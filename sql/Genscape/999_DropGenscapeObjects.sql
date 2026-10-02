@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropGenscapeObjects.sql
 -- Database : Genscape
 -- Schema   : arm
@@ -12,6 +12,7 @@
 -- =============================================================================
 
 -- ---- procedures -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeOilFundamentalsCrudeStorageWeekly;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeOilFundamentalsCrudeTransportationWeekly;

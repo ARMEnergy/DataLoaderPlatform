@@ -37,7 +37,15 @@ public enum IceDerived
     None,
 
     /// <summary>The https URL the file came from. Never contains the SSO token.</summary>
-    SourcePath
+    SourcePath,
+
+    /// <summary>
+    /// The publishing process, taken from <see cref="IceFeedDescriptor.SourceSystem"/>.
+    /// Exists so two feeds with identical columns can share one table and still be
+    /// told apart — <c>icecleared_physenv</c> and <c>ngxphysical_env</c> both land in
+    /// <c>arm.PhysEnvFutures</c>.
+    /// </summary>
+    SourceSystem
 }
 
 /// <summary>
@@ -125,6 +133,15 @@ public sealed record IceColumn(
     public static IceColumn SourcePath() =>
         new("SourcePath", "VARCHAR(500)", IceColumnType.String,
             Array.Empty<string>(), Required: false, Derived: IceDerived.SourcePath);
+
+    /// <summary>
+    /// The publishing-process discriminator for a table shared by feeds from
+    /// different sources. REQUIRED because it is a primary-key column; the value is
+    /// loader-supplied, so it can never actually be blank.
+    /// </summary>
+    public static IceColumn SourceSystem() =>
+        new("SourceSystem", "VARCHAR(20)", IceColumnType.String,
+            Array.Empty<string>(), Required: true, Derived: IceDerived.SourceSystem);
 }
 
 /// <summary>
@@ -175,13 +192,19 @@ public enum IceFileFormat
 /// <c>yyyy_MM_dd</c> for every feed except the two Crude Index feeds, which use
 /// <c>yyyyMMdd</c>.
 /// </param>
+/// <param name="SourceSystem">
+/// Value for the table's <see cref="IceDerived.SourceSystem"/> column, when it has
+/// one. Non-null only for the two feeds that share <c>arm.PhysEnvFutures</c>
+/// (<c>ICECleared</c> / <c>NGXPhysical</c>); null everywhere else.
+/// </param>
 public sealed record IceFeedDescriptor(
     string FeedId,
     string DisplayName,
     string PathTemplate,
     string DateFormat,
     IceFileFormat Format,
-    IceTableDescriptor Table)
+    IceTableDescriptor Table,
+    string? SourceSystem = null)
 {
     /// <summary>Relative path for one trade date, e.g. <c>Settlement_Reports_CSV/Gas/icecleared_gas_2026_08_28.dat</c>.</summary>
     public string PathFor(DateOnly tradeDate) =>
@@ -267,6 +290,91 @@ public static class IceDescriptors
         TableName: "arm.EnvOptions",
         TvpType: "arm.EnvOptionsTvp",
         MergeProc: "arm.usp_BulkMergeEnvOptions",
+        Columns: new[]
+        {
+            IceColumn.Dat("TradeDate", HTradeDate, required: true),
+            IceColumn.Str("Contract", 10, HContract, required: true),
+            IceColumn.Chr("ContractType", HContractType, required: true),
+            IceColumn.Dec("Strike", HStrike, required: true),
+            IceColumn.Str("Strip", 50, HStrip, required: true),
+            IceColumn.I32("ProductId", HProductId),
+            IceColumn.Str("Hub", 100, HHub),
+            IceColumn.Str("Product", 100, HProduct),
+            IceColumn.Dec("SettlementPrice", HSettlementPrice),
+            IceColumn.Dec("NetChange", HNetChange),
+            IceColumn.Dat("ExpirationDate", HExpirationDate),
+            IceColumn.Dec("OptionVolatility", HOptionVolatility),
+            IceColumn.Dec("DeltaFactor", HDeltaFactor),
+            IceColumn.SourcePath()
+        });
+
+    /// <summary>
+    /// arm.PhysEnvFutures — the XLSX physical-environmentals settlement report from
+    /// <c>Settlement_Reports/Environmentals</c>. TWO feeds share this table:
+    /// <c>icecleared_physenv</c> and <c>ngxphysical_env</c>, which publish an
+    /// identical 11-column sheet (A:K, header on row 1 — verified against the live
+    /// files for 2026-09-23).
+    ///
+    /// <para>
+    /// <b><see cref="IceColumn.SourceSystem"/> is the 2nd primary-key column.</b> It
+    /// is what lets the two processes share one table: each row records whether it
+    /// came from <c>ICECleared</c> or <c>NGXPhysical</c>, and neither can ever
+    /// overwrite the other. The two files were verified to share zero keys on
+    /// 2026-09-23 (and zero contract codes at all), so this is insurance rather than
+    /// a live collision — but ICE reuses contract codes across markets, which is the
+    /// same hazard that forced ProductId into the <c>arm.Futures</c> key.
+    /// </para>
+    /// <para>
+    /// <b>Strip is VARCHAR, not DATE</b>, and must stay that way: <c>icecleared_physenv</c>
+    /// publishes month codes, daily contracts and spreads ('Apr27', '23 Sep 26',
+    /// 'Apr27 BH25') while <c>ngxphysical_env</c> publishes date-shaped strips
+    /// ('9/1/2026'). Only one of the two would survive a DATE column.
+    /// </para>
+    /// <para>
+    /// Strike is optional and in practice always blank — it was empty on all 1,439
+    /// ICE rows and all 264 NGX rows. It is kept because the supplied report carries
+    /// the column.
+    /// </para>
+    /// </summary>
+    public static readonly IceTableDescriptor PhysEnvFuturesTable = new(
+        TableName: "arm.PhysEnvFutures",
+        TvpType: "arm.PhysEnvFuturesTvp",
+        MergeProc: "arm.usp_BulkMergePhysEnvFutures",
+        Columns: new[]
+        {
+            IceColumn.Dat("TradeDate", HTradeDate, required: true),
+            IceColumn.SourceSystem(),
+            IceColumn.Str("Contract", 10, HContract, required: true),
+            IceColumn.Chr("ContractType", HContractType, required: true),
+            IceColumn.Str("Strip", 50, HStrip, required: true),
+            IceColumn.I32("ProductId", HProductId),
+            IceColumn.Str("Hub", 100, HHub),
+            IceColumn.Str("Product", 100, HProduct),
+            IceColumn.Dec("Strike", HStrike),
+            IceColumn.Dec("SettlementPrice", HSettlementPrice),
+            IceColumn.Dec("NetChange", HNetChange),
+            IceColumn.Dat("ExpirationDate", HExpirationDate),
+            IceColumn.SourcePath()
+        });
+
+    /// <summary>
+    /// arm.PhysEnvOptions — <c>icecleared_physenvoptions</c> from
+    /// <c>Settlement_Reports/Environmentals</c> (XLSX, 13 columns A:M, header on
+    /// row 1).
+    ///
+    /// <para>
+    /// No SourceSystem column: ICE publishes no NGX counterpart for the options
+    /// report, so the discriminator would be a constant.
+    /// </para>
+    /// <para>
+    /// Strike is REQUIRED, which drops the report's 'F' underlying-future rows —
+    /// 365 of 12,579 (2.9 %) on 2026-09-22, the same ratio the .dat twin shows.
+    /// </para>
+    /// </summary>
+    public static readonly IceTableDescriptor PhysEnvOptionsTable = new(
+        TableName: "arm.PhysEnvOptions",
+        TvpType: "arm.PhysEnvOptionsTvp",
+        MergeProc: "arm.usp_BulkMergePhysEnvOptions",
         Columns: new[]
         {
             IceColumn.Dat("TradeDate", HTradeDate, required: true),
@@ -493,10 +601,11 @@ public static class IceDescriptors
     {
         EnvFuturesTable, EnvOptionsTable, FuturesTable, CrudeIndexTable, CrudeIndexTradesTable,
         PowerFuturesTable, PowerOptionsTable, FcaOptionsTable, FusFinOptionsTable,
-        FusSoftOptionsTable, IfllOptionsTable, OptionsTable
+        FusSoftOptionsTable, IfllOptionsTable, OptionsTable,
+        PhysEnvFuturesTable, PhysEnvOptionsTable
     };
 
-    // ===================== the 18 feeds =====================
+    // ===================== the 21 feeds =====================
 
     private const string DateDashed = "yyyy_MM_dd";
     private const string DateCompact = "yyyyMMdd";
@@ -580,8 +689,25 @@ public static class IceDescriptors
 
         new IceFeedDescriptor("OilOptions", "ICE cleared oil options",
             "Settlement_Reports_CSV/Oil/icecleared_oiloptions_{date}.dat",
-            DateDashed, IceFileFormat.PipeDelimited, OptionsTable)
+            DateDashed, IceFileFormat.PipeDelimited, OptionsTable),
+
+        // --- Environmentals, the XLSX report set (Settlement_Reports, NOT _CSV) ---
+        // A different directory from the two .dat feeds above and a different
+        // publication of the same market: these land in their own tables.
+        // SourceSystem is the discriminator that lets the first two share one.
+        new IceFeedDescriptor("IcePhysEnv", "ICE cleared physical environmentals (xlsx)",
+            "Settlement_Reports/Environmentals/icecleared_physenv_{date}.xlsx",
+            DateDashed, IceFileFormat.Xlsx, PhysEnvFuturesTable, SourceSystem: "ICECleared"),
+
+        new IceFeedDescriptor("NgxPhysEnv", "NGX physical environmentals (xlsx)",
+            "Settlement_Reports/Environmentals/ngxphysical_env_{date}.xlsx",
+            DateDashed, IceFileFormat.Xlsx, PhysEnvFuturesTable, SourceSystem: "NGXPhysical"),
+
+        new IceFeedDescriptor("IcePhysEnvOptions", "ICE cleared physical environmentals options (xlsx)",
+            "Settlement_Reports/Environmentals/icecleared_physenvoptions_{date}.xlsx",
+            DateDashed, IceFileFormat.Xlsx, PhysEnvOptionsTable)
     };
+
 
     /// <summary>Case-insensitive feed lookup; null when the id is unknown.</summary>
     public static IceFeedDescriptor? Find(string feedId) =>

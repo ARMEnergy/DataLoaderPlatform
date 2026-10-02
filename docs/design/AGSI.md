@@ -353,20 +353,57 @@ a row failure (the API doc marks every measure NULLable for `status:"E"`/`"N"`).
    - **401/403** → **throw** (bad/absent `x-key` — loud; almost certainly a config error).
    - **429 / 5xx** after Polly retries exhausted → throw (unit fails, run continues).
    - **200** → deserialize `AgsiStorageEnvelope`.
-3. **No-data tolerance (three shapes, all → NotAvailable, no failure — API doc Open question #1).**
+2a. **200 with a body-level `error` → THROW** (live-verified 2026-09-28; API doc Behaviour 6).
+   An invalid / missing / revoked `x-key` answers **HTTP 200** with
+   `{"total":0,"dataset":"storage ERROR","error":"access denied","message":"…","data":[]}` —
+   the same shape as a legitimate empty day. Probe `error` **before** step 3, and fail the
+   unit. Classifying it as no-data would write `NotAvailable` and **succeed** the unit, so
+   with `HotZoneKeyStrategy=RunDate` a revoked key would mark every day of the hot window
+   done for the rest of the CET day while loading nothing. The same channel also carries
+   **transient vendor faults** (`error: "Try/Catch error"` — ~0.7% of requests observed), so a
+   failure here is not necessarily an auth problem; the unit fails and the run continues.
+
+   🔒 **The exception text must never carry the key — and the vendor puts the key there for
+   you.** `message` on a fault body is literally `"API key: <the x-key verbatim>"` (API doc
+   Behaviour 7). `message` is therefore **suppressed entirely**, and the fields that *are*
+   quoted (`error`, `dataset`) pass through `Redact(...)`, which replaces the configured
+   `ApiKey` with `***`. Not theoretical: the first 2026-09-28 backfill pass wrote the key into
+   11 `core.LoadLog.ErrorMessage` rows before the suppression existed (since scrubbed).
+3. **No-data tolerance (three shapes, all → NotAvailable, no failure — API doc Behaviour 1).**
    Treat **any** of these as "nothing to load for this `(country,date)`": `total == 0`;
-   `data[]` empty/absent; a single `data[]` element with `status == "N"` and blank measures.
+   `data[]` empty/absent; a single `data[]` element with `status == "N"` and blank measures
+   (live: the measures arrive as the literal `"-"`, which the tolerant parser reads as NULL).
    Emit **zero rows** (do not write an `N` row this pass — flagged for a live-key decision, §11).
-4. **200 with data** → for each `data[]` element (single-date returns exactly one;
-   `last_page:1,total:1`), build a `GasStorageRow`:
-   `EntityId` ← the work unit's `EntityId` (copied straight through — the reader does **not**
-   read or match the response's `data[].code` echo); `Date` ← the request date param;
-   `Gas_Day` ← top-level `gas_day`; the **18** persisted `data[]` fields (every `data[]` field
-   except `name`, `code`, `url`, and `info` — §7.2). Numerics via the tolerant parser above.
-5. **Multi-page tolerance (API doc Open question #2).** Single-date mode is confirmed 1 page /
-   1 row. If `last_page > 1` ever appears, **log a warning** and process the returned page's
-   `data[]` only — this loader does **not** paginate (it iterates one date at a time). Do not
-   fail on it.
+4. **200 with data** → for each `data[]` element, **first decide whether the element is even
+   ours**, then build a `GasStorageRow`:
+   - **Attribution by the element's own `code`** (live-verified 2026-09-28; API doc Behaviour
+     2). A request does **not** guarantee a matching answer: `?country=eu` and `?country=ne`
+     both return the SAME two-element body (`total:2` — `data[0]`=eu, `data[1]`=ne). Keep
+     only the element whose `code` equals the unit's `CountryCode` (**case-insensitive** — the
+     URL carries the lowercased code, the response echoes the vendor's casing). Drop the
+     others; their own work unit fetches them. A **lone** element with no `code` echo is
+     unambiguous and is still accepted.
+     **This is load-bearing:** stamping `unit.EntityId` onto every element makes the two
+     records collide on the `(EntityId, GasDayStart)` merge key, the batch de-dup silently
+     keeps one, and the `eu` entity ends up holding the **Non-EU** aggregate. That is the
+     2026-09-28 production defect (61 wrong `eu` rows; EU never stored).
+   - **Reject a clamped gas day** (live-verified; API doc Behaviour 2a). AGSI clamps an
+     unpublished / future `date` to the latest available gas day rather than answering
+     empty. If `gasDayStart` is present and ≠ the requested `Date`, **drop the record with a
+     warning** → 0 rows → `NotAvailable`. Keeping it would break the `Date == gasDayStart`
+     invariant §10 depends on **and overwrite the previous day's row** (the merge keys on
+     `GasDayStart`). An **absent** `gasDayStart` still falls back to the request date.
+   - Then: `EntityId` ← the work unit's `EntityId` (stamped only after attribution succeeds —
+     the response `code` is used to *decide*, never *persisted*); `Date` ← the request date
+     param; `Gas_Day` ← top-level `gas_day`; the **18** persisted `data[]` fields (every
+     `data[]` field except `name`, `code`, `url`, and `info` — §7.2). Numerics via the
+     tolerant parser above.
+5. **Multi-record / multi-page tolerance.** More than one `data[]` element is **expected** on
+   the aggregate axis (see 4) and is handled by attribution, not by failing — but it is
+   **warned once**, naming the requested code and every code returned, so a new multi-record
+   shape stays diagnosable. `last_page` stays `1` for it, so `last_page` is not a usable
+   signal. A genuine `last_page > 1` (date-range mode, unused here) is likewise warned and
+   the returned page processed alone. Neither fails the unit.
 6. `FileLog` outcome: `rows.Count == 0 ? "NotAvailable" : "Success"`; upsert
    `AgsiFileContext(Endpoint="Storage", Region=countryCode, RepresentativeDate=requestDate)`;
    stamp `FileLogId` onto every row.
@@ -597,12 +634,22 @@ requires it (§11).
   of the 21-day window and the once-per-run entities refresh both upsert in place — no
   duplicates, safe over-scheduling. The platform overlap guard (`DataLoader:AGSI` app-lock)
   prevents two host processes running the loader at once.
-- **Load-bearing single-date invariant.** The resume / work-unit key still uses the request
-  `Date` (`agsi:storage:{code}:{yyyyMMdd}`, §3.2) while the MERGE now keys on `GasDayStart`.
-  Idempotency of a re-pull therefore holds **only while `Date == gasDayStart`** (the documented
-  single-date invariant — confirmed in the sample, §11 item 2). If a future response ever
-  returned `gasDayStart != Date`, the resume key and the merge key would address different rows
-  and a re-pull could double-write; the validator (§8) and DATABASE_DEVELOPER item 2 track this.
+- **Load-bearing single-date invariant — now ENFORCED at the reader, not merely assumed.** The
+  resume / work-unit key still uses the request `Date` (`agsi:storage:{code}:{yyyyMMdd}`, §3.2)
+  while the MERGE keys on `GasDayStart`. Idempotency of a re-pull therefore holds **only while
+  `Date == gasDayStart`**.
+
+  This is **not** something the API guarantees. Live-verified 2026-09-28: AGSI **clamps** an
+  unpublished or future `date` to the latest available gas day (`?country=at&date=2026-10-15`
+  answers `gasDayStart 2026-09-27`), so every run that starts before the vendor publishes the
+  newest gas day used to receive — and store — the *previous* day's record under the newest
+  day's `Date`. Because the MERGE keys on `GasDayStart`, that **overwrote the previous day's
+  row** and flipped its `Date`; the damage was largely self-cancelling only because units are
+  enumerated newest-first, so the correctly-dated request rewrote the row later in the same run.
+
+  §4.2 step 4 now **drops** any record whose `gasDayStart` ≠ the request `Date`, so the
+  invariant holds by construction. The validator's `DateEqualsGasDayStart` check (§8) stays as
+  the post-load assertion.
 
 ---
 
@@ -625,9 +672,13 @@ Two tables + one FileLog hub + supporting objects. Coordinate on:
    `Date`/`Gas_Day` retained as non-key columns; batch dedup `PARTITION BY (EntityId,
    GasDayStart)`, `MERGE ... ON (EntityId, GasDayStart)` (§10). **Load-bearing invariant (now
    promoted):** the resume key still uses request `Date` while the MERGE keys on `GasDayStart`, so
-   idempotency holds **only while `Date == gasDayStart`** (holds in the sample). If a future
-   response ever returns `gasDayStart != Date`, the resume-key/merge-key split could double-write —
-   surface it in the validator and revisit the resume-key basis.
+   idempotency holds **only while `Date == gasDayStart`**. ⚠ **This is NOT guaranteed by the API
+   and was observed violated in production on 2026-09-28**: AGSI clamps an unpublished/future
+   `date` to the latest available gas day, so the response for the newest day carried the
+   *previous* day's `gasDayStart` and the MERGE overwrote that previous day's row. The reader now
+   **drops** any record whose `gasDayStart` ≠ the request date (§4.2 step 4), so the invariant
+   holds by construction; the validator's `DateEqualsGasDayStart` check remains the post-load
+   assertion and should read 0.
 3. **DECIMAL sizing (from the API doc):** volumes/rates/capacities → `DECIMAL(18,4)` (the `eu`
    aggregate carries the largest magnitudes; `DECIMAL(12,4)` is the practical minimum);
    percents/ratios (`consumptionFull`, `coveredCapacity`, `trend`, `full`) → `DECIMAL(9,4)`;

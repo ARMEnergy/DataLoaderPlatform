@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropAgsiObjects.sql
 -- TEARDOWN for the GIE AGSI loader. Drops every object created by
 --   001_CreateAgsiSchema.sql, 002_CreateAgsiTvpTypes.sql, 003_CreateAgsiProcedures.sql
@@ -67,6 +67,7 @@ GO
 -- ============================================================================
 RAISERROR('AGSI teardown: dropping [arm] stored procedures...', 10, 1) WITH NOWAIT;
 GO
+IF OBJECT_ID(N'arm.usp_CompareArmToDbo', 'P')          IS NOT NULL DROP PROCEDURE arm.usp_CompareArmToDbo;
 IF OBJECT_ID(N'arm.usp_BulkMergeGasStorage', 'P')       IS NOT NULL DROP PROCEDURE arm.usp_BulkMergeGasStorage;
 IF OBJECT_ID(N'arm.usp_BulkMergeGasStorageEntity', 'P') IS NOT NULL DROP PROCEDURE arm.usp_BulkMergeGasStorageEntity;
 IF OBJECT_ID(N'arm.usp_UpsertFileLog', 'P')             IS NOT NULL DROP PROCEDURE arm.usp_UpsertFileLog;

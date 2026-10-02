@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropArgusObjects.sql
 -- Database : Argus
 -- Schema   : dlp
@@ -14,8 +14,9 @@
 -- =============================================================================
 
 -- ----------------------------------------------------------------------------
--- 1) Procedures — must go first: they hold references to the table types.
+-- 1) Procedures â€” must go first: they hold references to the table types.
 -- ----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS dlp.usp_ValidateLoad;
 DROP PROCEDURE IF EXISTS dlp.usp_BulkMergeTimeSeriesDetail;
 DROP PROCEDURE IF EXISTS dlp.usp_ReplaceQuoteLookup;
@@ -58,7 +59,7 @@ DROP TYPE IF EXISTS dlp.CategoryLookupTvp;
 GO
 
 -- ----------------------------------------------------------------------------
--- 3) Tables. FileLog before Status (FK), everything else is independent —
+-- 3) Tables. FileLog before Status (FK), everything else is independent â€”
 --    this schema has no FKs between the lookup and fact tables by design.
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS dlp.TimeSeriesDetailHistory;
@@ -83,7 +84,7 @@ DROP TABLE IF EXISTS dlp.Status;
 GO
 
 -- ----------------------------------------------------------------------------
--- 4) Schema — only when nothing else lives in it.
+-- 4) Schema â€” only when nothing else lives in it.
 -- ----------------------------------------------------------------------------
 IF EXISTS (SELECT 1 FROM sys.schemas WHERE [name] = 'dlp')
    AND NOT EXISTS (SELECT 1 FROM sys.objects AS o

@@ -216,6 +216,7 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
         var rows = new List<IceRow>(Math.Max(0, records.Count - 1));
         var dropped = 0;
         var truncatedSourcePath = Truncate(sourcePath, 500);
+        var sourceSystem = ResolveSourceSystem(columns);
 
         for (var r = 1; r < records.Count; r++)
         {
@@ -230,6 +231,12 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
                 if (column.Derived == IceDerived.SourcePath)
                 {
                     values[c] = truncatedSourcePath;
+                    continue;
+                }
+
+                if (column.Derived == IceDerived.SourceSystem)
+                {
+                    values[c] = sourceSystem;
                     continue;
                 }
 
@@ -258,6 +265,30 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
         }
 
         return (rows, dropped);
+    }
+
+    /// <summary>
+    /// The value for the table's <see cref="IceDerived.SourceSystem"/> column.
+    ///
+    /// <para>
+    /// Throws when the table declares the column but the feed does not supply a
+    /// value. That combination would write a blank into a PRIMARY-KEY column, so the
+    /// two feeds sharing <c>arm.PhysEnvFutures</c> would collapse into each other —
+    /// exactly the silent corruption the discriminator exists to prevent. Failing
+    /// here makes a mis-wired descriptor a loud, first-file error.
+    /// </para>
+    /// </summary>
+    private string ResolveSourceSystem(IReadOnlyList<IceColumn> columns)
+    {
+        if (columns.All(c => c.Derived != IceDerived.SourceSystem))
+            return string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_feed.SourceSystem))
+            throw new InvalidOperationException(
+                $"ICE {_feed.FeedId}: table {_feed.Table.TableName} declares a SourceSystem column " +
+                "but the feed descriptor supplies no SourceSystem value.");
+
+        return _feed.SourceSystem!;
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropEoxObjects.sql
 -- Database : EOX
 -- Schema   : arm
@@ -16,6 +16,7 @@
 -- ----------------------------------------------------------------------------
 -- 1) Procedures -- must go first: they hold references to the table types.
 -- ----------------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeNGL;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeNaturalGas;

@@ -46,4 +46,31 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!--
+    Optional production deploy, hooked onto `dotnet publish`:
+
+      dotnet publish src/DataLoader.Host/DataLoader.Host.csproj -c Release -o publish -p:DeployToProd=true
+
+    OPT-IN BY DESIGN. `DeployToProd` defaults to false so the routine publish
+    documented in CLAUDE.md — and anything CI runs — cannot push to production by
+    accident. Deleting the Condition would turn every `dotnet publish` into a
+    production deploy.
+
+    The target only runs the archive+copy half: the build and publish have just
+    happened, and invoking `dotnet test` from inside a running MSBuild graph
+    contends with the same obj/bin files. Run scripts\Publish-ToProd.ps1 directly
+    (no -SkipBuild/-SkipTests) when you want the test gate as well.
+  -->
+  <Target Name="DeployToProdShare" AfterTargets="Publish" Condition="'$(DeployToProd)' == 'true'">
+    <PropertyGroup>
+      <_DeployScript>$(MSBuildThisFileDirectory)..\..\scripts\Publish-ToProd.ps1</_DeployScript>
+      <_DeployTargetArg Condition="'$(DeployTarget)' != ''">-Target "$(DeployTarget)"</_DeployTargetArg>
+      <_DeployCfgArg Condition="'$(KeepProdSettings)' == 'true'">-KeepProdSettings</_DeployCfgArg>
+      <_DeployCfgArg Condition="'$(OverwriteSettings)' == 'true'">-OverwriteSettings</_DeployCfgArg>
+      <_DeployDryArg Condition="'$(DeployDryRun)' == 'true'">-DryRun</_DeployDryArg>
+    </PropertyGroup>
+    <Message Importance="high" Text="Deploying published output to the production share..." />
+    <Exec Command="powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(_DeployScript)&quot; -PublishDir &quot;$(PublishDir.TrimEnd('\'))&quot; -SkipBuild -SkipTests $(_DeployTargetArg) $(_DeployCfgArg) $(_DeployDryArg)" />
+  </Target>
 </Project>

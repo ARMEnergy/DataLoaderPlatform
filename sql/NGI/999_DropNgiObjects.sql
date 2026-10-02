@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropNgiObjects.sql
 -- Loader:   NGI  (NGI Data Services - Bidweek natural-gas price survey)
 -- Database: NGI            Schema: arm
@@ -76,6 +76,7 @@ GO
 -- ============================================================================
 RAISERROR('NGI teardown: dropping [arm] stored procedures...', 10, 1) WITH NOWAIT;
 GO
+IF OBJECT_ID(N'arm.usp_CompareArmToDbo', 'P')          IS NOT NULL DROP PROCEDURE arm.usp_CompareArmToDbo;
 IF OBJECT_ID(N'arm.usp_BulkMergeBidWeekData', 'P')     IS NOT NULL DROP PROCEDURE arm.usp_BulkMergeBidWeekData;
 IF OBJECT_ID(N'arm.usp_BulkMergeBidWeekLocation', 'P') IS NOT NULL DROP PROCEDURE arm.usp_BulkMergeBidWeekLocation;
 IF OBJECT_ID(N'arm.usp_UpsertFileLog', 'P')            IS NOT NULL DROP PROCEDURE arm.usp_UpsertFileLog;

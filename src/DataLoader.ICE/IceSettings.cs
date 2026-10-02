@@ -85,7 +85,7 @@ public sealed class IceSettings : LoaderSettingsBase
     /// </para>
     /// <para>
     /// ⚠ <b>This is the setting that governs how long a run takes.</b> A cold run is
-    /// 18 feeds × (DaysBack + 1) dates ≈ 558 requests ≈ 22 minutes at 25/min. Warm
+    /// 21 feeds × (DaysBack + 1) dates ≈ 651 requests ≈ 26 minutes at 25/min. Warm
     /// runs are far shorter because the local file cache serves anything already
     /// downloaded — see <see cref="DownloadDirectory"/> and
     /// <see cref="FileRetentionDays"/>.
@@ -166,6 +166,7 @@ public sealed class IceSettings : LoaderSettingsBase
         "PowerFutures", "PowerOptions",
         "FcaOptions", "FusFinOptions", "FusSoftOptions",
         "IfllOptions",
-        "GasOptions", "OilOptions"
+        "GasOptions", "OilOptions",
+        "IcePhysEnv", "NgxPhysEnv", "IcePhysEnvOptions"
     };
 }

@@ -56,7 +56,10 @@ Without the cookie the download returns `302` to the login flow.
 
 ### 1.3 Roles observed on the `arm_settles` account
 
-All roles required by the 18 feeds below are present:
+All roles required by the 18 `Settlement_Reports_CSV` / `Crude_Index` /
+`ICEF_options_greeks` / `FixedIncome_Settlements` feeds below are present. ⚠ No role
+for the non-`_CSV` `Settlement_Reports` tree (feeds 19-21) appeared in this capture
+— see §4A.7:
 
 ```
 CRUDE_INDEX                              FIXEDINCOME_SETTLEMENTS
@@ -143,12 +146,12 @@ Consequences for the loader:
   from the same 30/min, and the client-side limiter cannot see those requests — the
   `Retry-After` backoff is the safety net for that case.
 * **Run duration is governed by this, not by bandwidth.** A cold run is
-  18 feeds × 31 dates = 558 requests ≈ 22 minutes at 25/min. Warm runs are far
+  21 feeds × 31 dates = 651 requests ≈ 26 minutes at 25/min. Warm runs are far
   shorter because the local file cache serves anything already downloaded.
 
 ---
 
-## 3. Feed catalogue — 18 files into 12 tables
+## 3. Feed catalogue — 21 files into 14 tables
 
 Date token is `yyyy_MM_dd` for every feed except the two Crude Index feeds, which
 use `yyyyMMdd`.
@@ -173,9 +176,19 @@ use `yyyyMMdd`.
 | 16 | `FixedIncome_Settlements/IFLL_Options_{d}.xlsx` | `yyyy_MM_dd` | `arm.IFLL_Options` |
 | 17 | `Settlement_Reports_CSV/Gas/icecleared_gasoptions_{d}.dat` | `yyyy_MM_dd` | `arm.Options` |
 | 18 | `Settlement_Reports_CSV/Oil/icecleared_oiloptions_{d}.dat` | `yyyy_MM_dd` | `arm.Options` |
+| 19 | `Settlement_Reports/Environmentals/icecleared_physenv_{d}.xlsx` | `yyyy_MM_dd` | `arm.PhysEnvFutures` |
+| 20 | `Settlement_Reports/Environmentals/ngxphysical_env_{d}.xlsx` | `yyyy_MM_dd` | `arm.PhysEnvFutures` |
+| 21 | `Settlement_Reports/Environmentals/icecleared_physenvoptions_{d}.xlsx` | `yyyy_MM_dd` | `arm.PhysEnvOptions` |
 
 Sizes observed for 2026-08-28 range from 178 B (feed 10) to 23.6 MB (feed 18);
-the whole day is ~100 MB across all 18 feeds.
+the whole day is ~100 MB across all 18 `_CSV` feeds.
+
+⚠ **Feeds 19-21 live under `Settlement_Reports`, NOT `Settlement_Reports_CSV`.**
+The two directories are different publications of the same market: `_CSV` serves
+pipe-delimited `.dat`, the other serves `.xlsx`. Feeds 19 and 21 have `.dat`
+twins (feeds 1 and 2) and land in **separate tables** — nothing de-duplicates
+across the two publications. Feed 20 (`ngxphysical_env`) has no `.dat` twin and
+is only available here.
 
 ---
 
@@ -282,6 +295,118 @@ Magic bytes are `PK\x03\x04`; an HTML sentinel (§2) is detected before any unzi
 
 ---
 
+## 4A. The `Settlement_Reports/Environmentals` XLSX set (feeds 19–21)
+
+Measured cell-by-cell against the live files on **2026-09-24**
+(`icecleared_physenv_2026_09_23.xlsx`, `ngxphysical_env_2026_09_23.xlsx`,
+`icecleared_physenvoptions_2026_09_22.xlsx`).
+
+### 4A.1 Shape
+
+| File | Range | Data rows | Header |
+|---|---|---|---|
+| `icecleared_physenv` | `A1:K1440` (11 cols) | 1,439 | row 1 |
+| `ngxphysical_env` | `A1:K265` (11 cols) | 264 | row 1 |
+| `icecleared_physenvoptions` | `A1:M12580` (13 cols) | 12,579 | row 1 |
+
+All three are single-sheet packages (`Sheet1`) with the same part layout as the
+IFLL feed, so `IceXlsx` reads them unchanged.
+
+**Headers are spelled exactly as in the `.dat` feeds** — `TRADE DATE`, `HUB`,
+`PRODUCT`, `STRIP`, `CONTRACT`, `CONTRACT TYPE`, `STRIKE`, `SETTLEMENT PRICE`,
+`NET CHANGE`, `EXPIRATION DATE`, `PRODUCT_ID`, plus `OPTION_VOLATILITY` and
+`DELTA_FACTOR` on the options report. No `PUT/CALL`-style XLSX respelling here.
+
+`icecleared_physenv` and `ngxphysical_env` are **column-for-column identical**,
+which is why they share `arm.PhysEnvFutures`.
+
+### 4A.2 ⚠ Sparse cells — live in every futures row
+
+`STRIKE` (column `G`) is blank on **all 1,439 ICE rows and all 264 NGX rows**, and
+Excel omits the `<c>` element entirely rather than writing an empty one. The real
+row 2 is `A,B,C,D,E,F,H,I,J,K` — **no G**. A document-order read would slide
+`SETTLEMENT PRICE` into the `STRIKE` slot and shift every later column.
+`IceXlsx` places cells by decoding their `r` reference, which is what makes this
+safe.
+
+### 4A.3 ⚠ `SourceSystem` — the discriminator
+
+`arm.PhysEnvFutures` is written by two feeds, so each row records which process
+produced it:
+
+| Feed | `SourceSystem` |
+|---|---|
+| `IcePhysEnv` | `ICECleared` |
+| `NgxPhysEnv` | `NGXPhysical` |
+
+It is **loader-derived** (from `IceFeedDescriptor.SourceSystem`), never read from
+the sheet, and it is the **2nd primary-key column**. On 2026-09-23 the two files
+shared zero keys and in fact zero contract codes at all (ICE `PRODUCT_ID` ran
+390–32275, NGX 29889–29907), so this is insurance rather than a live collision —
+but ICE reuses contract codes across markets, the same hazard that forced
+`ProductId` into the `arm.Futures` key.
+
+The options report gets no such column: ICE publishes no NGX counterpart, so it
+would be a constant.
+
+### 4A.4 ⚠ `STRIP` disagrees between the two feeds sharing one table
+
+| Feed | Example values |
+|---|---|
+| `icecleared_physenv` | `Apr27`, `23 Sep 26`, `Apr27 BH25` (a spread) |
+| `ngxphysical_env` | `9/1/2026`, `10/1/2027` — date-shaped |
+
+`Strip` is therefore `VARCHAR(50)`, **not** `DATE`. A `DATE` column would drop
+every ICE row while looking correct for NGX.
+
+### 4A.5 ⚠ Float round-trip noise — XLSX only
+
+These sheets store numbers as IEEE-754 doubles, so they carry artefacts the
+pipe-delimited twins never show:
+
+| Column | Cells affected (2026-09-22 options) | Example |
+|---|---|---|
+| `STRIKE` | 2 | `78.01000000000001` (really `78.01`) |
+| `SETTLEMENT PRICE` | 375 | `0.008999999999999999` |
+| `NET CHANGE` | 237 | `-0.07000000000000001` |
+| `OPTION_VOLATILITY` | 218 | `64.00830000000001` |
+| `DELTA_FACTOR` | 717 | `-0.0005999999999999999` |
+
+`DELTA_FACTOR` additionally writes **137 values in exponent form** (`-1E-05`).
+`IceConvert` parses decimals with `NumberStyles.Float`, which already allows an
+exponent, so these convert rather than failing — which matters because a failed
+conversion on a REQUIRED column drops the row.
+
+`DECIMAL(18,6)` rounds the noise away. Verified for 2026-09-22 that rounding to
+scale 6 introduces **no key collisions** across the 12,214 strike-bearing rows,
+that nothing underflows (smallest non-zero magnitude is `1E-05`) and that nothing
+overflows (largest is `307.36`).
+
+### 4A.6 Measured facts
+
+| Check | `physenv` | `ngxphysical_env` | `physenvoptions` |
+|---|---|---|---|
+| `PRODUCT_ID` blank | 0 | 0 | 0 |
+| `CONTRACT` / `STRIP` blank | 0 | 0 | 0 |
+| `STRIKE` blank | 1,439 (all) | 264 (all) | 365 (2.9 %) |
+| `CONTRACT TYPE` values | `F` 1,426, `D` 13 | `F` 264 | `C` 6,107, `P` 6,107, `F` 365 |
+| Duplicate PKs | 0 | 0 | 0 |
+| Longest `HUB` / `PRODUCT` / `STRIP` | 31 / 39 / 13 | 8 / 16 / 9 | 30 / 39 / 10 |
+
+Cross-file: the two futures reports share **0** primary keys on 2026-09-23.
+
+### 4A.7 Entitlement caveat
+
+§1.3 lists `SETTLEMENT_REPORTS_CSV_ENVIRONMENTALS` on the `arm_settles` account.
+A role for the non-`_CSV` `Settlement_Reports` tree was **not** observed in that
+capture. The three files were supplied directly rather than downloaded through
+the loader, so **the download path for feeds 19–21 has not been exercised
+end to end**. If the account lacks the role, `downloads.ice.com` will answer
+HTTP 200 with the SSO or directory-index page and the classifier will report
+`AuthExpired` / `NotAvailable` rather than loading anything wrong.
+
+---
+
 ## 5. Primary-key findings (all measured on 2026-08-28)
 
 ### 5.1 `arm.Futures` — the declared PK is **not unique**
@@ -358,6 +483,7 @@ stored and are **dropped, counted and logged**:
 | `ICEFUS_FinOptions` | 2,932 | 760 | 25.9 % |
 | `ICEFUS_SoftOptions` | 26,302 | 402 | 1.5 % |
 | `IFLL_Options` (xlsx) | 16,419 | 1,023 | 6.2 % |
+| `icecleared_physenvoptions` (xlsx, 2026-09-22) | 12,579 | 365 | 2.9 % |
 
 `ICEFUS_FinOptions` drops a quarter of its rows. That is expected — the file is
 mostly interest-rate futures — but it is exactly the sort of number that looks
@@ -398,3 +524,8 @@ No truncation risk at present. `arm.usp_ValidateLoad` reports any value within
    depth. Header stability across years is assumed, and is guarded by the
    header-match check in §2 — a changed header fails the file loudly rather than
    loading it shifted.
+5. **Feeds 19-21 (§4A) have never been downloaded by the loader.** The three
+   files were supplied directly and parsed offline; the URL template, the
+   entitlement and the classifier path for `Settlement_Reports/Environmentals`
+   are all unexercised. One live run is needed to confirm them. Only a single
+   trade date per file was examined (2026-09-23 / 2026-09-22).

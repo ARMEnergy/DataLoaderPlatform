@@ -236,9 +236,11 @@ public sealed class ThrottlingTests
         var settings = new IceSettings();
         var requests = IceDescriptors.All.Count * (settings.DaysBack + 1);
 
-        Assert.Equal(558, requests);
+        // 21 feeds x 31 dates. The three Settlement_Reports environmentals feeds
+        // added 93 requests and about four minutes to a cold run.
+        Assert.Equal(651, requests);
 
         var minutes = requests / (double)settings.RequestsPerMinute;
-        Assert.InRange(minutes, 20, 25);
+        Assert.InRange(minutes, 25, 30);
     }
 }

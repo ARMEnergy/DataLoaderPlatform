@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropIirObjects.sql
 -- TEARDOWN for the IIR (Industrial Info Resources) loader. Drops every object
 -- created by
@@ -10,7 +10,7 @@
 -- arm.PlantSummary / arm.UnitSummary / arm.OfflineEventSummary, arm.FileLog,
 -- arm.Endpoint, arm.Status), the six TVP types, the eight stored procedures, and the
 -- [arm] schema. There is no recovery short of a database restore. NOTE that arm.Plant
--- / arm.Unit / arm.OfflineEvent may be the user's PRODUCTION tables — run only when
+-- / arm.Unit / arm.OfflineEvent may be the user's PRODUCTION tables â€” run only when
 -- you intend to fully remove the IIR loader's objects.
 --
 -- SCOPE / SAFETY:
@@ -34,7 +34,7 @@
 --   created, completes with no error.
 --
 -- DEPENDENCY-ORDERED DROP (reverse of the create order):
---   1) Procedures      (must precede the TVP types they reference as parameters) —
+--   1) Procedures      (must precede the TVP types they reference as parameters) â€”
 --        the 3 fact upserts, the 3 census upserts, usp_UpsertFileLog, usp_ValidateLoad
 --   2) TVP types       (fact: OfflineEventTvp/UnitTvp/PlantTvp; census:
 --        OfflineEventSummaryTvp/UnitSummaryTvp/PlantSummaryTvp)
@@ -72,6 +72,7 @@ GO
 -- ============================================================================
 RAISERROR('IIR teardown: dropping [arm] stored procedures...', 10, 1) WITH NOWAIT;
 GO
+IF OBJECT_ID(N'arm.usp_CompareArmToDbo', 'P')          IS NOT NULL DROP PROCEDURE arm.usp_CompareArmToDbo;
 IF OBJECT_ID(N'arm.usp_UpsertPlant', 'P')               IS NOT NULL DROP PROCEDURE arm.usp_UpsertPlant;
 IF OBJECT_ID(N'arm.usp_UpsertUnit', 'P')                IS NOT NULL DROP PROCEDURE arm.usp_UpsertUnit;
 IF OBJECT_ID(N'arm.usp_UpsertOfflineEvent', 'P')        IS NOT NULL DROP PROCEDURE arm.usp_UpsertOfflineEvent;

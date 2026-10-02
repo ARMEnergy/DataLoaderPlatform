@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropEvolutionMarketsObjects.sql
 -- Loader:   EvolutionMarkets  (EVO DataPipeline API - market-data history)
 -- Database: EvolutionMarkets      Schema: arm
@@ -31,6 +31,7 @@ USE EvolutionMarkets;
 GO
 
 -- ---- Procedures first: they reference the TVP type -------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
 GO
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeMarketData;

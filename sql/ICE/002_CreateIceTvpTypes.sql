@@ -3,7 +3,7 @@
 -- Database : ICE
 -- Schema   : arm
 --
--- One table type per TARGET TABLE (12), not per feed (18): the six feeds that
+-- One table type per TARGET TABLE (14), not per feed (21): the six feeds that
 -- land in arm.Futures and the two that land in arm.Options share their table's
 -- type, which is what guarantees they produce identically-shaped rows.
 --
@@ -317,6 +317,70 @@ BEGIN
         ContractType     CHAR(1)       NOT NULL,
         Strike           DECIMAL(18,6) NOT NULL,
         Strip            DATE          NOT NULL,
+        ProductId        INT           NULL,
+        Hub              VARCHAR(100)  NULL,
+        Product          VARCHAR(100)  NULL,
+        SettlementPrice  DECIMAL(18,6) NULL,
+        NetChange        DECIMAL(18,6) NULL,
+        ExpirationDate   DATE          NULL,
+        OptionVolatility DECIMAL(18,6) NULL,
+        DeltaFactor      DECIMAL(18,6) NULL,
+        SourcePath       VARCHAR(500)  NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.PhysEnvFuturesTvp -> arm.PhysEnvFutures   (feeds: IcePhysEnv, NgxPhysEnv)
+--
+-- SourceSystem is NOT NULL because it is the 2nd PK column. It is loader-derived
+-- (from IceFeedDescriptor.SourceSystem), not read from the sheet, so it is never
+-- blank — the reader throws if a table declaring it has a feed that omits it.
+-- Strip is VARCHAR: the two feeds publish month codes AND date-shaped strips.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.PhysEnvFuturesTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.PhysEnvFuturesTvp AS TABLE
+    (
+        TradeDate       DATE          NOT NULL,
+        SourceSystem    VARCHAR(20)   NOT NULL,
+        Contract        VARCHAR(10)   NOT NULL,
+        ContractType    CHAR(1)       NOT NULL,
+        Strip           VARCHAR(50)   NOT NULL,
+        ProductId       INT           NULL,
+        Hub             VARCHAR(100)  NULL,
+        Product         VARCHAR(100)  NULL,
+        Strike          DECIMAL(18,6) NULL,
+        SettlementPrice DECIMAL(18,6) NULL,
+        NetChange       DECIMAL(18,6) NULL,
+        ExpirationDate  DATE          NULL,
+        SourcePath      VARCHAR(500)  NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.PhysEnvOptionsTvp -> arm.PhysEnvOptions   (feed: IcePhysEnvOptions)
+--
+-- Strike NOT NULL: drops the report's blank-strike 'F' rows (2.9 %).
+--
+-- DECIMAL(18,6) is deliberate for every numeric here. The XLSX stores numbers as
+-- IEEE-754 doubles, so the sheet carries round-trip noise the .dat twin does not
+-- ('78.01000000000001', '0.008999999999999999') and exponent-form values in
+-- DELTA_FACTOR ('-1E-05'). Scale 6 rounds the noise away; verified on 2026-09-22
+-- that rounding introduces NO key collisions (0 duplicate keys across 12,214
+-- strike-bearing rows) and that nothing underflows (smallest non-zero magnitude
+-- is 1E-05) or overflows (largest is 307.36).
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.PhysEnvOptionsTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.PhysEnvOptionsTvp AS TABLE
+    (
+        TradeDate        DATE          NOT NULL,
+        Contract         VARCHAR(10)   NOT NULL,
+        ContractType     CHAR(1)       NOT NULL,
+        Strike           DECIMAL(18,6) NOT NULL,
+        Strip            VARCHAR(50)   NOT NULL,
         ProductId        INT           NULL,
         Hub              VARCHAR(100)  NULL,
         Product          VARCHAR(100)  NULL,

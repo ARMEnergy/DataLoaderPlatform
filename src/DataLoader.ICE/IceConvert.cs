@@ -19,7 +19,7 @@ namespace DataLoader.ICE;
 internal static class IceConvert
 {
     /// <summary>
-    /// Date shapes across all 18 feeds:
+    /// Date shapes across all 21 feeds:
     /// <c>8/28/2026</c> (settlement .dat, not zero-padded), <c>08/28/2026</c> (XLSX),
     /// <c>2026-08-28</c> (Crude Index, and XLSX strips).
     /// </summary>

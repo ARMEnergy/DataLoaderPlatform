@@ -247,6 +247,27 @@ public sealed class AgsiStorageSourceReader : ISourceReader<AgsiStorageWorkUnit,
 
         if (env is null) return rows;
 
+        // HTTP 200 + a body-level error. AGSI reports a missing / invalid / revoked x-key
+        // as 200 with total:0 and an empty data[] — the SAME shape as a legitimate empty
+        // day — and also uses this channel for transient server faults ("Try/Catch error").
+        // Probed BEFORE the no-data tolerance below, and made LOUD: classified as no-data it
+        // would write a NotAvailable hub row and SUCCEED the unit, so with
+        // HotZoneKeyStrategy=RunDate a revoked key would mark every day of the hot window
+        // done for the whole CET day while loading nothing. The caught throw writes the
+        // Failed hub row and fails only this unit; the run continues.
+        //
+        // ⚠ `message` is NEVER surfaced: AGSI echoes the SECRET x-key back inside it
+        // (observed live: error 'Try/Catch error', message 'API key: <the key>'), so
+        // repeating it would write the secret into logs and core.LoadLog. Only `error` and
+        // `dataset` are quoted, and both are redacted defensively in case the vendor ever
+        // moves the echo into another field.
+        if (!string.IsNullOrWhiteSpace(env.Error))
+            throw new InvalidOperationException(
+                $"[AGSI Storage] {unit.RequestPath}: HTTP 200 but the body reports error " +
+                $"'{Redact(env.Error.Trim())}' (dataset: '{Redact(env.Dataset?.Trim())}'; " +
+                "message suppressed — the vendor echoes the API key in it) " +
+                "— failing the unit rather than recording it as no-data");
+
         // No-data tolerance (design §4.2): total==0 / empty data[] both mean "nothing to load".
         if (env.Total == 0 || env.Data is null || env.Data.Count == 0)
             return rows;
@@ -255,20 +276,56 @@ public sealed class AgsiStorageSourceReader : ISourceReader<AgsiStorageWorkUnit,
         if (env.LastPage is > 1)
             _logger.LogWarning("[AGSI Storage] {Path}: last_page={LastPage} (>1); processing the returned page only", unit.RequestPath, env.LastPage);
 
+        // A request does NOT guarantee a matching answer: `?country=eu` and `?country=ne`
+        // both return BOTH aggregates (total:2 — data[0]=eu, data[1]=ne), so more than one
+        // record here is expected for the aggregate axis, not a malformed response. Each
+        // element is attributed by its OWN code below; the extras are dropped (their own
+        // work unit fetches them). Warned once so an unexpected new multi-record shape
+        // stays diagnosable.
+        if (env.Data.Count > 1)
+            _logger.LogWarning(
+                "[AGSI Storage] {Path}: requested code '{Requested}' but the response carried {Count} record(s) [{Codes}]; keeping only the requested one",
+                unit.RequestPath, unit.CountryCode, env.Data.Count,
+                string.Join(", ", env.Data.Select(d => string.IsNullOrWhiteSpace(d.Code) ? "(no code)" : d.Code!.Trim())));
+
         var gasDay = AgsiParse.Date(env.GasDay);
+        var foreignRecords = 0;
 
         foreach (var rec in env.Data)
         {
+            // Attribution BEFORE the no-data test: a record describing a DIFFERENT entity is
+            // never this unit's no-data, it is simply not ours.
+            if (!BelongsToRequestedEntity(unit, rec, env.Data.Count))
+            {
+                foreignRecords++;
+                continue;
+            }
+
             // A lone status:"N" no-data record produces no fact row (design §4.2).
             if (rec.IsNoData()) continue;
 
-            var gasDayStart = AgsiParse.Date(rec.GasDayStart) ?? unit.Date;             // ≡ Date in single-date mode
+            // AGSI silently CLAMPS an unpublished / future `date` to the latest available gas
+            // day instead of answering empty (verified: ?country=at&date=2026-10-15 answers
+            // gasDayStart 2026-09-27). Storing that would break the load-bearing single-date
+            // invariant (resume key uses the request Date, the MERGE keys on GasDayStart —
+            // design §10) AND overwrite the PREVIOUS day's row. The requested day genuinely
+            // has no data yet, so drop it: the hot window re-pulls it once it is published.
+            var reportedStart = AgsiParse.Date(rec.GasDayStart);
+            if (reportedStart is { } reported && reported != unit.Date)
+            {
+                _logger.LogWarning(
+                    "[AGSI Storage] {Path}: requested gas day {Requested:yyyy-MM-dd} but the response carried {Returned:yyyy-MM-dd} (AGSI clamps an unpublished date to the latest available); dropping the record",
+                    unit.RequestPath, unit.Date, reported);
+                continue;
+            }
+
+            var gasDayStart = reportedStart ?? unit.Date;                               // ≡ Date in single-date mode
             var gasDayEnd = AgsiParse.Date(rec.GasDayEnd) ?? gasDayStart.AddDays(1);
 
             rows.Add(new GasStorageRow
             {
-                // EntityId comes from the work unit (the FK to arm.GasStorageEntity), so the
-                // response code echo / case-sensitivity is irrelevant and not persisted.
+                // EntityId comes from the work unit (the FK to arm.GasStorageEntity) and is
+                // stamped only after the record has been confirmed to BE this entity's.
                 EntityId = unit.EntityId,
                 Date = unit.Date,
                 GasDay = gasDay ?? gasDayStart,
@@ -295,7 +352,47 @@ public sealed class AgsiStorageSourceReader : ISourceReader<AgsiStorageWorkUnit,
             });
         }
 
+        // A single-record response that describes someone else is NOT a no-data day — it is
+        // an attribution failure that would otherwise be invisible (0 rows → NotAvailable →
+        // unit success). The multi-record case is already warned about above, so this only
+        // fires for the lone-foreign-record shape and never duplicates that warning.
+        if (foreignRecords > 0 && env.Data.Count == 1)
+            _logger.LogWarning(
+                "[AGSI Storage] {Path}: requested code '{Requested}' but the only record returned was '{Returned}'; storing no row for this entity",
+                unit.RequestPath, unit.CountryCode, env.Data[0].Code?.Trim());
+
         return rows;
+    }
+
+    /// <summary>
+    /// Replaces the configured <c>x-key</c> with <c>***</c> anywhere it appears in vendor
+    /// text before that text reaches a log, an exception message or <c>core.LoadLog</c>.
+    /// AGSI really does echo the secret back: an error body observed live on 2026-09-28
+    /// carried <c>"message":"API key: &lt;the key&gt;"</c>. The platform rule is that a secret
+    /// is never logged, so nothing from a response body is quoted without passing through
+    /// here. A blank/absent key disables the substitution (nothing to hide).
+    /// </summary>
+    private string? Redact(string? text)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(_settings.ApiKey)) return text;
+        return text.Replace(_settings.ApiKey, "***", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// True when a <c>data[]</c> element describes the entity this unit requested. The
+    /// element's own <c>code</c> is the only authority: a request does not guarantee a
+    /// matching answer (<c>?country=eu</c> and <c>?country=ne</c> both return BOTH
+    /// aggregates), and blindly stamping <c>unit.EntityId</c> onto every element is what
+    /// let the Non-EU aggregate be stored as EU. Matching is case-insensitive because the
+    /// URL carries the lowercased code while the response echoes the vendor's casing
+    /// (<c>de</c> → <c>DE</c>). A LONE element with no <c>code</c> echo is unambiguous, so
+    /// it is still accepted (pre-existing tolerance for a sparse vendor record).
+    /// </summary>
+    private static bool BelongsToRequestedEntity(AgsiStorageWorkUnit unit, AgsiStorageRecord rec, int recordCount)
+    {
+        var code = rec.Code?.Trim();
+        if (string.IsNullOrEmpty(code)) return recordCount == 1;
+        return string.Equals(code, unit.CountryCode.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task TryUpsertFailedAsync(AgsiFileContext file, string relativePath, int? httpStatus)

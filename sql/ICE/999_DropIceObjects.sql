@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropIceObjects.sql
 -- Database : ICE
 -- Schema   : arm
@@ -12,6 +12,7 @@
 -- =============================================================================
 
 -- ---- procedures -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
 DROP PROCEDURE IF EXISTS arm.usp_UpsertFileLog;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeEnvFutures;
@@ -26,6 +27,8 @@ DROP PROCEDURE IF EXISTS arm.usp_BulkMergeIcefusFinOptions;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeIcefusSoftOptions;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeIfllOptions;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeOptions;
+DROP PROCEDURE IF EXISTS arm.usp_BulkMergePhysEnvFutures;
+DROP PROCEDURE IF EXISTS arm.usp_BulkMergePhysEnvOptions;
 GO
 
 -- ---- table types ------------------------------------------------------------
@@ -41,6 +44,8 @@ DROP TYPE IF EXISTS arm.FusFinOptionsTvp;
 DROP TYPE IF EXISTS arm.FusSoftOptionsTvp;
 DROP TYPE IF EXISTS arm.IfllOptionsTvp;
 DROP TYPE IF EXISTS arm.OptionsTvp;
+DROP TYPE IF EXISTS arm.PhysEnvFuturesTvp;
+DROP TYPE IF EXISTS arm.PhysEnvOptionsTvp;
 GO
 
 -- ---- fact tables ------------------------------------------------------------
@@ -56,6 +61,8 @@ DROP TABLE IF EXISTS arm.ICEFUS_FinOptions;
 DROP TABLE IF EXISTS arm.ICEFUS_SoftOptions;
 DROP TABLE IF EXISTS arm.IFLL_Options;
 DROP TABLE IF EXISTS arm.Options;
+DROP TABLE IF EXISTS arm.PhysEnvFutures;
+DROP TABLE IF EXISTS arm.PhysEnvOptions;
 GO
 
 -- ---- audit hub (FileLog first: FK to Status) --------------------------------

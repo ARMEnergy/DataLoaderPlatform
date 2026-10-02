@@ -129,4 +129,96 @@ internal static class Samples
         "withdrawalCapacity":"", "contractedCapacity":"", "availableCapacity":"",
         "coveredCapacity":"", "status":"N", "trend":"", "full":"", "info":[] } ] }
     """;
+
+    // -------------------------------------------------------------------------
+    // The aggregate responses (verified live 2026-09-28 with the real x-key).
+    // BOTH `?country=eu` and `?country=ne` return this IDENTICAL two-element body:
+    // AGSI ignores WHICH aggregate was asked for and always answers with both.
+    // Single countries always answer total:1. Captured verbatim for
+    // country=eu&date=2026-09-01 (`children` elided — the reader never reads it).
+    //
+    // This is the body that produced the 2026-09-28 defect: the reader stamped
+    // unit.EntityId onto BOTH elements, they collided on (EntityId, GasDayStart),
+    // and the dedupe kept the LAST one — so the `eu` entity stored the Non-EU
+    // aggregate and the EU aggregate was never persisted at all.
+    // -------------------------------------------------------------------------
+    public const string StorageAggregateEuAndNe = """
+    { "last_page":1, "total":2, "dataset":"", "gas_day":"2026-09-27",
+      "data":[
+        { "name":"EU", "code":"eu", "url":"eu", "updatedAt":"2026-09-28 12:36:31",
+          "gasDayStart":"2026-09-01", "gasDayEnd":"2026-09-02", "gasInStorage":"741.9174",
+          "consumption":"3519", "consumptionFull":"21.08", "injection":"2702.34",
+          "withdrawal":"143.3", "netWithdrawal":"-2559.1", "workingGasVolume":"1130.6108",
+          "injectionCapacity":"12218.54", "withdrawalCapacity":"20027.89",
+          "contractedCapacity":"1038.1606", "availableCapacity":"98.0543",
+          "coveredCapacity":"100", "status":"C", "trend":"0.24", "full":"65.62", "info":[] },
+        { "name":"Non-EU", "code":"ne", "url":"ne", "updatedAt":"2026-09-02 06:58:51",
+          "gasDayStart":"2026-09-01", "gasDayEnd":"2026-09-02", "gasInStorage":"110.6828",
+          "consumption":"228.85", "consumptionFull":"0", "injection":"452.3",
+          "withdrawal":"1.4", "netWithdrawal":"-450.9", "workingGasVolume":"331.0191",
+          "injectionCapacity":"2889.49", "withdrawalCapacity":"2325.88",
+          "contractedCapacity":"-", "availableCapacity":"-",
+          "coveredCapacity":"93.09", "status":"E", "trend":"0.14", "full":"33.44", "info":[] }
+      ] }
+    """;
+
+    // An unpublished / future `date` is silently CLAMPED by AGSI to the latest
+    // available gas day — it never 404s and never returns an empty data[].
+    // Verified live: `?country=at&date=2026-10-15` answers gasDayStart 2026-09-27.
+    // Captured here for a request of date=2026-09-27 answered with gas day 2026-09-26.
+    public const string StorageClampedToEarlierGasDay = """
+    { "last_page":1, "total":1, "dataset":"", "gas_day":"2026-09-26",
+      "data":[ { "name":"Austria", "code":"AT", "url":"AT", "updatedAt":"2026-09-27 16:10:02",
+        "gasDayStart":"2026-09-26", "gasDayEnd":"2026-09-27", "gasInStorage":"68.1234",
+        "consumption":"200.1", "consumptionFull":"12.0", "injection":"150.0",
+        "withdrawal":"1.0", "netWithdrawal":"-149.0", "workingGasVolume":"100.2789",
+        "injectionCapacity":"1000.0", "withdrawalCapacity":"2000.0",
+        "contractedCapacity":"-", "availableCapacity":"-",
+        "coveredCapacity":"100", "status":"E", "trend":"0.15", "full":"67.93", "info":[] } ] }
+    """;
+
+    // A missing / invalid / revoked x-key answers HTTP **200**, not 401 — the failure
+    // is only in the body. Captured verbatim 2026-09-28. Modelled as total:0 + an
+    // empty data[], so without the `error` probe it is indistinguishable from a
+    // legitimate no-data day and would be recorded as NotAvailable + unit success.
+    public const string StorageAccessDenied = """
+    { "last_page":0, "total":0, "dataset":"storage ERROR", "error":"access denied",
+      "message":"Invalid or missing API key", "data":[] }
+    """;
+
+    // ⚠ AGSI ECHOES THE SECRET x-key BACK IN ITS ERROR BODY. Observed live 2026-09-28 on
+    // 11 of 1551 backfill requests: a transient vendor fault answers HTTP 200 with
+    // `"error":"Try/Catch error"` and `"message":"API key: <the key verbatim>"`. Anything
+    // quoted out of an error body must therefore be redacted before it reaches a log, an
+    // exception message or core.LoadLog. The literal below is the tests' own fake key
+    // (StorageSourceReaderTests.ApiKey) so the redaction path is genuinely exercised.
+    public const string StorageVendorFaultEchoingKey = """
+    { "last_page":0, "total":0, "dataset":"storage ERROR", "error":"Try/Catch error",
+      "message":"API key: SECRET-XKEY-123", "data":[] }
+    """;
+
+    // The same hazard, but with the key echoed inside `error` itself rather than `message`
+    // — proves the redaction is applied to every quoted field, not just the suppressed one.
+    public const string StorageVendorFaultKeyInErrorField = """
+    { "last_page":0, "total":0, "dataset":"storage ERROR",
+      "error":"bad request for key SECRET-XKEY-123", "message":"nope", "data":[] }
+    """;
+
+    // A single element carrying NO `code` at all. Unambiguous (nothing else to
+    // confuse it with), so the reader accepts it and stamps the work unit's EntityId.
+    public const string StorageSingleRecordNoCode = """
+    { "last_page":1, "total":1, "dataset":"", "gas_day":"2026-08-16",
+      "data":[ { "name":"Germany", "updatedAt":"2026-08-17 08:00:55",
+        "gasDayStart":"2026-08-13", "gasDayEnd":"2026-08-14", "gasInStorage":"121.1238",
+        "workingGasVolume":"246.489", "status":"C", "full":"49.14", "info":[] } ] }
+    """;
+
+    // A single element whose `code` is some OTHER entity than the one requested —
+    // the shape that must never be attributed to the requesting entity.
+    public const string StorageSingleRecordForeignCode = """
+    { "last_page":1, "total":1, "dataset":"", "gas_day":"2026-08-16",
+      "data":[ { "name":"Ukraine", "code":"UA", "url":"UA", "updatedAt":"2026-08-17 08:00:55",
+        "gasDayStart":"2026-08-13", "gasDayEnd":"2026-08-14", "gasInStorage":"107.5948",
+        "workingGasVolume":"321.1555", "status":"C", "full":"33.5", "info":[] } ] }
+    """;
 }

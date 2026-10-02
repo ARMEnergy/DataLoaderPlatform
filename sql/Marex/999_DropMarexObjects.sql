@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropMarexObjects.sql
 -- Database : Marex
 -- Schema   : arm
@@ -20,6 +20,7 @@
 -- =============================================================================
 
 -- ---- procedures -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeClosingPrice;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeMarketStatistic;

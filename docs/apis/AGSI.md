@@ -19,14 +19,15 @@ recommended SQL Server type, nullability, and format. Nothing downstream
 | Endpoint 1 "every entity has a non-null `country`; multiple SSOs per country; all `data.code="EU"`" | **Live-confirmed** from the same probe. |
 | Endpoint 2 (`/api`) response **shape** + field list | From the **task-supplied `country=de&date=2026-08-13` sample** + GIE's published API user manual (v006/v007) and third-party field references. |
 | Endpoint 2 **units / status codes / `netWithdrawal` sign** | Cross-checked against GIE docs + the sample arithmetic (see §2). |
-| Endpoint 2 **no-data behaviour, pagination, rate limits, `consumptionFull`/`coveredCapacity` exact meaning** | **NOT live-verifiable without a real `x-key`** — documented from published docs + sample, and flagged in "Open questions" below. |
+| Endpoint 2 **aggregate-code behaviour, unpublished-date behaviour, auth-failure body** | **LIVE-VERIFIED 2026-09-28** with the real `x-key` (see §2 Behaviours 1, 2, 2a, 6). This closed open questions #1 and #2 and corrected Behaviour 2. |
+| Endpoint 2 **rate limits, `consumptionFull`/`coveredCapacity` exact meaning** | Still **unverified** — documented from published docs + sample, and flagged in "Open questions" below. |
 
-> **A real `x-key` is required to fully close the endpoint-2 field set** — specifically
-> the no-data response body (404 vs 200-with-empty-`data[]` vs a `status:"N"` row) and
-> the exact definition/units of `consumptionFull` and `coveredCapacity`. Everything
-> structural (field names, order, types, `updatedAt`/date formats, the persisted set) is
-> pinned from the sample; the items above are marked ⚠ inline. Escalate to the user if a
-> key can be obtained for a one-shot live confirmation.
+> **A real `x-key` was obtained and used for a one-shot live confirmation on 2026-09-28**,
+> which closed the no-data / pagination questions and **falsified** the previous
+> "`data[]` always has exactly one element" assumption (see Behaviour 2). Still open:
+> the exact definition/units of `consumptionFull` and `coveredCapacity`, and rate limits.
+> Everything structural (field names, order, types, `updatedAt`/date formats, the
+> persisted set) remains pinned from the sample.
 
 ## API
 
@@ -61,6 +62,16 @@ requested `de` and got `"code":"DE"`). GIE also exposes region-aggregate codes s
 (`data.code`, e.g. `EU`). The work-unit set is therefore **the distinct `Code` values
 from `arm.GasStorageEntity`** (optionally plus the `ParentCode` aggregate `eu`), each
 crossed with the date window.
+
+> ⚠ **The two aggregate codes do NOT behave like country codes** (live-verified
+> 2026-09-28). `/api/about` returns **only the 22 real country codes** — `AT BE BG CZ DE
+> DK ES FR GB GB* HR HU IE IT LV NL PL PT RO SE SK UA` — and **never** `eu` or `ne`, so
+> an aggregate only ever enters `arm.GasStorageEntity` by being **inserted by hand**
+> (identifiable there by `FileLogId IS NULL` and a `ModifiedAtUtc` the About MERGE never
+> refreshes). Once present it is enumerated like any other code, but the endpoint answers
+> it differently — see Behaviour 2. `GB` is *United Kingdom (Pre-Brexit)* and always
+> answers `status:"N"`; `GB*` is *United Kingdom (Post-Brexit)* and is the live UK feed.
+> `RS` (Serbia) is likewise hand-added and always answers `status:"N"`.
 
 ---
 
@@ -284,20 +295,57 @@ The corresponding TVP carries **22** columns — these 21 business columns plus 
 
 ### Behaviours
 
-1. **No data for a valid country+date** — ⚠ **NOT live-verifiable without a key.** GIE's
-   pagination-era API generally returns **`200` with `total:0` and an empty `data[]`**, or a
-   single row with `status:"N"` and blank measures; a `404` is also possible for an unknown
-   country. The loader must tolerate all three: empty `data[]` / `status:"N"` / `404` → skip
-   this (country, date), not fail. (Open question #1.)
-2. **Pagination / multiple `data[]` elements** — for a **single `(country, date)`** the
-   envelope is `last_page:1, total:1` and `data[]` has **exactly one element** (confirmed by
-   the sample). More than one element / `last_page`>1 only arises with **date-range** queries
-   (`from`/`to` + `page`/`size`), which this loader does **not** use (it iterates one date at
-   a time). If a range mode is ever added, follow `last_page` and pass `page=`. (Open
-   question #2 — cannot fully confirm the multi-page envelope without a key.)
-3. **Does `data[].code` echo the requested code?** **Yes, UPPERCASED.** Request `country=de`
-   → response `"code":"DE"`, `"url":"DE"`. Input is case-insensitive; output is uppercase.
-   The loader should compare case-insensitively when matching back to `arm.GasStorageEntity`.
+1. **No data for a valid country+date** — **LIVE-VERIFIED 2026-09-28.** A country with no
+   data for the day returns `200` with `total:1` and a single record whose `status` is
+   `"N"` and whose every measure is the literal string `"-"` (the vendor's blank marker,
+   which parses to NULL). `200` with `total:0` and an empty `data[]` also occurs. The
+   loader tolerates all of: empty `data[]` / `status:"N"` / `404` → skip this
+   (country, date), not fail. **Closes open question #1.**
+2. ⚠ **A request does NOT guarantee a matching answer — `data[]` can carry a record you did
+   not ask for.** **LIVE-VERIFIED 2026-09-28; this corrects the earlier claim that a single
+   `(country, date)` always yields exactly one element.** Both aggregate codes return the
+   **same two-element body**:
+
+   ```
+   ?country=eu&date=2026-09-01  ->  total:2   data[0].code="eu"   data[1].code="ne"
+   ?country=ne&date=2026-09-01  ->  total:2   data[0].code="eu"   data[1].code="ne"   (identical)
+   ```
+
+   AGSI ignores *which* aggregate was asked for and always answers with both. Real country
+   codes do still answer `total:1`. `last_page` stays `1` in both cases, so **`last_page` is
+   not a usable signal for this** — the element count is.
+
+   **Consequence the loader must honour: attribute every `data[]` element by its OWN
+   `code`, never by the code that was requested.** Stamping the requesting entity's
+   `EntityId` onto every element makes the two records collide on the
+   `(EntityId, GasDayStart)` merge key; the batch de-dup then silently keeps one, and the
+   `eu` entity ends up holding the **Non-EU** aggregate while the EU aggregate is never
+   stored at all. (This is exactly the defect found on 2026-09-28 — 61 `eu` rows were wrong.
+   Detection signal: `arm.FileLog.[RowCount] = 2` for every `eu`/`ne` request vs `1` for
+   countries.) **Closes open question #2.**
+
+   Genuine multi-**page** responses still only arise with **date-range** queries (`from`/`to`
+   + `page`/`size`), which this loader does not use. If a range mode is ever added, follow
+   `last_page` and pass `page=`.
+2a. ⚠ **An unpublished or future `date` is silently CLAMPED to the latest available gas day**
+   — it never 404s and never returns an empty `data[]`. **LIVE-VERIFIED 2026-09-28:**
+
+   ```
+   ?country=at&date=2026-09-28  ->  gasDayStart 2026-09-27   (today's gas day, unpublished)
+   ?country=at&date=2026-10-15  ->  gasDayStart 2026-09-27   (two weeks in the future)
+   ```
+
+   The returned record is a perfectly valid record **for a different day than the one
+   requested**. Storing it under the requested `Date` breaks the `Date == gasDayStart`
+   invariant the merge key depends on and **overwrites the previous day's row** (the merge
+   keys on `GasDayStart`). The loader must drop any record whose `gasDayStart` ≠ the
+   requested date. Note also that publication is **not** reliably "the next morning": on
+   2026-09-28 the API still reported `gas_day: 2026-09-26` at 18:00 CET.
+3. **Does `data[].code` echo the requested code?** **Yes, in the vendor's own casing** —
+   uppercase for countries (`country=de` → `"code":"DE"`, `"url":"DE"`), lowercase for the
+   aggregates (`"code":"eu"` / `"ne"`). Input is case-insensitive. The loader **must**
+   compare case-insensitively, and per Behaviour 2 this echo is the only authority on which
+   entity a record describes.
 4. **Rate limits** — no published hard number; pace conservatively and back off on `429`
    (Open question #4).
 5. **`Date` vs `gas_day` vs `gasDayStart`/`gasDayEnd` — do NOT conflate:**
@@ -309,6 +357,43 @@ The corresponding TVP carries **22** columns — these 21 business columns plus 
      every query regardless of the `date` asked** (sample: asked `2026-08-13`, got
      `gas_day:"2026-08-16"`). **It must NOT be part of the natural key** — using it would
      collapse all historical rows for a country onto one key and destroy history.
+   - Per Behaviour 2a, `Date == gasDayStart` is **not** guaranteed by the API — it is an
+     invariant the *loader* must enforce by rejecting a clamped record.
+6. ⚠ **An authentication failure answers HTTP `200`, not `401`/`403`** — the failure lives
+   only in the body. **LIVE-VERIFIED 2026-09-28** (request with no `x-key`):
+
+   ```
+   HTTP 200
+   {"last_page":0,"total":0,"dataset":"storage ERROR","error":"access denied",
+    "message":"Invalid or missing API key","data":[]}
+   ```
+
+   This is shaped **exactly like a legitimate no-data day** (`total:0` + empty `data[]`).
+   The only discriminators are the `error` and `message` fields (and `dataset` ending in
+   `" ERROR"`). A loader that classifies it as no-data will report **success** while
+   loading nothing — and with a per-calendar-day hot resume key it will mark the entire
+   hot window done for the rest of the day. **Read `error` before applying any no-data
+   tolerance, and treat a non-empty `error` as a hard failure.** (Same trap as ICE, where
+   `downloads.ice.com` answers 200 for everything.)
+
+   The same channel also carries **transient server faults**, not just auth failures —
+   observed on 11 of 1551 requests (~0.7%) during the 2026-09-28 backfill:
+
+   ```
+   HTTP 200
+   {"last_page":0,"total":0,"dataset":"storage ERROR","error":"Try/Catch error",
+    "message":"API key: <YOUR x-key, VERBATIM>","data":[]}
+   ```
+
+7. 🔒 ⚠ **THE VENDOR ECHOES YOUR SECRET `x-key` BACK IN `message`.** See the body above —
+   `message` is literally `"API key: "` followed by the key in clear text. **Never log,
+   quote, wrap or re-throw `message`.** Doing so writes the credential into run logs and
+   into `core.LoadLog.ErrorMessage`, which is exactly what happened on the first
+   2026-09-28 backfill pass (11 rows had to be scrubbed). The loader now suppresses
+   `message` entirely and additionally runs every quoted field (`error`, `dataset`)
+   through a redactor that replaces the configured key with `***`, in case GIE ever moves
+   the echo to another field. Anyone hand-probing this endpoint should assume captured
+   response bodies are credential-bearing and handle them accordingly.
 
 ### Recommended natural key for `arm.GasStorage`
 
@@ -342,12 +427,17 @@ explicitly for DATABASE_DEVELOPER. Items that a real key would confirm are liste
 
 ## Open questions (for DATABASE_DEVELOPER / user)
 
-1. **No-data response body (needs a key):** confirm whether a valid country with no data
-   for a date returns `404`, `200`+empty `data[]`, or a `status:"N"` row with blank
-   measures — this decides whether the sink writes an `N` row or skips. Loader is built to
-   tolerate all three.
-2. **Multi-page envelope (needs a key):** confirm `last_page`/`total` behaviour if a
-   date-range mode is ever enabled (single-date is confirmed 1 row / 1 page).
+1. ~~**No-data response body (needs a key)**~~ — **CLOSED 2026-09-28 (live).** A no-data
+   country returns `200` + `total:1` + a `status:"N"` record whose measures are all `"-"`;
+   `200` + `total:0` + empty `data[]` also occurs. Both skip (no fact row). See Behaviour 1.
+2. ~~**Multi-page envelope (needs a key)**~~ — **CLOSED 2026-09-28 (live), and the premise
+   was wrong.** Single-date is 1 **page** but **not** always 1 **row**: the aggregate codes
+   `eu`/`ne` both return `total:2` (`data[0]`=eu, `data[1]`=ne) with `last_page:1`. See
+   Behaviour 2 — elements must be attributed by their own `code`.
+2a. ~~(new, closed on discovery)~~ **Unpublished/future `date` is clamped, not rejected** —
+   see Behaviour 2a. Records whose `gasDayStart` ≠ the request date must be dropped.
+2b. ~~(new, closed on discovery)~~ **Auth failure answers HTTP 200** with a body-level
+   `error` — see Behaviour 6. Must be read before any no-data tolerance.
 3. **`consumptionFull` and `coveredCapacity` exact definition/units (needs docs or a key):**
    modeled as `DECIMAL(9,4)` percentages pending confirmation; adjust precision if they turn
    out to be counts/days.

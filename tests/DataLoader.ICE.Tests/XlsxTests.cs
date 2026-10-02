@@ -223,6 +223,77 @@ internal static class XlsxBuilder
         return Package(sheet.ToString(), sharedStrings.ToString());
     }
 
+    /// <summary>
+    /// A package built the way the real <c>Settlement_Reports/Environmentals</c>
+    /// files are: text through the shared-string table, but <b>numbers as bare
+    /// numeric cells</b> (<c>&lt;c r="H2"&gt;&lt;v&gt;0.3&lt;/v&gt;&lt;/c&gt;</c>, no
+    /// <c>t</c> attribute).
+    ///
+    /// <para>
+    /// That distinction is why this exists rather than reusing <see cref="Build"/>:
+    /// storing numbers as doubles is exactly what gives these sheets their
+    /// round-trip noise ('78.01000000000001') and exponent forms ('-1E-05'), and a
+    /// fixture that interned every number as a string would not exercise the path
+    /// those values actually take.
+    /// </para>
+    /// </summary>
+    public static byte[] BuildLikeIce(IReadOnlyList<string> headers, IReadOnlyList<string?[]> rows)
+    {
+        var strings = new List<string>();
+        var lookup = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        int Intern(string value)
+        {
+            if (lookup.TryGetValue(value, out var existing)) return existing;
+            lookup[value] = strings.Count;
+            strings.Add(value);
+            return strings.Count - 1;
+        }
+
+        static bool IsNumeric(string value) =>
+            decimal.TryParse(value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out _);
+
+        var sheet = new StringBuilder();
+        sheet.Append($"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"{MainNs}\"><sheetData>");
+
+        sheet.Append("<row r=\"1\">");
+        for (var c = 0; c < headers.Count; c++)
+            sheet.Append($"<c r=\"{ColumnName(c)}1\" s=\"1\" t=\"s\"><v>{Intern(headers[c])}</v></c>");
+        sheet.Append("</row>");
+
+        for (var r = 0; r < rows.Count; r++)
+        {
+            var rowNumber = r + 2;
+            sheet.Append($"<row r=\"{rowNumber}\">");
+
+            var row = rows[r];
+            for (var c = 0; c < row.Length; c++)
+            {
+                // null => omit the cell entirely, which is how the real files mark a
+                // blank STRIKE on an underlying-future row.
+                if (row[c] is null) continue;
+
+                var value = row[c]!;
+                sheet.Append(IsNumeric(value)
+                    ? $"<c r=\"{ColumnName(c)}{rowNumber}\"><v>{Escape(value)}</v></c>"
+                    : $"<c r=\"{ColumnName(c)}{rowNumber}\" t=\"s\"><v>{Intern(value)}</v></c>");
+            }
+
+            sheet.Append("</row>");
+        }
+
+        sheet.Append("</sheetData></worksheet>");
+
+        var sharedStrings = new StringBuilder();
+        sharedStrings.Append($"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><sst xmlns=\"{MainNs}\" count=\"{strings.Count}\" uniqueCount=\"{strings.Count}\">");
+        foreach (var value in strings)
+            sharedStrings.Append($"<si><t>{Escape(value)}</t></si>");
+        sharedStrings.Append("</sst>");
+
+        return Package(sheet.ToString(), sharedStrings.ToString());
+    }
+
     /// <summary>A package whose first shared string is split into rich-text runs.</summary>
     public static byte[] BuildWithRichTextHeader()
     {

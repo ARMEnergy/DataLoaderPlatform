@@ -4,7 +4,7 @@
 -- Schema   : arm
 --
 --   arm.usp_UpsertFileLog          audit hub upsert, returns FileLogId
---   arm.usp_BulkMerge<Table>       x12, one per target table
+--   arm.usp_BulkMerge<Table>       x14, one per target table
 --   arm.usp_ValidateLoad           post-load observational anomaly report
 --
 -- Shared conventions across every merge proc:
@@ -656,6 +656,104 @@ END
 GO
 
 -- ----------------------------------------------------------------------------
+-- arm.usp_BulkMergePhysEnvFutures -> arm.PhysEnvFutures
+--
+-- TWO feeds call this proc (IcePhysEnv, NgxPhysEnv), so they serialize against
+-- each other on SqlWriteGate — which keys on the proc name — while the other
+-- tables' feeds proceed in parallel.
+--
+-- SourceSystem is part of the key, so the two feeds address disjoint row sets
+-- and merge order between them is irrelevant.
+-- ----------------------------------------------------------------------------
+CREATE OR ALTER PROCEDURE arm.usp_BulkMergePhysEnvFutures
+    @Records arm.PhysEnvFuturesTvp READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    ;WITH src AS
+    (
+        SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY TradeDate, SourceSystem, Contract, ContractType, Strip
+                    ORDER BY (SELECT 1)) AS rn
+        FROM @Records
+    )
+    MERGE arm.PhysEnvFutures AS tgt
+    USING (SELECT * FROM src WHERE rn = 1) AS s
+       ON  tgt.TradeDate    = s.TradeDate
+       AND tgt.SourceSystem = s.SourceSystem
+       AND tgt.Contract     = s.Contract
+       AND tgt.ContractType = s.ContractType
+       AND tgt.Strip        = s.Strip
+    WHEN MATCHED THEN UPDATE SET
+        ProductId       = s.ProductId,
+        Hub             = s.Hub,
+        Product         = s.Product,
+        Strike          = s.Strike,
+        SettlementPrice = s.SettlementPrice,
+        NetChange       = s.NetChange,
+        ExpirationDate  = s.ExpirationDate,
+        SourcePath      = s.SourcePath,
+        ModifiedAtUtc   = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (TradeDate, SourceSystem, Contract, ContractType, Strip, ProductId, Hub, Product,
+                Strike, SettlementPrice, NetChange, ExpirationDate, SourcePath, ModifiedAtUtc)
+        VALUES (s.TradeDate, s.SourceSystem, s.Contract, s.ContractType, s.Strip, s.ProductId, s.Hub, s.Product,
+                s.Strike, s.SettlementPrice, s.NetChange, s.ExpirationDate, s.SourcePath, SYSUTCDATETIME());
+
+    SELECT @@ROWCOUNT AS RecordsProcessed;
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.usp_BulkMergePhysEnvOptions -> arm.PhysEnvOptions
+-- ----------------------------------------------------------------------------
+CREATE OR ALTER PROCEDURE arm.usp_BulkMergePhysEnvOptions
+    @Records arm.PhysEnvOptionsTvp READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    ;WITH src AS
+    (
+        SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY TradeDate, Contract, ContractType, Strike, Strip
+                    ORDER BY (SELECT 1)) AS rn
+        FROM @Records
+    )
+    MERGE arm.PhysEnvOptions AS tgt
+    USING (SELECT * FROM src WHERE rn = 1) AS s
+       ON  tgt.TradeDate    = s.TradeDate
+       AND tgt.Contract     = s.Contract
+       AND tgt.ContractType = s.ContractType
+       AND tgt.Strike       = s.Strike
+       AND tgt.Strip        = s.Strip
+    WHEN MATCHED THEN UPDATE SET
+        ProductId        = s.ProductId,
+        Hub              = s.Hub,
+        Product          = s.Product,
+        SettlementPrice  = s.SettlementPrice,
+        NetChange        = s.NetChange,
+        ExpirationDate   = s.ExpirationDate,
+        OptionVolatility = s.OptionVolatility,
+        DeltaFactor      = s.DeltaFactor,
+        SourcePath       = s.SourcePath,
+        ModifiedAtUtc    = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (TradeDate, Contract, ContractType, Strike, Strip, ProductId, Hub, Product,
+                SettlementPrice, NetChange, ExpirationDate, OptionVolatility, DeltaFactor,
+                SourcePath, ModifiedAtUtc)
+        VALUES (s.TradeDate, s.Contract, s.ContractType, s.Strike, s.Strip, s.ProductId, s.Hub, s.Product,
+                s.SettlementPrice, s.NetChange, s.ExpirationDate, s.OptionVolatility, s.DeltaFactor,
+                s.SourcePath, SYSUTCDATETIME());
+
+    SELECT @@ROWCOUNT AS RecordsProcessed;
+END
+GO
+
+-- ----------------------------------------------------------------------------
 -- arm.usp_ValidateLoad — OBSERVATIONAL post-load anomaly report.
 --
 -- Returns rows; raises nothing. IceLoadValidator logs whatever comes back and
@@ -759,6 +857,32 @@ BEGIN
     FROM arm.Futures
     WHERE SourcePath IS NULL AND (@TradeDate IS NULL OR TradeDate = @TradeDate)
     HAVING COUNT_BIG(*) > 0;
+
+    -- 8. Provenance coverage for the shared environmentals table. The whole point
+    --    of SourceSystem is that two processes share one table, so a day where one
+    --    of them published nothing must be visible rather than look like a thin
+    --    day. Reported per source as INFO; the absence of a line IS the signal.
+    INSERT @Findings
+    SELECT 'INFO', 'PhysEnvFuturesBySource',
+           CONCAT('arm.PhysEnvFutures ', SourceSystem, ' / ',
+                  CONVERT(VARCHAR(10), TradeDate, 23), ' rows'),
+           COUNT_BIG(*)
+    FROM arm.PhysEnvFutures
+    WHERE (@TradeDate IS NULL OR TradeDate = @TradeDate)
+    GROUP BY SourceSystem, TradeDate;
+
+    -- 9. A SourceSystem outside the known set means a descriptor was mis-wired
+    --    (or a new feed was added without updating this check). Because the column
+    --    is a PK component, a wrong value silently forks the key space instead of
+    --    colliding, so nothing else would ever complain.
+    INSERT @Findings
+    SELECT 'ERROR', 'UnknownSourceSystem',
+           CONCAT('arm.PhysEnvFutures carries SourceSystem ''', SourceSystem, ''''),
+           COUNT_BIG(*)
+    FROM arm.PhysEnvFutures
+    WHERE SourceSystem NOT IN ('ICECleared', 'NGXPhysical')
+      AND (@TradeDate IS NULL OR TradeDate = @TradeDate)
+    GROUP BY SourceSystem;
 
     SELECT Severity, Check_ AS [Check], Detail, Cnt AS [Count]
     FROM @Findings

@@ -1,4 +1,4 @@
--- =============================================================================
+﻿-- =============================================================================
 -- 999_DropModernCommoditiesObjects.sql
 -- Loader:   ModernCommodities  (Modern Commodities - trades & settlement prices)
 -- Database: ModernCommodities            Schema: arm
@@ -129,6 +129,7 @@ GO
 -- ============================================================================
 RAISERROR('ModernCommodities teardown: dropping [arm] stored procedures...', 10, 1) WITH NOWAIT;
 GO
+IF OBJECT_ID(N'arm.usp_CompareArmToDbo', 'P')          IS NOT NULL DROP PROCEDURE arm.usp_CompareArmToDbo;
 IF OBJECT_ID(N'arm.usp_ValidateLoad', 'P')         IS NOT NULL DROP PROCEDURE arm.usp_ValidateLoad;
 IF OBJECT_ID(N'arm.usp_BulkMergeSettlements', 'P') IS NOT NULL DROP PROCEDURE arm.usp_BulkMergeSettlements;
 IF OBJECT_ID(N'arm.usp_BulkMergeMyTrades', 'P')    IS NOT NULL DROP PROCEDURE arm.usp_BulkMergeMyTrades;

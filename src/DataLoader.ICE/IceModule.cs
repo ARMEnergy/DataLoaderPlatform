@@ -46,7 +46,7 @@ public sealed class IcePipeline : LoaderPipelineBase<IceWorkUnit, IceRow, IceRow
 /// Plugin entry point for the ICE settlement &amp; index download loader.
 ///
 /// <para>
-/// 18 feeds, one pipeline each, landing in 12 tables. Every feed's URL template,
+/// 21 feeds, one pipeline each, landing in 14 tables. Every feed's URL template,
 /// file format, column mapping, TVP and proc live in <see cref="IceDescriptors"/>,
 /// so this class only wires them up — adding a feed is a descriptor plus its SQL,
 /// not new plumbing.
@@ -104,7 +104,7 @@ public sealed class IceModule : ILoaderModule
 
         // Singletons shared by all 18 pipelines. The authenticator especially: it
         // holds ONE token behind a semaphore, so 18 concurrent readers that hit
-        // expiry together trigger one re-authentication rather than eighteen.
+        // expiry together trigger one re-authentication rather than twenty-one.
         services.AddSingleton<IIceAuthenticator>(sp => new IceSsoAuthenticator(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(Id),
             sp.GetRequiredService<IOptions<IceSettings>>(),

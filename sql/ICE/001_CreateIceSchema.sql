@@ -8,7 +8,7 @@
 -- Source contract verified live 2026-09-01 — see docs/apis/ICE.md.
 -- Loader design — see docs/design/ICE.md.
 --
--- 18 file feeds land in the 12 fact tables below.
+-- 21 file feeds land in the 14 fact tables below.
 --
 -- The tables specified by the requester are reproduced VERBATIM — column names,
 -- types, nullability, primary keys, default-constraint semantics and the
@@ -189,6 +189,108 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = 'IX_EnvOptions_ModifiedAtUtc' AND object_id = OBJECT_ID('arm.EnvOptions'))
     CREATE NONCLUSTERED INDEX IX_EnvOptions_ModifiedAtUtc ON arm.EnvOptions (ModifiedAtUtc);
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.PhysEnvFutures  <- TWO feeds, both XLSX, both from Settlement_Reports
+--                        (NOT Settlement_Reports_CSV):
+--     icecleared_physenv_{yyyy_MM_dd}.xlsx   SourceSystem = 'ICECleared'
+--     ngxphysical_env_{yyyy_MM_dd}.xlsx      SourceSystem = 'NGXPhysical'
+--
+-- The two reports publish an identical 11-column sheet (A:K, header on row 1),
+-- which is why they share one table.
+--
+-- SourceSystem is the 2nd PK column. Verified on 2026-09-23 that the two files
+-- share ZERO keys (and zero contract codes at all: ICE ProductIds ran 390-32275,
+-- NGX 29889-29907), so it is not resolving a live collision — but ICE reuses
+-- contract codes across markets, the same hazard that forced ProductId into the
+-- arm.Futures key, so the discriminator is part of the key rather than a tag.
+--
+-- Strip is VARCHAR(50) and MUST stay so: icecleared_physenv publishes month
+-- codes, dailies and spreads ('Apr27', '23 Sep 26', 'Apr27 BH25') while
+-- ngxphysical_env publishes date-shaped strips ('9/1/2026'). A DATE column would
+-- silently drop every ICE row.
+--
+-- Strike is nullable and was blank on all 1,439 ICE and all 264 NGX rows; the
+-- column is kept because the report carries it.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('arm.PhysEnvFutures', 'U') IS NULL
+BEGIN
+    CREATE TABLE arm.PhysEnvFutures
+    (
+        TradeDate       DATE          NOT NULL,
+        SourceSystem    VARCHAR(20)   NOT NULL,
+        Contract        VARCHAR(10)   NOT NULL,
+        ContractType    CHAR(1)       NOT NULL,
+        Strip           VARCHAR(50)   NOT NULL,
+        ProductId       INT           NULL,
+        Hub             VARCHAR(100)  NULL,
+        Product         VARCHAR(100)  NULL,
+        Strike          DECIMAL(18,6) NULL,
+        SettlementPrice DECIMAL(18,6) NULL,
+        NetChange       DECIMAL(18,6) NULL,
+        ExpirationDate  DATE          NULL,
+        SourcePath      VARCHAR(500)  NULL,
+        ModifiedAtUtc   DATETIME2(3)  NULL CONSTRAINT DF_ICE_PhysEnvFutures_ModifiedAtUtc DEFAULT (SYSDATETIME()),
+        CONSTRAINT PK_ARM_PhysEnvFutures PRIMARY KEY CLUSTERED
+        (
+            TradeDate, SourceSystem, Contract, ContractType, Strip
+        )
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = 'IX_PhysEnvFutures_ModifiedAtUtc' AND object_id = OBJECT_ID('arm.PhysEnvFutures'))
+    CREATE NONCLUSTERED INDEX IX_PhysEnvFutures_ModifiedAtUtc ON arm.PhysEnvFutures (ModifiedAtUtc);
+GO
+
+-- A SourceSystem-led index for "everything NGX published on date X" queries; the
+-- clustered PK already serves the TradeDate-led direction.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = 'IX_PhysEnvFutures_SourceSystem_TradeDate' AND object_id = OBJECT_ID('arm.PhysEnvFutures'))
+    CREATE NONCLUSTERED INDEX IX_PhysEnvFutures_SourceSystem_TradeDate
+        ON arm.PhysEnvFutures (SourceSystem, TradeDate) INCLUDE (Contract, Strip, SettlementPrice);
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.PhysEnvOptions  <- icecleared_physenvoptions_{yyyy_MM_dd}.xlsx
+--                        (Settlement_Reports/Environmentals, 13 columns A:M)
+--
+-- No SourceSystem column: ICE publishes no NGX counterpart for the options
+-- report, so a discriminator would be a constant.
+--
+-- Strike is a NOT NULL PK component. The report's 'F' (underlying future) rows
+-- carry a blank STRIKE and are dropped by the loader — 365 of 12,579 (2.9 %) on
+-- 2026-09-22. Strip is VARCHAR(50) and holds multi-leg spreads ('Apr27 BH26').
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('arm.PhysEnvOptions', 'U') IS NULL
+BEGIN
+    CREATE TABLE arm.PhysEnvOptions
+    (
+        TradeDate        DATE          NOT NULL,
+        Contract         VARCHAR(10)   NOT NULL,
+        ContractType     CHAR(1)       NOT NULL,
+        Strike           DECIMAL(18,6) NOT NULL,
+        Strip            VARCHAR(50)   NOT NULL,
+        ProductId        INT           NULL,
+        Hub              VARCHAR(100)  NULL,
+        Product          VARCHAR(100)  NULL,
+        SettlementPrice  DECIMAL(18,6) NULL,
+        NetChange        DECIMAL(18,6) NULL,
+        ExpirationDate   DATE          NULL,
+        OptionVolatility DECIMAL(18,6) NULL,
+        DeltaFactor      DECIMAL(18,6) NULL,
+        SourcePath       VARCHAR(500)  NULL,
+        ModifiedAtUtc    DATETIME2(3)  NULL CONSTRAINT DF_ICE_PhysEnvOptions_ModifiedAtUtc DEFAULT (SYSDATETIME()),
+        CONSTRAINT PK_ARM_PhysEnvOptions PRIMARY KEY CLUSTERED
+        (
+            TradeDate, Contract, ContractType, Strike, Strip
+        )
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = 'IX_PhysEnvOptions_ModifiedAtUtc' AND object_id = OBJECT_ID('arm.PhysEnvOptions'))
+    CREATE NONCLUSTERED INDEX IX_PhysEnvOptions_ModifiedAtUtc ON arm.PhysEnvOptions (ModifiedAtUtc);
 GO
 
 -- ----------------------------------------------------------------------------

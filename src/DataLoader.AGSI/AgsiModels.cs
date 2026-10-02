@@ -18,6 +18,14 @@ public sealed class AgsiStorageEnvelope
     [JsonPropertyName("dataset")] public string? Dataset { get; set; }
     [JsonPropertyName("gas_day")] public string? GasDay { get; set; }
     [JsonPropertyName("data")] public List<AgsiStorageRecord>? Data { get; set; }
+
+    // Body-level failure channel. AGSI answers a missing / invalid / revoked x-key with
+    // HTTP **200** and `{"total":0,"dataset":"storage ERROR","error":"access denied",
+    // "message":"Invalid or missing API key","data":[]}` — shaped exactly like a
+    // legitimate no-data day. Without these two fields the reader cannot tell an
+    // outage from an empty day and would mark the whole hot window done (design §4.2).
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("message")] public string? Message { get; set; }
 }
 
 /// <summary>
@@ -27,9 +35,11 @@ public sealed class AgsiStorageEnvelope
 /// </summary>
 public sealed class AgsiStorageRecord
 {
-    // Name/Code are deserialized to document the API shape but are NOT persisted: arm.GasStorage
-    // was normalized to link back via EntityId (from the work unit), so the response code echo is
-    // never stored (design §2/§7.2). `url` was dropped from the model entirely.
+    // Name/Code are not PERSISTED — arm.GasStorage links back via EntityId (from the work unit),
+    // so the code echo is never stored (design §2/§7.2). `url` was dropped from the model entirely.
+    // Code IS load-bearing at the reader boundary though: it is the ONLY thing that says which
+    // entity a data[] element describes, and a request does not guarantee a matching answer —
+    // `?country=eu` and `?country=ne` both return BOTH aggregates. See AgsiStorageSourceReader.
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("code")] public string? Code { get; set; }
     [JsonPropertyName("updatedAt")] public string? UpdatedAt { get; set; }
