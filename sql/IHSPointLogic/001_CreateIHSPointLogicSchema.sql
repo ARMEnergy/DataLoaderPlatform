@@ -544,8 +544,13 @@ GO
 
 -- ----------------------------------------------------------------------------
 -- §10 arm.GasProductionProducingArea — PK (ReportedDate, ReferenceDate, Region,
---     ProducingArea, State). ReportedDate DATETIME2(0) (carries HH:mm; kept at
---     datetime granularity in the PK — design §11.5). State can be a NAME.
+--     ProducingArea, State). ReportedDate is DATE. The vendor sends
+--     'yyyy-MM-dd HH:mm', but the time is a PUBLICATION STAMP (22:02, 00:02, 12:02
+--     — clock-like, not business data), so it is truncated to the calendar day.
+--     Consequence: two publications on the same day now collapse onto ONE row and
+--     the later one wins, where DATETIME2(0) kept them as two. This also aligns the
+--     key with the incumbent dbo.GasProduction_ProducingArea, whose ReportedDate is
+--     already DATE — see design §11.5. State can be a NAME.
 -- ----------------------------------------------------------------------------
 IF OBJECT_ID('arm.GasProductionProducingArea', 'U') IS NULL
 BEGIN
@@ -553,7 +558,7 @@ BEGIN
     (
         DateCreated      DATETIME      NOT NULL CONSTRAINT DF_GasProductionProducingArea_DateCreated DEFAULT GETDATE(),
         FileLogId        INT           NOT NULL,
-        ReportedDate     DATETIME2(0)  NOT NULL,   -- 'yyyy-MM-dd HH:mm'
+        ReportedDate     DATE          NOT NULL,   -- vendor 'yyyy-MM-dd HH:mm', time truncated
         ReferenceDate    DATE          NOT NULL,
         Region           NVARCHAR(128) NOT NULL,
         ProducingArea    NVARCHAR(128) NOT NULL,

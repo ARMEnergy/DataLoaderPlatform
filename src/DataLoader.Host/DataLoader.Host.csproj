@@ -39,6 +39,7 @@
     <ProjectReference Include="..\DataLoader.Genscape\DataLoader.Genscape.csproj" />
     <ProjectReference Include="..\DataLoader.NGX\DataLoader.NGX.csproj" />
     <ProjectReference Include="..\DataLoader.Marex\DataLoader.Marex.csproj" />
+    <ProjectReference Include="..\DataLoader.OilX\DataLoader.OilX.csproj" />
   </ItemGroup>
 
   <ItemGroup>

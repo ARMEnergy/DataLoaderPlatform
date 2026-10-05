@@ -14,6 +14,7 @@
 -- ---- procedures -------------------------------------------------------------
 DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
+DROP PROCEDURE IF EXISTS arm.usp_ValidateIntegrity;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeFinancialMetadata;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeFinancialSeries;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeFinancialSeriesData;

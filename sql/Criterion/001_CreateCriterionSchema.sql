@@ -199,6 +199,40 @@ BEGIN
 END
 GO
 
+-- ----------------------------------------------------------------------------
+-- IX_ARM_Financial_SeriesData_ModifiedAtUtc
+--
+-- Exists for ONE caller: arm.usp_ValidateLoad's OrphanSeriesData check. Without
+-- it that check has no way to say "only the rows this run touched", and its only
+-- alternative is a full scan of this table -- which at ~110M rows cannot finish
+-- inside any sane command timeout and grows without bound. That is exactly the
+-- failure this index was added to fix (SqlException -2, observed 2026-10-02):
+-- the timeout aborted the whole proc, so every cheap and genuinely useful check
+-- in it was lost along with the slow one.
+--
+-- ⚠ THIS INDEX IS NOT FREE, and the trade is deliberate:
+--   * SIZE. Roughly (8-byte key + 16-byte GUID + row overhead) x row count --
+--     on the order of 3-4 GB at a 110M-row table. Budget for it.
+--   * WRITE COST. Every merged observation maintains a second B-tree. The key is
+--     SYSUTCDATETIME()-derived and therefore ever-increasing, so inserts land at
+--     the right-hand edge: no page-split storm, but real write amplification on
+--     a table this loader writes in bulk.
+-- If that cost is judged too high, the honest alternative is to DROP this index
+-- and remove the OrphanSeriesData check from usp_ValidateLoad entirely, leaving
+-- the full sweep to arm.usp_ValidateIntegrity. What must NOT happen is keeping
+-- the check without the index -- that is precisely the unbounded scan that broke.
+--
+-- INCLUDE (FinancialJsonId) makes the check covering: it reads this index alone
+-- and never touches the base table.
+-- ----------------------------------------------------------------------------
+IF OBJECT_ID('arm.Financial_SeriesData', 'U') IS NOT NULL
+   AND INDEXPROPERTY(OBJECT_ID('arm.Financial_SeriesData'),
+                     'IX_ARM_Financial_SeriesData_ModifiedAtUtc', 'IndexID') IS NULL
+    CREATE NONCLUSTERED INDEX IX_ARM_Financial_SeriesData_ModifiedAtUtc
+        ON arm.Financial_SeriesData (ModifiedAtUtc)
+        INCLUDE (FinancialJsonId);
+GO
+
 -- =============================================================================
 -- MISC DIMENSIONS  (source schema: misc)
 -- =============================================================================

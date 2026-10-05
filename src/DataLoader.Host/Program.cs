@@ -164,6 +164,7 @@ internal static class Program
 
         services.AddSingleton<ILoadLogRepository, SqlLoadLogRepository>();
         services.AddSingleton<ILoaderOverlapGuard, SqlLoaderOverlapGuard>();
+        services.AddSingleton<IAdditionalProcessRunner, SqlAdditionalProcessRunner>();
         services.AddSingleton<IReadOnlyList<ILoaderModule>>(modules);
         services.AddSingleton<PlatformHost>();
 

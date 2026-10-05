@@ -195,7 +195,7 @@ IF TYPE_ID('arm.GasProductionProducingAreaTvp') IS NULL
     CREATE TYPE arm.GasProductionProducingAreaTvp AS TABLE
     (
         FileLogId        INT           NOT NULL,
-        ReportedDate     DATETIME2(0)  NOT NULL,
+        ReportedDate     DATE          NOT NULL,
         ReferenceDate    DATE          NOT NULL,
         Region           NVARCHAR(128) NOT NULL,
         ProducingArea    NVARCHAR(128) NOT NULL,

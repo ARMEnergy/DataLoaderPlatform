@@ -24,6 +24,7 @@ public sealed class PlatformHost
     private readonly IReadOnlyList<ILoaderModule> _modules;
     private readonly ILoadLogRepository _runLog;
     private readonly ILoaderOverlapGuard _overlapGuard;
+    private readonly IAdditionalProcessRunner _additionalProcesses;
     private readonly PlatformSettings _settings;
     private readonly ILogger<PlatformHost> _logger;
 
@@ -32,6 +33,7 @@ public sealed class PlatformHost
         IReadOnlyList<ILoaderModule> modules,
         ILoadLogRepository runLog,
         ILoaderOverlapGuard overlapGuard,
+        IAdditionalProcessRunner additionalProcesses,
         IOptions<PlatformSettings> settings,
         ILogger<PlatformHost> logger)
     {
@@ -39,6 +41,7 @@ public sealed class PlatformHost
         _modules = modules;
         _runLog = runLog;
         _overlapGuard = overlapGuard;
+        _additionalProcesses = additionalProcesses;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -64,58 +67,102 @@ public sealed class PlatformHost
         var context = BuildContext(runId, startedAt, cancellationToken);
         var results = new List<LoaderRunResult>();
         var resultsLock = new object();
+        var allSucceeded = false;
 
-        await ParallelRunner.RunAsync(
-            enabled,
-            _settings.MaxConcurrentLoaders,
-            async (module, ct) =>
-            {
-                var ctx = new LoaderRunContext
+        // From here down the core.LoaderRun row is OPEN, so everything is guarded by
+        // the finally. Without it a cancellation (Ctrl+C, SIGTERM, service stop) is
+        // rethrown by ParallelRunner, propagates straight past CompleteRunAsync, and
+        // strands the run row with CompletedAtUtc NULL forever — a graceful,
+        // non-crash exit that still leaks. 24 of 844 production run rows were
+        // stranded that way before this try/finally existed.
+        try
+        {
+            await ParallelRunner.RunAsync(
+                enabled,
+                _settings.MaxConcurrentLoaders,
+                async (module, ct) =>
                 {
-                    RunId = runId,
-                    StartedAtUtc = startedAt,
-                    DateFrom = context.DateFrom,
-                    DateTo = context.DateTo,
-                    CancellationToken = ct
-                };
-
-                // Overlap guard — if another process is already running this
-                // loader, skip rather than racing. The next scheduled run
-                // will pick up whatever the current run leaves behind
-                // (idempotent thanks to the load log).
-                await using var lockHandle = await _overlapGuard
-                    .TryAcquireAsync(module.LoaderId, ct).ConfigureAwait(false);
-
-                LoaderRunResult result;
-                if (lockHandle is null)
-                {
-                    result = new LoaderRunResult
+                    var ctx = new LoaderRunContext
                     {
-                        LoaderId = module.LoaderId,
-                        Success = true,
-                        ErrorMessage = "Skipped — another instance already running",
-                        Duration = TimeSpan.Zero
+                        RunId = runId,
+                        StartedAtUtc = startedAt,
+                        DateFrom = context.DateFrom,
+                        DateTo = context.DateTo,
+                        CancellationToken = ct
                     };
-                }
-                else
-                {
+
+                    // Seeded, not left unassigned: this is what gets recorded if anything
+                    // below throws before producing a real result (TryAcquireAsync, or the
+                    // lock's own disposal). A loader must never silently vanish from
+                    // `results` — All(...) over an empty list returns TRUE, so a lost entry
+                    // could report the whole run successful while a loader never ran.
+                    var result = LoaderRunResult.Failed(
+                        module.LoaderId, "Did not complete", TimeSpan.Zero);
                     try
                     {
-                        result = await module.RunAsync(_services, ctx).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Loader {Loader} threw out of RunAsync", module.LoaderId);
-                        result = LoaderRunResult.Failed(module.LoaderId, ex.Message, TimeSpan.Zero);
-                    }
-                }
-                lock (resultsLock) results.Add(result);
-            },
-            cancellationToken
-        ).ConfigureAwait(false);
+                        // Overlap guard — if another process is already running this
+                        // loader, skip rather than racing. The next scheduled run
+                        // will pick up whatever the current run leaves behind
+                        // (idempotent thanks to the load log).
+                        await using var lockHandle = await _overlapGuard
+                            .TryAcquireAsync(module.LoaderId, ct).ConfigureAwait(false);
 
-        var allSucceeded = results.All(r => r.Success);
-        await _runLog.CompleteRunAsync(runId, allSucceeded, CancellationToken.None).ConfigureAwait(false);
+                        if (lockHandle is null)
+                        {
+                            result = new LoaderRunResult
+                            {
+                                LoaderId = module.LoaderId,
+                                Success = true,
+                                ErrorMessage = "Skipped — another instance already running",
+                                Duration = TimeSpan.Zero
+                            };
+                            return;   // the finally below still records `result`
+                        }
+
+                        try
+                        {
+                            result = await module.RunAsync(_services, ctx).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Loader {Loader} threw out of RunAsync", module.LoaderId);
+                            result = LoaderRunResult.Failed(module.LoaderId, ex.Message, TimeSpan.Zero);
+                        }
+
+                        // Post-run hook: core.usp_RunAdditionalProcesses(@LoaderName, @RunId).
+                        //
+                        // Runs after success AND after failure — partial data still landed,
+                        // so post-processing is still wanted. Still INSIDE the overlap lock,
+                        // so it can never run concurrently with another process's run of the
+                        // same loader. Deliberately NOT reached when the guard skipped this
+                        // loader (we returned above — that other process will run the hook
+                        // itself) nor when the run is cancelled: the operator asked to stop,
+                        // and the hook is new work, not cleanup.
+                        //
+                        // Note the explicit cancellation check. `catch (Exception)` above
+                        // swallows OperationCanceledException too, so a cancelled module
+                        // arrives here looking merely failed.
+                        if (!ct.IsCancellationRequested)
+                            await _additionalProcesses
+                                .RunAsync(module.LoaderId, runId, ct).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        lock (resultsLock) results.Add(result);
+                    }
+                },
+                cancellationToken
+            ).ConfigureAwait(false);
+
+            allSucceeded = results.All(r => r.Success);
+        }
+        finally
+        {
+            // CancellationToken.None — closing the run row must not itself be
+            // cancellable. On a cancelled or faulted run `allSucceeded` is still
+            // false, which is the honest outcome.
+            await _runLog.CompleteRunAsync(runId, allSucceeded, CancellationToken.None).ConfigureAwait(false);
+        }
 
         LogSummary(results, sw.Elapsed);
         return allSucceeded ? 0 : 1;

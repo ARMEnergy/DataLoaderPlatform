@@ -317,6 +317,9 @@ public sealed class GasProductionProducingAreaSqlSink : PlSqlSinkBase<GasProduct
     {
         var t = new DataTable();
         t.Columns.Add("FileLogId", typeof(int));
+        // Both date columns are SQL DATE and both stay typeof(DateTime) here — a DataTable
+        // column cannot be DateOnly for a TVP. The DateOnly -> DateTime midnight conversion
+        // is D(); the TVP contract (name + order + type) is unchanged by the DATE switch.
         t.Columns.Add("ReportedDate", typeof(DateTime));
         t.Columns.Add("ReferenceDate", typeof(DateTime));
         t.Columns.Add("Region", typeof(string));
@@ -326,7 +329,7 @@ public sealed class GasProductionProducingAreaSqlSink : PlSqlSinkBase<GasProduct
         t.Columns.Add("WellheadValue", typeof(decimal));
 
         foreach (var r in rows.GroupBy(x => (x.ReportedDate, x.ReferenceDate, x.Region, x.ProducingArea, x.State)).Select(g => g.Last()))
-            t.Rows.Add(r.FileLogId, r.ReportedDate, D(r.ReferenceDate), r.Region, r.ProducingArea, r.State,
+            t.Rows.Add(r.FileLogId, D(r.ReportedDate), D(r.ReferenceDate), r.Region, r.ProducingArea, r.State,
                 DbNullable(r.DryFactoredValue), DbNullable(r.WellheadValue));
         return t;
     }

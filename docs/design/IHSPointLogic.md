@@ -700,7 +700,7 @@ TVP: `FileLogId, ForecastDate, Date, Region, Power, Industrial, ResidentialComme
 Region, ProducingArea, State)`
 | JSON | Row prop | Column | Type | Null | Key |
 |------|----------|--------|------|:----:|:---:|
-| `reporteddate` | ReportedDate | ReportedDate | DATETIME2(0) | No | **K** — `yyyy-MM-dd HH:mm` |
+| `reporteddate` | ReportedDate | ReportedDate | DATE | No | **K** — sent as `yyyy-MM-dd HH:mm`, time truncated |
 | `referencedate` | ReferenceDate | ReferenceDate | DATE | No | **K** |
 | `region` | Region | Region | NVARCHAR(128) | No | **K** |
 | `producingarea` | ProducingArea | ProducingArea | NVARCHAR(128) | No | **K** |
@@ -709,7 +709,16 @@ Region, ProducingArea, State)`
 | `wellheadvalue` | WellheadValue | WellheadValue | DECIMAL(18,6) | Yes | |
 
 TVP: `FileLogId, ReportedDate, ReferenceDate, Region, ProducingArea, State, DryFactoredValue,
-WellheadValue`. (Datetime-granularity key — open item §11.)
+WellheadValue`.
+
+`ReportedDate` is a **DATE**, though the vendor sends `yyyy-MM-dd HH:mm`. The time is a publication
+stamp, not business data — production shows values like 22:02, 00:02 and 12:02 — so it is truncated
+in the row factory and two publications of the same reported day collapse onto one row, the later
+winning. This also matches the incumbent `dbo.GasProduction_ProducingArea`, whose `ReportedDate` is
+already `DATE`; while `arm` was `DATETIME2(0)`, the §004 comparison joined the two through an
+implicit conversion. Note the row factory still parses with `PlParse.DateTime2` and truncates
+afterwards — `PlParse.Date` accepts only `yyyy-MM-dd` / `MM/dd/yyyy` and would return null on every
+time-bearing value, silently dropping the whole feed.
 
 **§11 MarketBalancesUsLower48 → `arm.MarketBalancesUsLower48`** — PK `(TimePeriod)`
 `TimePeriod (K, DATE, `timeperiod`)` + the 16 measures, all `DECIMAL(18,6)` Yes:
@@ -976,9 +985,9 @@ reconciliation is the deferred `DATA_QUALITY_VALIDATOR` step.
 4. **FKs for the composite discovery keys:** `County(StateId) → State`, `Facility(PointTypeId) →
    PointType`, `Subregion(RegionId) → Region` (renamed per §A.0), and the fact FKs listed in §10. Confirm whether to
    enforce FKs (safe once dimensions load first) or leave logical-only for the build-only pass.
-5. **`gasproduction.reporteddate` key granularity** — carries `HH:mm`; modeled `DATETIME2(0)` and kept
-   at datetime granularity in the PK (matches `ReportedDate`). Confirm datetime-vs-date keying is
-   acceptable.
+5. ~~**`gasproduction.reporteddate` key granularity**~~ — **RESOLVED 2026-10-05: DATE.** The `HH:mm`
+   is a publication stamp, so it is truncated and the PK keys on the calendar day; see §10. Migration
+   for already-deployed databases is `sql/IHSPointLogic/005_AlterGasProductionReportedDateToDate.sql`.
 6. **Persist redundant `facilitytypeid`?** (§21) — it arrives as a JSON string equal to the path
    `PointTypeId`. Persist `FacilityTypeId` for audit or drop it — DB's call (affects the `Facility` TVP
    column list).

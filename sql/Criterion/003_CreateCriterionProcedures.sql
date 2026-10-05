@@ -4,7 +4,10 @@
 -- Schema   : arm
 --
 --   arm.usp_BulkMerge<Table>   x9, one per target table
---   arm.usp_ValidateLoad       post-load observational anomaly report
+--   arm.usp_ValidateLoad       post-load observational anomaly report — BOUNDED,
+--                              runs after every load
+--   arm.usp_ValidateIntegrity  full-history integrity sweep — DELIBERATELY SLOW,
+--                              for a scheduled job, never called per run
 --
 -- Shared conventions across every merge proc:
 --
@@ -516,12 +519,28 @@ GO
 -- checks are global because those tables are snapshots.
 -- ----------------------------------------------------------------------------
 CREATE OR ALTER PROCEDURE arm.usp_ValidateLoad
-    @AsOfDate DATE = NULL
+    @AsOfDate             DATE = NULL,
+    @OrphanLookbackHours  INT  = 48
 AS
 BEGIN
     SET NOCOUNT ON;
 
     IF @AsOfDate IS NULL SET @AsOfDate = CAST(SYSUTCDATETIME() AS DATE);
+
+    -- ⚠ EVERY CHECK IN THIS PROC MUST BE BOUNDED. It runs after each load, and a
+    -- client-side timeout aborts the WHOLE proc -- so one unbounded check costs
+    -- every other finding, not just its own. That is not hypothetical: the
+    -- OrphanSeriesData check below originally scanned all of
+    -- arm.Financial_SeriesData (~110M rows) and timed out at the client's 30s
+    -- default, silently taking the cheap dimension and gap checks down with it
+    -- (observed 2026-10-02).
+    --
+    -- Deliberately expensive, full-history work belongs in
+    -- arm.usp_ValidateIntegrity, which nothing calls per run.
+    IF @OrphanLookbackHours IS NULL OR @OrphanLookbackHours < 1
+        SET @OrphanLookbackHours = 48;
+
+    DECLARE @OrphanSince DATETIME2(3) = DATEADD(HOUR, -@OrphanLookbackHours, SYSUTCDATETIME());
 
     DECLARE @Findings TABLE
     (
@@ -581,12 +600,27 @@ BEGIN
 
     -- Observations whose parent publication is missing. Non-zero means the two
     -- financial pipelines have drifted -- they must read the same source rows.
+    --
+    -- SCOPED TO RECENTLY-WRITTEN ROWS, and that scoping is load-bearing: unscoped,
+    -- this is a full scan of a ~110M-row table that times out and takes the whole
+    -- proc with it. ModifiedAtUtc is the only column that can express "what this
+    -- run touched", and IX_ARM_Financial_SeriesData_ModifiedAtUtc (001) makes the
+    -- range covering -- it reads that index alone.
+    --
+    -- The window is a detection horizon, not a guarantee: drift older than
+    -- @OrphanLookbackHours is NOT reported here by design. That is what
+    -- arm.usp_ValidateIntegrity is for. Keep the window comfortably wider than the
+    -- gap between runs (48h against a daily loader) so a missed run cannot open a
+    -- blind spot.
     INSERT @Findings (Severity, Check_, Detail)
     SELECT 'WARN', 'OrphanSeriesData',
-           CONCAT(COUNT(*), ' arm.Financial_SeriesData FinancialJsonId value(s) have no arm.Financial_Series row')
+           CONCAT(COUNT(*), ' arm.Financial_SeriesData FinancialJsonId value(s) written since ',
+                  CONVERT(VARCHAR(19), @OrphanSince, 126),
+                  'Z have no arm.Financial_Series row')
     FROM (SELECT DISTINCT d.FinancialJsonId
           FROM arm.Financial_SeriesData AS d
-          WHERE NOT EXISTS (SELECT 1 FROM arm.Financial_Series AS s WHERE s.FinancialJsonId = d.FinancialJsonId)) AS x
+          WHERE d.ModifiedAtUtc >= @OrphanSince
+            AND NOT EXISTS (SELECT 1 FROM arm.Financial_Series AS s WHERE s.FinancialJsonId = d.FinancialJsonId)) AS x
     HAVING COUNT(*) > 0;
 
     -- PeriodId/UnitId are mongo ids and join the dimensions on MongoId, not on
@@ -624,5 +658,105 @@ BEGIN
     HAVING COUNT(*) > 0;
 
     SELECT Severity, Check_ AS [Check], Detail FROM @Findings ORDER BY Severity, Check_;
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- arm.usp_ValidateIntegrity — FULL-HISTORY integrity sweep.
+--
+-- The deliberately expensive counterpart to arm.usp_ValidateLoad. Nothing calls
+-- this per run, and the loader never calls it at all: it is for a scheduled job
+-- (weekly is ample) or an on-demand investigation.
+--
+-- WHY IT IS SEPARATE. usp_ValidateLoad runs after every load and a client-side
+-- timeout aborts the whole proc, so a single unbounded check there costs every
+-- other finding with it. Splitting the sweep out lets the per-run proc stay
+-- bounded and fast while the complete, unbounded check still EXISTS somewhere --
+-- rather than being quietly dropped because it was too slow to run often.
+--
+-- ⚠ EXPECT THIS TO BE SLOW, BY DESIGN. It scans arm.Financial_SeriesData end to
+-- end (on the order of 110M rows for a 30-day window). Give it a generous
+-- command timeout, run it off-peak, and do not wire it into a loader run.
+--
+-- @MaxExamples caps how many offending ids are listed back; the COUNT is always
+-- exact. Returns the same (Severity, Check, Detail) shape as usp_ValidateLoad so
+-- one reader can consume either.
+-- ----------------------------------------------------------------------------
+CREATE OR ALTER PROCEDURE arm.usp_ValidateIntegrity
+    @MaxExamples INT = 20
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @MaxExamples IS NULL OR @MaxExamples < 0 SET @MaxExamples = 20;
+
+    DECLARE @Findings TABLE
+    (
+        Severity  VARCHAR(10)  NOT NULL,
+        Check_    VARCHAR(60)  NOT NULL,
+        Detail    VARCHAR(400) NOT NULL
+    );
+
+    -- ---- orphaned observations, over ALL history ----------------------------
+    -- The unscoped form of usp_ValidateLoad's OrphanSeriesData check. Non-zero
+    -- means the two financial pipelines have drifted: they must read the SAME
+    -- source rows, and the original specification would have pointed them at
+    -- different relations.
+    DECLARE @Orphans TABLE (FinancialJsonId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
+
+    INSERT @Orphans (FinancialJsonId)
+    SELECT DISTINCT d.FinancialJsonId
+    FROM arm.Financial_SeriesData AS d
+    WHERE NOT EXISTS (SELECT 1 FROM arm.Financial_Series AS s WHERE s.FinancialJsonId = d.FinancialJsonId);
+
+    INSERT @Findings (Severity, Check_, Detail)
+    SELECT 'WARN', 'OrphanSeriesData_AllHistory',
+           CONCAT(COUNT(*), ' arm.Financial_SeriesData FinancialJsonId value(s) have no arm.Financial_Series row')
+    FROM @Orphans
+    HAVING COUNT(*) > 0;
+
+    INSERT @Findings (Severity, Check_, Detail)
+    SELECT 'INFO', 'OrphanSeriesData_Example',
+           CONCAT('orphaned FinancialJsonId ', CONVERT(VARCHAR(36), x.FinancialJsonId),
+                  ' (', x.Observations, ' observation row(s))')
+    FROM (
+        SELECT TOP (@MaxExamples)
+               o.FinancialJsonId,
+               (SELECT COUNT_BIG(*) FROM arm.Financial_SeriesData AS d
+                 WHERE d.FinancialJsonId = o.FinancialJsonId) AS Observations
+        FROM @Orphans AS o
+        ORDER BY o.FinancialJsonId
+    ) AS x;
+
+    -- ---- publications with no observations, over ALL history ----------------
+    -- The unscoped form of SeriesWithoutData. A handful is normal (an empty
+    -- source array); a large share means the unpivot is broken.
+    INSERT @Findings (Severity, Check_, Detail)
+    SELECT 'INFO', 'SeriesWithoutData_AllHistory',
+           CONCAT(COUNT(*), ' of ', (SELECT COUNT_BIG(*) FROM arm.Financial_Series),
+                  ' publication(s) have no arm.Financial_SeriesData rows')
+    FROM arm.Financial_Series AS s
+    WHERE NOT EXISTS (SELECT 1 FROM arm.Financial_SeriesData AS d WHERE d.FinancialJsonId = s.FinancialJsonId)
+    HAVING COUNT(*) > 0;
+
+    -- ---- gas days present in one pipeline's table but not the other ---------
+    -- Both are derived from the SAME source rows, so a day in one and not the
+    -- other means that day's second pipeline failed. usp_ValidateLoad checks
+    -- only the as-of day; this finds every such day ever loaded.
+    INSERT @Findings (Severity, Check_, Detail)
+    SELECT 'WARN', 'PointflowsGap_AllHistory',
+           CONCAT('EffGasDay ', CONVERT(VARCHAR(10), n.EffGasDay, 23),
+                  ' has nomination rows but no pointflow rows')
+    FROM (SELECT DISTINCT EffGasDay FROM arm.Pipelines_NominationPoint) AS n
+    WHERE NOT EXISTS (SELECT 1 FROM arm.Pipelines_Pointflows AS f WHERE f.EffGasDay = n.EffGasDay);
+
+    INSERT @Findings (Severity, Check_, Detail)
+    SELECT 'WARN', 'NominationGap_AllHistory',
+           CONCAT('EffGasDay ', CONVERT(VARCHAR(10), f.EffGasDay, 23),
+                  ' has pointflow rows but no nomination rows')
+    FROM (SELECT DISTINCT EffGasDay FROM arm.Pipelines_Pointflows) AS f
+    WHERE NOT EXISTS (SELECT 1 FROM arm.Pipelines_NominationPoint AS n WHERE n.EffGasDay = f.EffGasDay);
+
+    SELECT Severity, Check_ AS [Check], Detail FROM @Findings ORDER BY Severity, Check_, Detail;
 END
 GO

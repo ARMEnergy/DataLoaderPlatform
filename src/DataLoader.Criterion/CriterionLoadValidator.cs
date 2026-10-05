@@ -45,7 +45,19 @@ public sealed class CriterionLoadValidator
 
             await using var cmd = new SqlCommand("arm.usp_ValidateLoad", conn)
             {
-                CommandType = CommandType.StoredProcedure
+                CommandType = CommandType.StoredProcedure,
+
+                // NOT the 30-second default. This proc reads the largest tables in the
+                // loader, and a client-side expiry (SqlException -2) aborts the WHOLE
+                // proc — so one slow check would cost every cheap, useful finding with
+                // it, not just its own. 300 matches NgxLoadValidator.
+                //
+                // This is a ceiling, not a budget: usp_ValidateLoad is bounded by
+                // @OrphanLookbackHours precisely so it does not need it. If this timeout
+                // ever fires again, the fix is to find what became unbounded, not to
+                // raise the number — arm.usp_ValidateIntegrity exists to carry the
+                // deliberately expensive full-history sweep on its own schedule.
+                CommandTimeout = 300
             };
             cmd.Parameters.Add("@AsOfDate", SqlDbType.Date).Value =
                 asOfDate.HasValue ? asOfDate.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;

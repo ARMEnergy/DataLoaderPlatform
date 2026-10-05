@@ -35,4 +35,18 @@ public sealed class PlatformSettings
     /// </summary>
     public int? DefaultDaysBackStart { get; set; }
     public int? DefaultDaysBackEnd { get; set; }
+
+    /// <summary>
+    /// Whether to call <c>core.usp_RunAdditionalProcesses</c> after each loader
+    /// finishes. On by default. Turn it off for local or debug runs that point at
+    /// production-shaped config but must not trigger downstream post-processing.
+    /// </summary>
+    public bool RunAdditionalProcesses { get; set; } = true;
+
+    /// <summary>
+    /// Command timeout for <c>core.usp_RunAdditionalProcesses</c>, in seconds.
+    /// Deliberately NOT ADO.NET's 30-second default: that proc fans out to
+    /// post-load work across several databases.
+    /// </summary>
+    public int AdditionalProcessesTimeoutSeconds { get; set; } = 600;
 }

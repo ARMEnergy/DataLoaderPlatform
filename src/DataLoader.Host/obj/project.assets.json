@@ -1466,6 +1466,19 @@
           "bin/placeholder/DataLoader.NGX.dll": {}
         }
       },
+      "DataLoader.OilX/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DataLoader.OilX.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DataLoader.OilX.dll": {}
+        }
+      },
       "DataLoader.OPIS/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
@@ -3771,6 +3784,11 @@
       "path": "../DataLoader.NGX/DataLoader.NGX.csproj",
       "msbuildProject": "../DataLoader.NGX/DataLoader.NGX.csproj"
     },
+    "DataLoader.OilX/1.0.0": {
+      "type": "project",
+      "path": "../DataLoader.OilX/DataLoader.OilX.csproj",
+      "msbuildProject": "../DataLoader.OilX/DataLoader.OilX.csproj"
+    },
     "DataLoader.OPIS/1.0.0": {
       "type": "project",
       "path": "../DataLoader.OPIS/DataLoader.OPIS.csproj",
@@ -3812,6 +3830,7 @@
       "DataLoader.NGI >= 1.0.0",
       "DataLoader.NGX >= 1.0.0",
       "DataLoader.OPIS >= 1.0.0",
+      "DataLoader.OilX >= 1.0.0",
       "DataLoader.Platts >= 1.0.0",
       "DataLoader.StormVista >= 1.0.0",
       "DataLoader.Vulcan >= 1.0.0",
@@ -3896,6 +3915,9 @@
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.NGX\\DataLoader.NGX.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.NGX\\DataLoader.NGX.csproj"
+            },
+            "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.OilX\\DataLoader.OilX.csproj": {
+              "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.OilX\\DataLoader.OilX.csproj"
             },
             "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.OPIS\\DataLoader.OPIS.csproj": {
               "projectPath": "C:\\Users\\yaroslav.chekhuta\\MyProjects\\DataLoaderPlatform\\src\\DataLoader.OPIS\\DataLoader.OPIS.csproj"

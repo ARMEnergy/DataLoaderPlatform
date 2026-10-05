@@ -335,11 +335,17 @@ public sealed class DemandForecastUsLower48Row : IPlFactRow
 /// <summary>
 /// arm.GasProductionProducingArea — key (ReportedDate, ReferenceDate, Region, ProducingArea, State).
 /// TVP: FileLogId, ReportedDate, ReferenceDate, Region, ProducingArea, State, DryFactoredValue, WellheadValue.
+///
+/// <para>
+/// <b>ReportedDate is a DATE.</b> The vendor sends 'yyyy-MM-dd HH:mm' and the time is a
+/// publication stamp, not business data, so it is truncated to the calendar day. Two
+/// publications on the same day therefore collapse onto one row, last one winning.
+/// </para>
 /// </summary>
 public sealed class GasProductionProducingAreaRow : IPlFactRow
 {
     public int FileLogId { get; set; }
-    public required DateTime ReportedDate { get; init; } // yyyy-MM-dd HH:mm
+    public required DateOnly ReportedDate { get; init; } // calendar day; vendor's HH:mm truncated
     public required DateOnly ReferenceDate { get; init; }
     public required string Region { get; init; }
     public required string ProducingArea { get; init; }
@@ -349,6 +355,10 @@ public sealed class GasProductionProducingAreaRow : IPlFactRow
 
     public static GasProductionProducingAreaRow? From(JsonElement e, PlWorkUnit unit)
     {
+        // Parsed with DateTime2, NOT Date, even though the column is now DATE. The vendor
+        // sends 'yyyy-MM-dd HH:mm' and PlParse.Date only accepts yyyy-MM-dd / MM/dd/yyyy —
+        // it would return null on every row and From() would silently drop the whole feed.
+        // DateTime2 accepts the time-bearing spellings AND a bare date; we truncate after.
         if (PlParse.DateTime2(e, "reporteddate") is not DateTime reportedDate) return null;
         if (PlParse.Date(e, "referencedate") is not DateOnly referenceDate) return null;
         var region = PlParse.String(e, "region");
@@ -357,7 +367,7 @@ public sealed class GasProductionProducingAreaRow : IPlFactRow
         if (region is null || producingArea is null || state is null) return null;
         return new GasProductionProducingAreaRow
         {
-            ReportedDate = reportedDate,
+            ReportedDate = DateOnly.FromDateTime(reportedDate),
             ReferenceDate = referenceDate,
             Region = region,
             ProducingArea = producingArea,

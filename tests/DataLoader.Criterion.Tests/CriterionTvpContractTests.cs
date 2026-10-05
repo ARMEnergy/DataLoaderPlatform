@@ -489,18 +489,27 @@ internal static class RepoPaths
     public static string ProceduresScript => Path.Combine(SqlDirectory, "003_CreateCriterionProcedures.sql");
     public static string DropScript => Path.Combine(SqlDirectory, "999_DropCriterionObjects.sql");
 
-    private static string FindSqlDirectory()
+    /// <summary>
+    /// <c>src/DataLoader.Criterion</c>. Used by the validation tests, which assert on
+    /// the loader's own source — that it sets a command timeout, and that nothing in it
+    /// calls the deliberately-expensive <c>arm.usp_ValidateIntegrity</c>.
+    /// </summary>
+    public static string LoaderSourceDirectory { get; } = FindUp(Path.Combine("src", "DataLoader.Criterion"));
+
+    private static string FindSqlDirectory() => FindUp(Path.Combine("sql", "Criterion"));
+
+    private static string FindUp(string relative)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
 
         while (dir is not null)
         {
-            var candidate = Path.Combine(dir.FullName, "sql", "Criterion");
+            var candidate = Path.Combine(dir.FullName, relative);
             if (Directory.Exists(candidate)) return candidate;
             dir = dir.Parent;
         }
 
         throw new DirectoryNotFoundException(
-            $"Could not locate sql/Criterion by walking up from '{AppContext.BaseDirectory}'.");
+            $"Could not locate '{relative}' by walking up from '{AppContext.BaseDirectory}'.");
     }
 }

@@ -107,11 +107,13 @@ With `@Date` NULL the window is the **arm table's own MIN..MAX** of its date col
 not all of history — `dbo` holds years and `arm` only what the loader has run for, so
 an unfiltered compare would report nearly all of `dbo` as `MISSING_IN_ARM`.
 
-Three loaders are deliberately different:
+Four loaders are deliberately different:
 - **Argus** — no comparison is possible: not one table corresponds (dbo is a generic
   time-series model, arm is a single purpose-built fact), and the arm lookups have no
   primary keys. Its 004 file explains this and returns the reason per table.
 - **Criterion** — its database has **zero** `dbo` tables; nothing to reconcile.
+- **OilX** — the `OilX` database is NEW and holds no incumbent `dbo` dataset, so there
+  is nothing to shadow. It ships 001/002/003/999 only.
 - **CWG** — deferred. Its arm redesign renamed keys and columns (`ObsDate`↔`Date`,
   `InitDate`+`ForecastDate`+`HourOfDay`↔`ForecastDate`+`UTCHourEnding`,
   `MonthDay`↔`Month`+`Day`) and some pairs share zero column names, so its 17 pairs
@@ -177,8 +179,8 @@ Avoid large inline dumps of code, SQL, or logs.
 
 ## Build-only loaders
 
-CWG, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, Criterion, EOX, CME,
-Genscape, NGX, Marex are build-only unless explicitly deployed and run.
+CWG, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, EOX, CME,
+Genscape, NGX, Marex, OilX are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
 
 **AGSI is NOT build-only any more** — its SQL is deployed to `ARMH-OPSDB01`/`AGSI` and it has been
@@ -218,7 +220,22 @@ URL template and the entitlement are unexercised. Its SQL has never been deploye
 See `docs/apis/ICE.md` §4A.
 
 Criterion is the only loader with a **relational (PostgreSQL) source**. Its read path is verified
-against live production; its SQL has never been deployed.
+against live production.
+
+**Criterion is NOT build-only any more** — its SQL is deployed and it runs against a live database
+with enough data that `arm.Financial_SeriesData` can no longer be scanned in 30 seconds. That table
+is by far the largest in the repo (~110M rows for a 30-day window), and it produced a trap worth
+remembering: **a post-load validator's timeout is silent and total**. `arm.usp_ValidateLoad`'s
+`OrphanSeriesData` check scanned it unbounded, expired at `SqlCommand`'s 30-second default
+(`SqlException` -2), and because the validator swallows its own failures by design, the abort took
+**every other check in the proc** down with it while the run still reported success (observed
+2026-10-02). Two rules came out of it: **every check in `usp_ValidateLoad` must be bounded**
+(the orphan check now scopes on `ModifiedAtUtc` via `@OrphanLookbackHours`, default 48h, backed by
+`IX_ARM_Financial_SeriesData_ModifiedAtUtc`), and deliberately expensive full-history work lives in
+**`arm.usp_ValidateIntegrity`** — which nothing calls per run and which is meant for a scheduled or
+on-demand sweep. `CriterionValidationTests` enforces both, and the bounding guard carries its own
+two-sided self-test so it cannot rot into passing on anything. Note every OTHER loader's validator
+still uses the 30s default; Criterion is simply the first whose tables outgrew it.
 
 Genscape (oil fundamentals, DB `Genscape`) is verified against the live API end to end; its SQL
 has never been deployed. Three of its behaviours are silent if you get them wrong: `endDate` is
@@ -270,6 +287,29 @@ says it does not), so `GetToken` works and hand-rolling the Auth0 call is unnece
 they come only from the separate `ExchangeDateSnapshot` event and lead both fact tables' primary
 keys. Also note `MarketState` lives in `SignalRClient.Contracts`, not `Common.Core.Enums`.
 See `docs/apis/Marex.md`.
+
+OilX (Energy Aspects' OilX line, 8 CSV feeds, `arm` schema, DB `OilX`) is the only loader whose
+API returns a **manifest of presigned S3 URLs** rather than data, and the only one where each
+daily file is a **full snapshot of all history** — one day is ~2.07M rows across the eight feeds
+(CargoTracking alone is 208 MB / 396,866 rows), so a 31-day window is ~64M rows and ~6.5 GB and
+everything streams and merges in 20,000-row batches. Its read path is verified live end to end
+(all 8 feeds, 2.46M real rows, zero dropped, every RowId unique); its SQL has never been deployed.
+Five behaviours are silent if you get them wrong: those presigned URLs **expire in 5 hours**, so
+the manifest is fetched per day at the moment that day runs and never once up front; **an empty
+day and a bad feed name are BOTH HTTP 422**, told apart only by the message prefix (`No data for
+files` = legitimate empty read, `Unavailable files` = fail loudly), so neither blanket reading is
+safe; a **multi-feed manifest request answers 200 and silently omits** any feed that published
+nothing, which is why the loader asks for **one feed per request**; a day now publishes **up to
+four snapshots per feed, all carrying the same in-file `RunDate`**, so they collide on
+`(RunDate, RowId)` and must merge in ascending `uploaded_at` order for the newest value to win
+(the count is NOT historic — 8 files/day before mid-2026, 17 now); and 🔒 the **`api_key` travels
+in the QUERY STRING**, unlike every other HTTP loader here, so the client has `RemoveAllLoggers()`
+and nothing derived from a URL reaches a log unredacted. `RowId` is a deterministic UUIDv5 over
+each feed's business key — never random, or the merge would become an append of ~2M rows a run —
+and **Flow's two usually-empty sub-country columns are load-bearing in that key**: dropping them
+collapses 28,887 of its 232,311 rows. Unlike ICE/Genscape/EvolutionMarkets it ships
+`SettledAfterDays = 1`, because a published OilX day is immutable and all-hot would re-download
+~6.5 GB per run for data that cannot change. See `docs/apis/OilX.md` §2 and `docs/design/OilX.md`.
 
 ## Key files
 

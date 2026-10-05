@@ -456,6 +456,11 @@ GO
 
 -- §10 arm.usp_BulkMergeGasProductionProducingArea
 --     key (ReportedDate, ReferenceDate, Region, ProducingArea, State).
+--     ReportedDate is DATE, not DATETIME2(0): the vendor's HH:mm is a publication
+--     stamp, so two publications on the same calendar day now MATCH here and the
+--     later one updates the earlier instead of inserting a second row. The body is
+--     unchanged by that — it names no types — but the de-dup inside the USING and
+--     the sink's in-memory GroupBy both now collapse on the day.
 CREATE OR ALTER PROCEDURE arm.usp_BulkMergeGasProductionProducingArea
     @Records arm.GasProductionProducingAreaTvp READONLY
 AS

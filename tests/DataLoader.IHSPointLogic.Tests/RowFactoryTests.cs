@@ -159,16 +159,57 @@ public class RowFactoryTests
         Assert.Null(DemandForecastUsLower48Row.From(E(Samples.DemandForecastUsLower48Elem), Unit(reportDate: null)));
 
     [Fact]
-    public void GasProduction_ReportedDateIsDateTime2_MinutePrecision()
+    public void GasProduction_ReportedDateIsDate_VendorTimeTruncated()
     {
         var r = GasProductionProducingAreaRow.From(E(Samples.GasProductionElem), Unit())!;
-        Assert.Equal(new DateTime(2026, 8, 18, 13, 33, 0), r.ReportedDate); // yyyy-MM-dd HH:mm
+        // The payload carries '2026-08-18 13:33'; ReportedDate is a DATE and drops the time.
+        Assert.Equal(new DateOnly(2026, 8, 18), r.ReportedDate);
         Assert.Equal(new DateOnly(2026, 7, 19), r.ReferenceDate);
         Assert.Equal("Gulf of Mexico", r.Region);
         Assert.Equal("Gulf of Mexico", r.ProducingArea);
         Assert.Equal("Gulf of Mexico", r.State);
         Assert.Equal(1825.3466644m, r.DryFactoredValue);
         Assert.Equal(2194.11088m, r.WellheadValue);
+    }
+
+    [Theory]
+    [InlineData("2026-08-18 13:33")]     // the spelling the vendor actually sends
+    [InlineData("2026-08-18 13:33:07")]  // tolerated seconds variant
+    [InlineData("2026-08-18")]           // bare date, no time at all
+    public void GasProduction_ReportedDate_StillParsesEveryVendorSpelling(string reported)
+    {
+        // REGRESSION GUARD. ReportedDate became a DATE, and the tempting edit is to swap
+        // PlParse.DateTime2 for PlParse.Date. PlParse.Date only accepts yyyy-MM-dd and
+        // MM/dd/yyyy, so on the vendor's time-bearing value it returns null, From() returns
+        // null, and the ENTIRE feed is silently dropped with no error anywhere. If this test
+        // starts failing on the first two cases, that swap has been made.
+        var json = $$"""
+        { "reporteddate": "{{reported}}", "referencedate": "2026-07-19", "region": "Gulf of Mexico",
+          "producingarea": "Gulf of Mexico", "state": "Gulf of Mexico", "dryfactoredvalue": 1.0,
+          "wellheadvalue": 2.0 }
+        """;
+        var r = GasProductionProducingAreaRow.From(E(json), Unit());
+        Assert.NotNull(r);
+        Assert.Equal(new DateOnly(2026, 8, 18), r!.ReportedDate);
+    }
+
+    [Fact]
+    public void GasProduction_TwoPublicationsSameDay_CollapseToOneKey()
+    {
+        // Direct consequence of DATE: 00:02 and 22:02 on the same day were two PK rows under
+        // DATETIME2(0) and are one row now. Both the sink's GroupBy and the merge rely on this.
+        static string At(string stamp) => $$"""
+        { "reporteddate": "{{stamp}}", "referencedate": "2026-07-19", "region": "Gulf of Mexico",
+          "producingarea": "Gulf of Mexico", "state": "Gulf of Mexico", "dryfactoredvalue": 1.0,
+          "wellheadvalue": 2.0 }
+        """;
+        var early = GasProductionProducingAreaRow.From(E(At("2026-10-02 00:02")), Unit())!;
+        var late = GasProductionProducingAreaRow.From(E(At("2026-10-02 22:02")), Unit())!;
+
+        Assert.Equal(early.ReportedDate, late.ReportedDate);
+        Assert.Equal(
+            (early.ReportedDate, early.ReferenceDate, early.Region, early.ProducingArea, early.State),
+            (late.ReportedDate, late.ReferenceDate, late.Region, late.ProducingArea, late.State));
     }
 
     [Fact]
