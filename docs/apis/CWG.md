@@ -2,7 +2,7 @@
 
 Weather forecasts, observations, degree-days, and renewable (wind/solar) generation
 from Commodity Weather Group. This is the **mandatory full-field-set gate**: every
-column of all **18 endpoints** is enumerated below with its exact source name, ordered
+column of all **19 endpoints** is enumerated below with its exact source name, ordered
 position, recommended SQL Server type, nullability/sentinel, and date format. Nothing
 downstream (model → sink → TVP → table → merge proc) may ship a partial column set.
 
@@ -53,8 +53,8 @@ counts, hour labels, matrix widths, and sentinels — not the prose recon).
 
 | Shape | Description | Endpoints |
 |-------|-------------|-----------|
-| **A** | Simple tabular, one row = one record | CityForecast, CityGasForecast, CityObservation, Station, NationalDegreeDays, Regions5DegreeDays, Regions9DegreeDays, ISODegreeDays |
-| **B** | Wide-by-region tabular → **unpivot** to long | DailyNormal, SolarHourly, WindHourly |
+| **A** | Simple tabular, one row = one record | CityForecast, CityGasForecast, CityObservation, Station, NationalDegreeDays, Regions5DegreeDays, Regions9DegreeDays, ISODegreeDays, StateDegreeDayObservation |
+| **B** | Wide-by-region tabular, **kept wide** (one target column per region) | DailyNormal, SolarHourly, WindHourly |
 | **C** | Pivoted hour×forecast-day matrix w/ title/date leading rows → **unpivot** | SolarForecast, SolarForecastChange, WindForecast |
 | **D** | Stacked sub-region matrix blocks → **unpivot per block** | WindForecastSubRegion |
 | **E** | Region-row summary with title/header rows (multi-block) | WindTotalCapacityPct, WindTotalCapacityMW, WindTotalCapacityClimatology |
@@ -778,7 +778,65 @@ Natural key: `RunDate (from filename) + DATES + REGION_NAME`.
 
 ---
 
-## Coverage checklist (all 18 endpoints — column list + type + nullability + shape)
+## 19. StateDegreeDayObservation → table `StateDegreeDayObservation`
+
+- **Filename:** `northamerica_state_wdd_observations_{date}.csv`
+  (e.g. `northamerica_state_wdd_observations_20260811.csv`).
+- **⚠ This is NOT part of the `northamerica_{subregion}_wdd_{date}.csv` family** of §8 /
+  §16–18. It has its **own template with no `{subregion}` token** — a `state` value in
+  that family's template does not exist. Do not try to reach it through `{subregion}`.
+- **`{date}`** = `YYYYMMDD` = the **observation date**, and here it is also the value of
+  every row's `DATES` cell (see below), so the filename date and the data date agree.
+- **Represents:** **one observation day** of state-level population-weighted degree days,
+  one row per (census region × state).
+- **Shape A.** **15 columns.**
+- **Verified live 2026-10-05** on three dates two months apart — `20260811`, `20261003`,
+  `20261004` — all `200 text/csv`, all identical in shape:
+  - **48 data rows** each (48 states), **9 distinct `REGION_NAME`** values (the U.S.
+    Census divisions, same UPPERCASE spellings as §17).
+  - **`DATES` is a SINGLE date per file**, equal to the filename date. Unlike §8/§16–18
+    there is **no multi-day window** — which is why the natural key needs no second date
+    column.
+  - **NO `END.` sentinel footer** — the only member of the degree-day group without one.
+    The file ends with a plain blank line.
+  - **`IS_FORECAST` is `False` on every row** (it is an *observations* file). The column
+    is still carried, since nothing in the contract promises it stays constant.
+  - Max observed label lengths: `REGION_NAME` **15**, `STATE_NAME` **14**.
+  - The response body carries a **UTF-8 BOM**; the CSV reader strips it.
+
+Ordered columns (header row 1 exactly as shown):
+
+| # | Source column | SQL type | Null? | Notes |
+|---|---------------|----------|-------|-------|
+| 1 | `DATES` | `DATE` | No | **`YYYY-MM-DD`**; equals the filename date on every row |
+| 2 | `REGION_NAME` | `VARCHAR(50)` | No | census division, UPPERCASE, may contain spaces (e.g. `NEW ENGLAND`, `MIDDLE ATLANTIC`); observed max **15** |
+| 3 | `STATE_NAME` | `VARCHAR(50)` | No | full state name, UPPERCASE (e.g. `CONNECTICUT`); observed max **14** |
+| 4 | `POP_HDD` | `DECIMAL(9,4)` | No | population-weighted HDD, 4 dp. **`POP_HDD`, NOT `NG_HDD`** (as §18) |
+| 5 | `30Y_POP_HDD` | `DECIMAL(9,4)` | No | 30-year normal. **Header starts with a digit** |
+| 6 | `10Y_POP_HDD` | `DECIMAL(9,4)` | No | 10-year normal (`0.0000` is a valid value, not null) |
+| 7 | `LAST_Y_POP_HDD` | `DECIMAL(9,4)` | No | last year |
+| 8 | `POP_CDD` | `DECIMAL(9,4)` | No | population-weighted CDD |
+| 9 | `30Y_POP_CDD` | `DECIMAL(9,4)` | No | 30-year normal |
+| 10 | `10Y_POP_CDD` | `DECIMAL(9,4)` | No | 10-year normal |
+| 11 | `LAST_Y_POP_CDD` | `DECIMAL(9,4)` | No | last year |
+| 12 | `IS_FORECAST` | `BIT` | No | text **`True`/`False`** → `1`/`0`; observed `False` throughout |
+| 13 | `GAS_WEIGHT` | `DECIMAL(9,4)` | No | per-state gas weight (0..1) |
+| 14 | `ELCT_WEIGHT` | `DECIMAL(9,4)` | No | per-state electric weight (0..1). Source spells it **`ELCT`**, not `ELEC` |
+| 15 | `POP_WEIGHT` | `DECIMAL(9,4)` | No | per-state population weight (0..1) |
+
+**Region set (9, data-driven):** the U.S. Census divisions — `NEW ENGLAND`,
+`MIDDLE ATLANTIC`, `E N CENTRAL`, `W N CENTRAL`, `SOUTH ATLANTIC`, `E S CENTRAL`,
+`W S CENTRAL`, `MOUNTAIN`, `PACIFIC` (same set as §17).
+
+Natural key: `DATES + REGION_NAME + STATE_NAME`. (`DATES` is the filename date, so the
+run date adds nothing to the key.)
+
+> Column names 5–6, 9–10 begin with digits — quote/escape or rename in the model,
+> consistent with §8 and §18.
+
+---
+
+## Coverage checklist (all 19 endpoints — column list + type + nullability + shape)
 
 | # | Table | Shape | Cols documented | Key notes captured |
 |---|-------|:----:|:---------------:|--------------------|
@@ -800,8 +858,9 @@ Natural key: `RunDate (from filename) + DATES + REGION_NAME`.
 | 16 | Regions5DegreeDays | A | 18 (2 keys + 12 DD + IS_FORECAST + 3 weights) | `5region`; REGION_NAME 5-set (max 13); weights 0..1; `ELCT` spelling; `END.` footer |
 | 17 | Regions9DegreeDays | A | 18 | layout identical to §16; REGION_NAME 9-set (UPPERCASE, max 15) |
 | 18 | ISODegreeDays | A | 11 | `iso`; **POP_HDD (no NG_HDD/ELEC family), no weights**; REGION_NAME 21-set (max 11); `END.` footer |
+| 19 | StateDegreeDayObservation | A | 15 | **own filename, NOT the `{subregion}` family**; single `DATES` = filename date; 48 rows × 9 census regions; **no `END.` footer**; `IS_FORECAST` always False; `ELCT` spelling; UTF-8 BOM |
 
-**Gate status: PASS** — all 18 endpoints have a complete ordered column list, a
+**Gate status: PASS** — all 19 endpoints have a complete ordered column list, a
 recommended SQL Server type per column, nullability/sentinel notes, and a parse-shape
 assignment (A–E). The `DECIMAL(12,4)` MW-family sizing (vs. the overflowing
 `DECIMAL(9,4)`) is flagged explicitly for DATABASE_DEVELOPER.

@@ -7,10 +7,14 @@ namespace DataLoader.CWG.Tests;
 
 /// <summary>
 /// <see cref="CwgSourceReader{TRecord,TRow}"/> — the shared HTTP + FileLog + parse
-/// + map + stamp flow (design §5). 404 / zero-row / success / auth-error /
-/// cancellation semantics, FileLogId stamping, the sentinel-vs-invalid drop
-/// classification (Fix 5), and api-key sanitization. HTTP is a stub handler and
-/// the FileLog is an in-memory fake — no network, no database.
+/// + map flow (design §5). 404 / zero-row / success / auth-error / cancellation
+/// semantics, the sentinel-vs-invalid drop classification, and api-key
+/// sanitization. HTTP is a stub handler and the FileLog is an in-memory fake — no
+/// network, no database.
+///
+/// <para>Since the 2026-10-05 reshape the reader no longer STAMPS a FileLogId onto
+/// rows (the facts have no such column), but it still writes the hub row for every
+/// request — that is the run/status log the status matrix reads.</para>
 /// </summary>
 public class SourceReaderTests
 {
@@ -42,7 +46,7 @@ public class SourceReaderTests
     // ---------------------------------------------------------------- 200 with data
 
     [Fact]
-    public async Task Read_200_WithData_ReturnsRows_StampsFileLogId_UpsertsSuccessOnce()
+    public async Task Read_200_WithData_ReturnsRows_UpsertsSuccessOnce()
     {
         var handler = StubHttpMessageHandler.Respond(HttpStatusCode.OK, SampleData.Read(CityFile));
         var fileLog = new FakeCwgFileLog { FileLogIdToReturn = 999 };
@@ -51,8 +55,9 @@ public class SourceReaderTests
         var rows = await reader.ReadAsync(CityUnit(), CancellationToken.None);
 
         Assert.NotEmpty(rows);
-        Assert.All(rows, r => Assert.Equal(999, r.FileLogId)); // FileLogId stamped on every row
 
+        // The hub row is STILL written for every request (it is the run/status log) even though
+        // the 2026-10-05 reshape removed FileLogId from the fact rows themselves.
         var call = Assert.Single(fileLog.Calls);
         Assert.Equal("Success", call.Status);
         Assert.Equal(200, call.HttpStatus);
@@ -170,15 +175,16 @@ public class SourceReaderTests
         Assert.DoesNotContain(ApiKey, uri.AbsolutePath); // key only in the query, never the path
     }
 
-    // ---------------------------------------------------------------- sentinel-vs-invalid drop classification (Fix 5)
+    // ---------------------------------------------------------------- sentinel-vs-invalid drop classification
 
     [Fact]
-    public async Task Read_SolarHourly_NullCellIsSentinelDebug_BadValueIsInvalidWarning()
+    public async Task Read_SolarHourly_NullSentinelIsKeptAsNullColumn_NotDropped_NoWarning()
     {
-        // ERCOT valid, CAISO literal "NULL" (expected sentinel), PJM garbage (genuine invalid).
+        // The target is WIDE now, so the literal "NULL" is a NULL COLUMN on a kept row — it is
+        // no longer a dropped record, which is why SolarHourly needs no sentinel predicate.
         var csv =
             "UTC_HOUR_ENDING,ERCOT,CAISO,PJM\n" +
-            "2020-07-26 15:00:00,3100,NULL,notanumber\n";
+            "2020-07-26 15:00:00,3100,NULL,500\n";
         var handler = StubHttpMessageHandler.Respond(HttpStatusCode.OK, csv);
         var fileLog = new FakeCwgFileLog { FileLogIdToReturn = 7 };
         var logger = new ListLogger();
@@ -190,21 +196,94 @@ public class SourceReaderTests
             Filename = "Gen_hrly_solar.csv",
             KeyValue = "k"
         };
-        var reader = new CwgSourceReader<CwgUnpivotCell, SolarHourlyRow>(
+        var reader = new CwgSourceReader<CwgWideRow, SolarHourlyRow>(
             handler.NewClient(), Settings(), fileLog, CwgDescriptors.SolarHourly,
-            new ShapeBParser(), SolarHourlyRow.From, logger,
-            sentinelPredicate: cell => CwgParse.IsSentinel(cell.RawValue));
+            new ShapeBParser(), SolarHourlyRow.From, logger);
 
         var rows = await reader.ReadAsync(unit, CancellationToken.None);
 
-        // Only the valid ERCOT cell survives.
         var row = Assert.Single(rows);
-        Assert.Equal("ERCOT", row.Region);
-        Assert.Equal(3100m, row.ActualMw);
-        Assert.Equal(7, row.FileLogId);
+        Assert.Equal(new DateTime(2020, 7, 26, 15, 0, 0), row.UTCHourEnding);
+        Assert.Equal(3100m, row.Values[Array.IndexOf(SolarHourlyRow.RegionColumns, "ERCOT")]);
+        Assert.Null(row.Values[Array.IndexOf(SolarHourlyRow.RegionColumns, "CAISO")]); // "NULL" -> NULL
 
-        // The "NULL" cell is a Debug sentinel drop; the garbage cell is a Warning invalid drop — distinctly.
-        Assert.Contains(logger.OfLevel(LogLevel.Debug), e => e.Message.Contains("sentinel", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(logger.OfLevel(LogLevel.Warning), e => e.Message.Contains("unparseable/invalid", StringComparison.OrdinalIgnoreCase));
+        // Nothing was dropped, so there is no invalid-drop warning.
+        Assert.DoesNotContain(logger.OfLevel(LogLevel.Warning),
+            e => e.Message.Contains("unparseable/invalid", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Read_SolarHourly_GarbageTargetCell_IsAnInvalidDrop_AndWarns()
+    {
+        // The other half: a published-but-unparseable cell in a TARGET column drops the row
+        // and warns, so a real format change stays visible.
+        var csv =
+            "UTC_HOUR_ENDING,ERCOT,CAISO,PJM\n" +
+            "2020-07-26 15:00:00,3100,notanumber,500\n";
+        var handler = StubHttpMessageHandler.Respond(HttpStatusCode.OK, csv);
+        var fileLog = new FakeCwgFileLog();
+        var logger = new ListLogger();
+
+        var unit = new CwgWorkUnit
+        {
+            EndpointId = "SolarHourly",
+            RepresentativeDate = null,
+            Filename = "Gen_hrly_solar.csv",
+            KeyValue = "k"
+        };
+        var reader = new CwgSourceReader<CwgWideRow, SolarHourlyRow>(
+            handler.NewClient(), Settings(), fileLog, CwgDescriptors.SolarHourly,
+            new ShapeBParser(), SolarHourlyRow.From, logger);
+
+        var rows = await reader.ReadAsync(unit, CancellationToken.None);
+
+        Assert.Empty(rows);
+        Assert.Contains(logger.OfLevel(LogLevel.Warning),
+            e => e.Message.Contains("unparseable/invalid", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("NotAvailable", Assert.Single(fileLog.Calls).Status); // zero rows -> NotAvailable
+    }
+
+    [Fact]
+    public async Task Read_WindTotalCapacityMW_NonCurrentBlocks_AreSentinelDrops_NotWarnings()
+    {
+        // The capacity MW/Pct targets hold one block, so the row factory drops Yesterday and
+        // Change. That drop is DELIBERATE and the module's sentinel predicate claims it, so it
+        // is logged at Debug — never counted as a parse failure.
+        var csv =
+            "Total Wind Generation Across All Regions\n" +
+            ",Total Capacity (MW),1-5 Day Avg (MW),6-10 Day Avg (MW),11-15 Day Avg (MW)\n" +
+            "MISO,33687,7000,7100,7200\n" +
+            "\n" +
+            "Friday's Forecast\n" +
+            "MISO,33687,6900,7000,7100\n" +
+            "\n" +
+            "Change from Friday's Forecast\n" +
+            "MISO,,100,100,100\n";
+        var handler = StubHttpMessageHandler.Respond(HttpStatusCode.OK, csv);
+        var fileLog = new FakeCwgFileLog();
+        var logger = new ListLogger();
+
+        var unit = new CwgWorkUnit
+        {
+            EndpointId = "WindTotalCapacityMW",
+            RepresentativeDate = new DateOnly(2026, 7, 27),
+            Filename = "Total_Capacity_vals_07272026.csv",
+            KeyValue = "k"
+        };
+        var reader = new CwgSourceReader<CwgCapacityRow, WindTotalCapacityMWRow>(
+            handler.NewClient(), Settings(), fileLog, CwgDescriptors.WindTotalCapacityMW,
+            new ShapeEParser(), WindTotalCapacityMWRow.From, logger,
+            sentinelPredicate: cap => !CwgCapacity.IsCurrent(cap));
+
+        var rows = await reader.ReadAsync(unit, CancellationToken.None);
+
+        var row = Assert.Single(rows);
+        Assert.Equal(7000m, row.OneToFiveDayAverage);   // the Current block's value
+
+        // Two drops, both claimed as sentinels: Debug, and no invalid-drop warning.
+        Assert.Contains(logger.OfLevel(LogLevel.Debug),
+            e => e.Message.Contains("sentinel", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(logger.OfLevel(LogLevel.Warning),
+            e => e.Message.Contains("unparseable/invalid", StringComparison.OrdinalIgnoreCase));
     }
 }

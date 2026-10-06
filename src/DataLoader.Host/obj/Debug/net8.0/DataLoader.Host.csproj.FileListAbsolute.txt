@@ -136,3 +136,5 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Debug\net8.0\DataLoader.NGX.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Debug\net8.0\DataLoader.Marex.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Debug\net8.0\System.Reactive.xml
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Debug\net8.0\DataLoader.OilX.dll
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\src\DataLoader.Host\bin\Debug\net8.0\DataLoader.OilX.pdb

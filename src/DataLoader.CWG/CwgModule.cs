@@ -9,12 +9,12 @@ namespace DataLoader.CWG;
 
 /// <summary>
 /// Plugin entry point for the CWG (Commodity Weather Group) loader. One module,
-/// eighteen closed per-endpoint pipelines (design §1), toggled by
+/// nineteen closed per-endpoint pipelines (design §1), toggled by
 /// <c>EnabledEndpoints[]</c>. Each pipeline is assembled explicitly in a factory
 /// closure that <c>new</c>s a descriptor-bound provider + reader + per-endpoint
 /// sink, so the shared <see cref="CwgWorkUnit"/> generics are never resolved by
 /// the container — avoiding the shared-generic-service DI collision (§1.1). All
-/// 18 share one rate-limited <see cref="HttpClient"/> and run sequentially.
+/// 19 share one rate-limited <see cref="HttpClient"/> and run sequentially.
 /// </summary>
 public sealed class CwgModule : ILoaderModule
 {
@@ -22,7 +22,7 @@ public sealed class CwgModule : ILoaderModule
     public const string HttpClientName = "CWG";
 
     public string LoaderId => Id;
-    public string DisplayName => "Commodity Weather Group (HTTP/CSV — 18 forecast/observation/renewable endpoints)";
+    public string DisplayName => "Commodity Weather Group (HTTP/CSV — 19 forecast/observation/renewable endpoints)";
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
@@ -56,7 +56,7 @@ public sealed class CwgModule : ILoaderModule
 
         services.AddSingleton<ICwgFileLog, SqlCwgFileLog>();
 
-        // The 18 closed per-endpoint pipelines, built explicitly. Each line names its
+        // The 19 closed per-endpoint pipelines, built explicitly. Each line names its
         // descriptor, the shared shape parser its ParseShape selects, its typed row
         // factory (the only mapping code) and its per-endpoint sink.
         Add(services, CwgDescriptors.CityForecast, CwgShapeParsers.A, CityForecastRow.From,
@@ -71,9 +71,11 @@ public sealed class CwgModule : ILoaderModule
             sp => new SolarForecastSqlSink(Opt(sp), Log<SolarForecastSqlSink>(sp)));
         Add(services, CwgDescriptors.SolarForecastChange, CwgShapeParsers.C, SolarForecastChangeRow.From,
             sp => new SolarForecastChangeSqlSink(Opt(sp), Log<SolarForecastChangeSqlSink>(sp)));
+        // SolarHourly/WindHourly no longer need a sentinel predicate: the targets are WIDE, so a
+        // "NULL"/blank region cell becomes a NULL COLUMN on a kept row rather than a dropped record.
+        // After the reshape a drop here really is a parse failure, and should warn.
         Add(services, CwgDescriptors.SolarHourly, CwgShapeParsers.B, SolarHourlyRow.From,
-            sp => new SolarHourlySqlSink(Opt(sp), Log<SolarHourlySqlSink>(sp)),
-            sentinelPredicate: cell => CwgParse.IsSentinel(cell.RawValue)); // "NULL"/blank ActualMw is expected
+            sp => new SolarHourlySqlSink(Opt(sp), Log<SolarHourlySqlSink>(sp)));
         Add(services, CwgDescriptors.NationalDegreeDays, CwgShapeParsers.A, NationalDegreeDaysRow.From,
             sp => new NationalDegreeDaysSqlSink(Opt(sp), Log<NationalDegreeDaysSqlSink>(sp)));
         Add(services, CwgDescriptors.WindForecast, CwgShapeParsers.C, WindForecastRow.From,
@@ -81,14 +83,18 @@ public sealed class CwgModule : ILoaderModule
         Add(services, CwgDescriptors.WindForecastSubRegion, CwgShapeParsers.D, WindForecastSubRegionRow.From,
             sp => new WindForecastSubRegionSqlSink(Opt(sp), Log<WindForecastSubRegionSqlSink>(sp)));
         Add(services, CwgDescriptors.WindHourly, CwgShapeParsers.B, WindHourlyRow.From,
-            sp => new WindHourlySqlSink(Opt(sp), Log<WindHourlySqlSink>(sp)),
-            sentinelPredicate: cell => CwgParse.IsSentinel(cell.RawValue)); // "NULL"/blank ActualMw is expected
+            sp => new WindHourlySqlSink(Opt(sp), Log<WindHourlySqlSink>(sp)));
         Add(services, CwgDescriptors.WindTotalCapacityClimatology, CwgShapeParsers.E, WindTotalCapacityClimatologyRow.From,
             sp => new WindTotalCapacityClimatologySqlSink(Opt(sp), Log<WindTotalCapacityClimatologySqlSink>(sp)));
+        // The capacity MW/Pct files carry three blocks and the target key holds one, so the row
+        // factory keeps 'Current' and drops the rest. That drop is DELIBERATE — claim it with a
+        // sentinel predicate so it is logged at Debug instead of counted as a parse failure.
         Add(services, CwgDescriptors.WindTotalCapacityMW, CwgShapeParsers.E, WindTotalCapacityMWRow.From,
-            sp => new WindTotalCapacityMWSqlSink(Opt(sp), Log<WindTotalCapacityMWSqlSink>(sp)));
+            sp => new WindTotalCapacityMWSqlSink(Opt(sp), Log<WindTotalCapacityMWSqlSink>(sp)),
+            sentinelPredicate: cap => !CwgCapacity.IsCurrent(cap));
         Add(services, CwgDescriptors.WindTotalCapacityPct, CwgShapeParsers.E, WindTotalCapacityPctRow.From,
-            sp => new WindTotalCapacityPctSqlSink(Opt(sp), Log<WindTotalCapacityPctSqlSink>(sp)));
+            sp => new WindTotalCapacityPctSqlSink(Opt(sp), Log<WindTotalCapacityPctSqlSink>(sp)),
+            sentinelPredicate: cap => !CwgCapacity.IsCurrent(cap));
         Add(services, CwgDescriptors.Station, CwgShapeParsers.A, StationRow.From,
             sp => new StationSqlSink(Opt(sp), Log<StationSqlSink>(sp)));
         Add(services, CwgDescriptors.Regions5DegreeDays, CwgShapeParsers.A, Regions5DegreeDaysRow.From,
@@ -97,6 +103,8 @@ public sealed class CwgModule : ILoaderModule
             sp => new Regions9DegreeDaysSqlSink(Opt(sp), Log<Regions9DegreeDaysSqlSink>(sp)));
         Add(services, CwgDescriptors.ISODegreeDays, CwgShapeParsers.A, ISODegreeDaysRow.From,
             sp => new ISODegreeDaysSqlSink(Opt(sp), Log<ISODegreeDaysSqlSink>(sp)));
+        Add(services, CwgDescriptors.StateDegreeDayObservation, CwgShapeParsers.A, StateDegreeDayObservationRow.From,
+            sp => new StateDegreeDayObservationSqlSink(Opt(sp), Log<StateDegreeDayObservationSqlSink>(sp)));
     }
 
     private static IOptions<CwgSettings> Opt(IServiceProvider sp) => sp.GetRequiredService<IOptions<CwgSettings>>();
@@ -110,7 +118,7 @@ public sealed class CwgModule : ILoaderModule
         Func<TRecord, CwgWorkUnit, TRow?> rowFactory,
         Func<IServiceProvider, ISink<TRow>> sinkFactory,
         Func<TRecord, bool>? sentinelPredicate = null)
-        where TRow : class, ICwgFactRow
+        where TRow : class
     {
         services.AddSingleton<ICwgEndpointPipeline>(sp =>
             BuildPipeline(sp, descriptor, shapeParser, rowFactory, sinkFactory, sentinelPredicate));
@@ -119,7 +127,7 @@ public sealed class CwgModule : ILoaderModule
     /// <summary>
     /// Constructs a descriptor-bound provider + reader + per-endpoint sink and wraps
     /// them in a <see cref="CwgEndpointPipeline{TRow}"/>. The generic provider/reader
-    /// are never resolved from the container, so all 18 endpoints coexist without a
+    /// are never resolved from the container, so all 19 endpoints coexist without a
     /// shared-generic-service collision (design §1.1).
     /// </summary>
     private static ICwgEndpointPipeline BuildPipeline<TRecord, TRow>(
@@ -129,7 +137,7 @@ public sealed class CwgModule : ILoaderModule
         Func<TRecord, CwgWorkUnit, TRow?> rowFactory,
         Func<IServiceProvider, ISink<TRow>> sinkFactory,
         Func<TRecord, bool>? sentinelPredicate)
-        where TRow : class, ICwgFactRow
+        where TRow : class
     {
         var settings = sp.GetRequiredService<IOptions<CwgSettings>>().Value;
         var loggerFactory = sp.GetRequiredService<ILoggerFactory>();

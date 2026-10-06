@@ -18,14 +18,17 @@ namespace DataLoader.CWG;
 ///     non-success → throw; 200 → parse the CSV via the shape parser and map each
 ///     record with the row factory, dropping nulls.</item>
 ///   <item>Upsert the <c>arm.FileLog</c> hub row (Success when rows &gt; 0, else
-///     NotAvailable) and read back its <c>FileLogId</c>; stamp it onto every row.</item>
+///     NotAvailable). Since the 2026-10-05 reshape the facts no longer carry a
+///     FileLogId, so the returned id is used for LOGGING only — but the hub row
+///     is still written for EVERY request, because it is the run/status log the
+///     status matrix reads.</item>
 /// </list>
 /// <see cref="OperationCanceledException"/> is rethrown WITHOUT a FileLog write;
 /// any other failure writes a best-effort <c>Failed</c> row then rethrows so the
 /// pipeline records a LoadLog failure and continues (fail-a-block-not-the-run).
 /// </summary>
 public sealed class CwgSourceReader<TRecord, TRow> : ISourceReader<CwgWorkUnit, TRow>
-    where TRow : class, ICwgFactRow
+    where TRow : class
 {
     private readonly HttpClient _http;
     private readonly CwgSettings _settings;
@@ -120,8 +123,6 @@ public sealed class CwgSourceReader<TRecord, TRow> : ISourceReader<CwgWorkUnit, 
 
             if (rows.Count == 0)
                 return Array.Empty<TRow>();
-
-            foreach (var r in rows) r.FileLogId = fileLogId;
 
             _logger.LogDebug("[{Endpoint}] {Path} → {Rows} rows (FileLog #{Id})",
                 _descriptor.EndpointId, relativePath, rows.Count, fileLogId);

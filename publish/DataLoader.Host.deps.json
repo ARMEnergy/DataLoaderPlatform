@@ -26,6 +26,7 @@
           "DataLoader.NGI": "1.0.0",
           "DataLoader.NGX": "1.0.0",
           "DataLoader.OPIS": "1.0.0",
+          "DataLoader.OilX": "1.0.0",
           "DataLoader.Platts": "1.0.0",
           "DataLoader.StormVista": "1.0.0",
           "DataLoader.Vulcan": "1.0.0",
@@ -1002,6 +1003,17 @@
           }
         }
       },
+      "DataLoader.OilX/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.OilX.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.OPIS/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0",
@@ -1645,6 +1657,11 @@
       "sha512": ""
     },
     "DataLoader.NGX/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.OilX/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

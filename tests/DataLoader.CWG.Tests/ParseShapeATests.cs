@@ -4,18 +4,15 @@ using Xunit;
 namespace DataLoader.CWG.Tests;
 
 /// <summary>
-/// Shape A — simple tabular (docs/apis/CWG.md §1/§3/§8/§15, design §4). One data
+/// Shape A — simple tabular (docs/apis/CWG.md §1/§3/§8/§15/§19, design §4). One data
 /// row = one record, parsed by ORDERED POSITION (so the digit-leading
-/// <c>30Y_/10Y_</c> National-DD headers and the <c>Norm Max</c> quirk are handled).
+/// <c>30Y_/10Y_</c> degree-day headers and the <c>Norm Max</c> quirk are handled).
 /// Driven by the real captured CSVs; the shape parser is pure (no HTTP/DB).
 /// </summary>
 public class ParseShapeATests
 {
     private static readonly ShapeAParser Parser = new();
 
-    // 'units' defaults to "F" so the CityForecast cases satisfy CityForecastRow.From's non-null
-    // Units guard (the na fixture is _F); the europe _C case passes units: "C". Endpoints whose row
-    // factory ignores Units (Station, CityGasForecast, NationalDegreeDays, …) are unaffected by it.
     private static CwgWorkUnit Unit(string endpointId, string? region, DateOnly? date, string filename, string? units = "F") => new()
     {
         EndpointId = endpointId,
@@ -29,7 +26,7 @@ public class ParseShapeATests
     // ---------------------------------------------------------------- CityForecast
 
     [Fact]
-    public void CityForecast_RealCsv_MapsByPosition_SmallIntHddCdd_NormMaxQuirk()
+    public void CityForecast_RealCsv_MapsByPosition_NormMaxQuirk()
     {
         var csv = SampleData.Read("city15dfcst_northamerica_20260811_F.csv");
         var unit = Unit("CityForecast", "northamerica", new DateOnly(2026, 8, 11),
@@ -40,26 +37,25 @@ public class ParseShapeATests
 
         Assert.NotEmpty(rows);
         var first = rows[0];
-        Assert.Equal("northamerica", first.Region);          // region comes from the unit, not the CSV
         Assert.Equal(new DateOnly(2026, 8, 11), first.ProductionDate); // M/d/yy: 26 -> 2026
-        Assert.Equal(new DateOnly(2026, 8, 11), first.ForecastDate);
+        Assert.Equal(new DateOnly(2026, 8, 11), first.Date);           // the forecast/valid day
         Assert.Equal("KABR", first.Station);
-        Assert.Equal(62m, first.FcstMin);
-        Assert.Equal(83m, first.FcstMax);
-        Assert.Equal(72.5m, first.FcstAvg);                  // Fcst Avg carries a .5
+        Assert.Equal(62m, first.ForecastMin);
+        Assert.Equal(83m, first.ForecastMax);
+        Assert.Equal(72.5m, first.ForecastAvg);                        // Fcst Avg carries a .5
         Assert.Equal(57.9m, first.NormMin);
-        Assert.Equal(83.8m, first.NormMax);                  // col 7 = 'Norm Max' header quirk, mapped by position
-        Assert.Equal((short)0, first.Hdd);                   // SMALLINT
-        Assert.Equal((short)8, first.Cdd);
-        Assert.IsType<short>(first.Hdd);
+        Assert.Equal(83.8m, first.NormMax);                            // col 7 = 'Norm Max' header quirk, by position
+        Assert.Equal(0m, first.HDD);
+        Assert.Equal(8m, first.CDD);
     }
 
     [Fact]
-    public void CityForecast_EuropeRealCsv_MapsByPosition_StampsUnitsC_PreservesFullDecimalScale()
+    public void CityForecast_PreservesFullDecimalScale_NotRounded()
     {
-        // europe is fetched in _C; the unit carries Units="C" and the _C normals carry up to 5 dp
-        // (e.g. 7.74478). Prove position mapping, the 'C' units stamp, and that CityForecastRow.From
-        // preserves the full-scale decimal UNROUNDED (not clamped to 1 dp).
+        // The DB columns are DECIMAL(9,4); the factory must not pre-round. Proven here with
+        // the europe _C fixture, whose normals carry more scale than the °F file ever does.
+        // (europe is no longer ENUMERATED — arm.CityForecast has no Region/Units column — but
+        // the fixture is still the best available probe of decimal-scale preservation.)
         var csv = SampleData.Read("city15dfcst_europe_20260811_C.csv");
         var unit = Unit("CityForecast", "europe", new DateOnly(2026, 8, 11),
             "city15dfcst_europe_20260811_C.csv", units: "C");
@@ -68,58 +64,67 @@ public class ParseShapeATests
         var rows = records.Select(r => CityForecastRow.From(r, unit)).Where(r => r is not null).Cast<CityForecastRow>().ToList();
 
         Assert.NotEmpty(rows);
-        Assert.All(rows, r => Assert.Equal("C", r.Units));   // 'C' stamped on every europe row
-        Assert.All(rows, r => Assert.Equal("europe", r.Region));
-
         var first = rows[0];
-        Assert.Equal(new DateOnly(2026, 8, 11), first.ProductionDate); // 8/11/26 M/d/yy
-        Assert.Equal(new DateOnly(2026, 8, 11), first.ForecastDate);
         Assert.Equal("BIAR", first.Station);
-        Assert.Equal(7m, first.FcstMin);
-        Assert.Equal(16m, first.FcstMax);
-        Assert.Equal(11.5m, first.FcstAvg);
-
-        // 5-dp round-trip through From: exact value preserved, NOT rounded to 1 dp.
         Assert.Equal(7.74478m, first.NormMin);
         Assert.Equal(15.4283m, first.NormMax);
         Assert.NotEqual(Math.Round(7.74478m, 1), first.NormMin); // 7.7m would be the clamped value
-        Assert.Equal((short)7, first.Hdd);
-        Assert.Equal((short)0, first.Cdd);
-        Assert.IsType<short>(first.Hdd);
     }
 
     [Fact]
-    public void CityForecast_MissingUnitsOnUnit_DropsAllRows()
+    public void CityForecast_NoLongerDependsOnUnitRegionOrUnits()
     {
-        // Units is a required NOT NULL attribute; From drops every record when the unit's Units is null
-        // (mirrors the Region guard) — so a mis-enumerated CityForecast unit never loads unit-less rows.
+        // arm.CityForecast has neither a Region nor a Units column, so the factory must not
+        // gate on them any more — a unit with both null still produces rows. Enumerating more
+        // than one geography is prevented upstream, by the RegionlessTarget guard in the
+        // work-unit provider (see WorkUnitProviderTests), not by dropping rows here.
         var csv = SampleData.Read("city15dfcst_northamerica_20260811_F.csv");
-        var unit = Unit("CityForecast", "northamerica", new DateOnly(2026, 8, 11), "f.csv", units: null);
+        var unit = Unit("CityForecast", region: null, new DateOnly(2026, 8, 11), "f.csv", units: null);
 
         var records = Parser.Parse(CwgDescriptors.CityForecast, unit, csv, NullLogger.Instance);
         var rows = records.Select(r => CityForecastRow.From(r, unit)).Where(r => r is not null).ToList();
 
-        Assert.NotEmpty(records); // parser still emits raw records...
-        Assert.Empty(rows);       // ...but the factory drops them (Units is a required attribute)
+        Assert.NotEmpty(records);
+        Assert.Equal(records.Count, rows.Count);
     }
 
     [Fact]
-    public void CityForecast_MissingRegionOnUnit_DropsAllRows()
+    public void CityForecast_BlankMeasure_BecomesNull_RowKept()
     {
-        var csv = SampleData.Read("city15dfcst_northamerica_20260811_F.csv");
-        var unit = Unit("CityForecast", region: null, new DateOnly(2026, 8, 11), "f.csv");
+        // Every measure column is NULL-able now: a blank cell yields NULL instead of
+        // discarding the nine good values beside it.
+        var csv =
+            "Production Date,Date,Station,Fcst Mn,Fcst Mx,Fcst Avg,Norm Mn,Norm Max,HDD,CDD\n" +
+            "8/11/26,8/12/26,KABR,61,82,71.5,57.7,83.7,,7\n";
+        var unit = Unit("CityForecast", "northamerica", new DateOnly(2026, 8, 11), "f.csv");
 
-        var records = Parser.Parse(CwgDescriptors.CityForecast, unit, csv, NullLogger.Instance);
-        var rows = records.Select(r => CityForecastRow.From(r, unit)).Where(r => r is not null).ToList();
+        var rec = Assert.Single(Parser.Parse(CwgDescriptors.CityForecast, unit, csv, NullLogger.Instance));
+        var row = CityForecastRow.From(rec, unit);
 
-        Assert.NotEmpty(records); // the parser still emits the raw records...
-        Assert.Empty(rows);       // ...but the factory drops them (Region is a key column)
+        Assert.NotNull(row);
+        Assert.Null(row!.HDD);          // blank -> NULL
+        Assert.Equal(7m, row.CDD);      // the rest survives
+        Assert.Equal(61m, row.ForecastMin);
+    }
+
+    [Fact]
+    public void CityForecast_GarbageMeasure_DropsRow()
+    {
+        // The other half of the contract: a cell that is PRESENT but unparseable is a real
+        // format change, so the row is dropped and the reader counts/warns about it.
+        var csv =
+            "Production Date,Date,Station,Fcst Mn,Fcst Mx,Fcst Avg,Norm Mn,Norm Max,HDD,CDD\n" +
+            "8/11/26,8/12/26,KABR,61,82,71.5,57.7,83.7,n/a,7\n";
+        var unit = Unit("CityForecast", "northamerica", new DateOnly(2026, 8, 11), "f.csv");
+
+        var rec = Assert.Single(Parser.Parse(CwgDescriptors.CityForecast, unit, csv, NullLogger.Instance));
+        Assert.Null(CityForecastRow.From(rec, unit));
     }
 
     [Fact]
     public void ShapeA_ExpectedColumnsGuard_TrailingHeaderComma_DoesNotDropDataRows()
     {
-        // Fix 3: a stray trailing comma inflates header.Length to 11, but the descriptor's
+        // A stray trailing comma inflates header.Length to 11, but the descriptor's
         // ExpectedColumns=10 is the width guard, so the 10-field data row still survives.
         var csv =
             "Production Date,Date,Station,Fcst Mn,Fcst Mx,Fcst Avg,Norm Mn,Norm Max,HDD,CDD,\n" +
@@ -134,10 +139,10 @@ public class ParseShapeATests
         Assert.Equal("KABR", row!.Station);
     }
 
-    // ---------------------------------------------------------------- CityGasForecast (undated, in-row production date)
+    // ---------------------------------------------------------------- CityGasForecast
 
     [Fact]
-    public void CityGasForecast_RealCsv_NoRegion_ProductionDateFromRow()
+    public void CityGasForecast_RealCsv_ProductionDateFromRow()
     {
         var csv = SampleData.Read("city_gasday_fcst.csv");
         var unit = Unit("CityGasForecast", region: null, date: null, "city_gasday_fcst.csv");
@@ -150,7 +155,29 @@ public class ParseShapeATests
         Assert.Equal("KABR", rows[0].Station);
     }
 
-    // ---------------------------------------------------------------- NationalDegreeDays (14 cols by position; digit-leading headers; BIT)
+    // ---------------------------------------------------------------- CityObservation
+
+    [Fact]
+    public void CityObservation_RealCsv_KeyedByDateAndStationOnly()
+    {
+        var csv = SampleData.Read("northamerica_observations_final_20260810.csv");
+        var unit = Unit("CityObservation", "northamerica", new DateOnly(2026, 8, 10),
+            "northamerica_observations_final_20260810.csv");
+
+        var records = Parser.Parse(CwgDescriptors.CityObservation, unit, csv, NullLogger.Instance);
+        var rows = records.Select(r => CityObservationRow.From(r, unit)).Where(r => r is not null).Cast<CityObservationRow>().ToList();
+
+        Assert.NotEmpty(rows);
+        var first = rows[0];
+        Assert.Equal(new DateOnly(2026, 8, 10), first.Date);   // in-row YYYY-MM-DD
+        Assert.Equal("KABR", first.Station);
+        Assert.Equal(54m, first.MinTemp);
+        Assert.Equal(84m, first.MaxTemp);
+        Assert.Equal(0m, first.HDD);
+        Assert.Equal(4m, first.CDD);
+    }
+
+    // ---------------------------------------------------------------- NationalDegreeDays
 
     [Fact]
     public void NationalDegreeDays_RealCsv_14ColsByPosition_IsForecastTrueFalseToBit()
@@ -167,24 +194,81 @@ public class ParseShapeATests
         Assert.Equal(22, rows.Count);
 
         var first = rows[0];
-        Assert.Equal(runDate, first.RunDate);                 // RunDate from the filename/unit
-        Assert.Equal(new DateOnly(2026, 8, 4), first.Dates);  // DATES YYYY-MM-DD
+        Assert.Equal(runDate, first.ObservationDate);          // run date, from the filename/unit
+        Assert.Equal(new DateOnly(2026, 8, 4), first.Date);    // DATES YYYY-MM-DD
         Assert.Equal(0.2262m, first.NgHdd);
-        Assert.Equal(0.1381m, first.NgHdd30y);                // col 2 '30Y_NG_HDD' by position
-        Assert.Equal(0.0000m, first.NgHdd10y);                // col 3 '10Y_NG_HDD' — 0.0000 is a valid value, not null
-        Assert.False(first.IsForecast);                       // "False" -> bit 0
+        Assert.Equal(0.1381m, first.NgHdd30y);                 // col 2 '30Y_NG_HDD' by position
+        Assert.Equal(0.0000m, first.NgHdd10y);                 // 0.0000 is a valid value, not null
+        Assert.False(first.IsForecast);                        // "False" -> bit 0
 
-        // Both True and False flags are present and correctly mapped.
-        Assert.Contains(rows, r => r.IsForecast);
-        Assert.Contains(rows, r => !r.IsForecast);
-        var fcst = Assert.Single(rows, r => r.Dates == new DateOnly(2026, 8, 11));
-        Assert.True(fcst.IsForecast); // "True" -> bit 1
+        Assert.Contains(rows, r => r.IsForecast == true);
+        Assert.Contains(rows, r => r.IsForecast == false);
+        var fcst = Assert.Single(rows, r => r.Date == new DateOnly(2026, 8, 11));
+        Assert.True(fcst.IsForecast);                          // "True" -> bit 1
     }
 
-    // ---------------------------------------------------------------- Station (9 cols; nullable wban(literal)/ghcnd/state)
+    // ---------------------------------------------------------------- StateDegreeDayObservation
 
     [Fact]
-    public void Station_RealCsv_KeepsWbanLiteral_GhcndBlankToNull()
+    public void StateDegreeDayObservation_RealCsv_48Rows_15ColsByPosition()
+    {
+        // The live file (verified 2026-10-05) is one observation DAY: DATES equals the
+        // filename date on every row, which is why the table keys on ObservationDate alone.
+        // The fixture carries a UTF-8 BOM, so this also exercises CwgCsv's BOM strip.
+        var csv = SampleData.Read("northamerica_state_wdd_observations_20260811.csv");
+        var runDate = new DateOnly(2026, 8, 11);
+        var unit = Unit("StateDegreeDayObservation", "northamerica", runDate,
+            "northamerica_state_wdd_observations_20260811.csv");
+
+        var records = Parser.Parse(CwgDescriptors.StateDegreeDayObservation, unit, csv, NullLogger.Instance);
+        var rows = records.Select(r => StateDegreeDayObservationRow.From(r, unit))
+                          .Where(r => r is not null).Cast<StateDegreeDayObservationRow>().ToList();
+
+        Assert.Equal(48, rows.Count);                                   // 48 states
+        Assert.All(rows, r => Assert.Equal(runDate, r.ObservationDate)); // single day per file
+        Assert.Equal(9, rows.Select(r => r.RegionName).Distinct().Count()); // 9 census divisions
+        Assert.Equal(48, rows.Select(r => (r.RegionName, r.State)).Distinct().Count()); // key is unique
+
+        var ct = Assert.Single(rows, r => r.State == "CONNECTICUT");
+        Assert.Equal("NEW ENGLAND", ct.RegionName);
+        Assert.Equal(0.0000m, ct.PopHdd);
+        Assert.Equal(0.0257m, ct.PopHdd30y);
+        Assert.Equal(0.1166m, ct.PopHdd10y);
+        Assert.Equal(0.0000m, ct.PopHddLastY);
+        Assert.Equal(10.0358m, ct.PopCdd);
+        Assert.Equal(7.1107m, ct.PopCdd30y);
+        Assert.Equal(8.0242m, ct.PopCdd10y);
+        Assert.Equal(9.6741m, ct.PopCddLastY);
+        Assert.False(ct.IsForecast);                 // observations file: always False
+        Assert.Equal(0.2159m, ct.GasWeight);
+        Assert.Equal(0.2519m, ct.ElctWeight);        // source spells it ELCT
+        Assert.Equal(0.2385m, ct.PopWeight);
+    }
+
+    [Fact]
+    public void StateDegreeDayObservation_BlankRegionOrState_Dropped()
+    {
+        // Both are key columns; a row missing either cannot be keyed.
+        var header = "DATES,REGION_NAME,STATE_NAME,POP_HDD,30Y_POP_HDD,10Y_POP_HDD,LAST_Y_POP_HDD," +
+                     "POP_CDD,30Y_POP_CDD,10Y_POP_CDD,LAST_Y_POP_CDD,IS_FORECAST,GAS_WEIGHT,ELCT_WEIGHT,POP_WEIGHT\n";
+        var csv = header +
+            "2026-08-11,,CONNECTICUT,0,0,0,0,0,0,0,0,False,0,0,0\n" +
+            "2026-08-11,NEW ENGLAND,,0,0,0,0,0,0,0,0,False,0,0,0\n" +
+            "2026-08-11,NEW ENGLAND,MAINE,0,0,0,0,0,0,0,0,False,0,0,0\n";
+        var unit = Unit("StateDegreeDayObservation", "northamerica", new DateOnly(2026, 8, 11), "s.csv");
+
+        var records = Parser.Parse(CwgDescriptors.StateDegreeDayObservation, unit, csv, NullLogger.Instance);
+        var rows = records.Select(r => StateDegreeDayObservationRow.From(r, unit))
+                          .Where(r => r is not null).Cast<StateDegreeDayObservationRow>().ToList();
+
+        var row = Assert.Single(rows);
+        Assert.Equal("MAINE", row.State);
+    }
+
+    // ---------------------------------------------------------------- Station
+
+    [Fact]
+    public void Station_RealCsv_KeyedByIdentifierOnly_KeepsWbanLiteral_GhcndBlankToNull()
     {
         var csv = SampleData.Read("northamerica_station_information.csv");
         var unit = Unit("Station", "northamerica", date: null, "northamerica_station_information.csv");
@@ -194,26 +278,27 @@ public class ParseShapeATests
 
         Assert.Equal(39, rows.Count); // 40 lines - 1 header
         var first = rows[0];
-        Assert.Equal("northamerica", first.Region);
         Assert.Equal("CWKD", first.Identifier);
         Assert.Equal("71383", first.WmoId);
         Assert.Equal("99999", first.Wban);   // kept LITERAL — no 99999 -> NULL remap
         Assert.Null(first.Ghcnd);            // empty ghcnd -> NULL
-        Assert.Equal(50.733m, first.Lat);
-        Assert.Equal(-71.017m, first.Lon);   // signed
+        Assert.Equal(50.733, first.Latitude);
+        Assert.Equal(-71.017, first.Longitude);   // signed
         Assert.Equal("Bonnard", first.Name);
         Assert.Equal("NB", first.State);
         Assert.Equal("CA", first.Country);
+
+        // Identifier is the WHOLE primary key now — it must be unique within a file.
+        Assert.Equal(rows.Count, rows.Select(r => r.Identifier).Distinct().Count());
     }
 
     [Fact]
     public void Station_BlankState_MapsToNull()
     {
-        // NA sample has no blank state; prove the empty->NULL path with a synthetic row.
         var csv =
             "identifier,wmoid,wban,ghcnd,lat,lon,name,state,country\n" +
             "LFPG,07157,,,49.012,2.550,Paris CDG,,FR\n";
-        var unit = Unit("Station", "europe", date: null, "europe_station_information.csv");
+        var unit = Unit("Station", "northamerica", date: null, "northamerica_station_information.csv");
 
         var rec = Assert.Single(Parser.Parse(CwgDescriptors.Station, unit, csv, NullLogger.Instance));
         var row = StationRow.From(rec, unit);
@@ -225,12 +310,9 @@ public class ParseShapeATests
         Assert.Equal("FR", row.Country);
     }
 
-    // ---------------------------------------------------------------- Station short-row tolerance (AllowShortRows)
-
     [Fact]
     public void Station_ShortRow_MissingTrailingFields_NotDropped_MissingToNull()
     {
-        // Station tolerates < 9 columns: missing trailing fields -> NULL, row still processed.
         var csv =
             "identifier,wmoid,wban,ghcnd,lat,lon,name,state,country\n" +
             "KXYZ,71234,99999,,44.5,-93.2\n";   // 6 fields: name/state/country missing
@@ -242,11 +324,11 @@ public class ParseShapeATests
         Assert.NotNull(row);
         Assert.Equal("KXYZ", row!.Identifier);
         Assert.Equal("71234", row.WmoId);
-        Assert.Equal(44.5m, row.Lat);
-        Assert.Equal(-93.2m, row.Lon);
+        Assert.Equal(44.5, row.Latitude);
+        Assert.Equal(-93.2, row.Longitude);
         Assert.Null(row.Name);      // missing -> NULL
-        Assert.Null(row.State);     // missing -> NULL
-        Assert.Null(row.Country);   // missing -> NULL
+        Assert.Null(row.State);
+        Assert.Null(row.Country);
     }
 
     [Fact]
@@ -255,27 +337,46 @@ public class ParseShapeATests
         var csv =
             "identifier,wmoid,wban,ghcnd,lat,lon,name,state,country\n" +
             "KABC,71000\n";   // 2 fields: everything after wmoid missing
-        var unit = Unit("Station", "asia", date: null, "asia_station_information.csv");
+        var unit = Unit("Station", "northamerica", date: null, "northamerica_station_information.csv");
 
         var rec = Assert.Single(Parser.Parse(CwgDescriptors.Station, unit, csv, NullLogger.Instance));
         var row = StationRow.From(rec, unit);
 
         Assert.NotNull(row);
         Assert.Equal("KABC", row!.Identifier);
-        Assert.Equal("71000", row.WmoId);
-        Assert.Null(row.Lat);       // missing -> NULL
-        Assert.Null(row.Lon);       // missing -> NULL
+        Assert.Null(row.Latitude);
+        Assert.Null(row.Longitude);
         Assert.Null(row.Country);
+    }
+
+    [Fact]
+    public void Station_GarbageLatLon_MapsToNull_RowKept()
+    {
+        // Station is the one deliberately lenient endpoint (AllowShortRows): a malformed
+        // coordinate must not cost the whole station. The merge proc separately refuses to
+        // build a geography Point from a NULL/out-of-range coordinate.
+        var csv =
+            "identifier,wmoid,wban,ghcnd,lat,lon,name,state,country\n" +
+            "KBAD,71005,99999,,n/a,--,Bad Coords,TX,US\n";
+        var unit = Unit("Station", "northamerica", date: null, "northamerica_station_information.csv");
+
+        var rec = Assert.Single(Parser.Parse(CwgDescriptors.Station, unit, csv, NullLogger.Instance));
+        var row = StationRow.From(rec, unit);
+
+        Assert.NotNull(row);
+        Assert.Equal("KBAD", row!.Identifier);
+        Assert.Null(row.Latitude);
+        Assert.Null(row.Longitude);
+        Assert.Equal("Bad Coords", row.Name);   // the rest of the row survives
     }
 
     [Fact]
     public void Station_EmptyIdentifier_Skipped()
     {
-        // Identifier is half the PK; a row without it cannot be keyed -> dropped even when short-rows are allowed.
         var csv =
             "identifier,wmoid,wban,ghcnd,lat,lon,name,state,country\n" +
             ",71999,99999,,10.0,20.0,No Id,ST,US\n";
-        var unit = Unit("Station", "europe", date: null, "europe_station_information.csv");
+        var unit = Unit("Station", "northamerica", date: null, "northamerica_station_information.csv");
 
         var rec = Assert.Single(Parser.Parse(CwgDescriptors.Station, unit, csv, NullLogger.Instance));
         Assert.Null(StationRow.From(rec, unit));   // empty identifier -> skipped
@@ -298,7 +399,7 @@ public class ParseShapeATests
         Assert.Equal("US", rows[0].Country);
         Assert.Null(rows[1].Name);       // short row -> NULL
         Assert.Null(rows[1].Country);
-        Assert.Equal(41.0m, rows[1].Lat);
+        Assert.Equal(41.0, rows[1].Latitude);
     }
 
     // ---------------------------------------------------------------- "END." terminator (CwgCsv)
@@ -306,8 +407,6 @@ public class ParseShapeATests
     [Fact]
     public void EndTerminator_NotEmittedAsRecord_ContentAfterIgnored()
     {
-        // CWG files end with a bare "END." line. It must not become a data record, and
-        // anything after it is ignored (terminator = EOF).
         var csv =
             "Production Date,Date,Station,Fcst Mn,Fcst Mx,Fcst Avg,Norm Mn,Norm Max,HDD,CDD\n" +
             "8/11/26,8/12/26,KABR,61,82,71.5,57.7,83.7,0,7\n" +

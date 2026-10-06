@@ -42,16 +42,71 @@ public class RegionsDegreeDaysWiringTests
     // ---------------------------------------------------------------- discovery
 
     [Fact]
-    public void All_And_AllIds_Contain_The_Three_Endpoints_ExactlyOnce()
+    public void All_And_AllIds_Contain_The_Degree_Day_Endpoints_ExactlyOnce()
     {
-        Assert.Equal(18, CwgDescriptors.All.Length);
-        Assert.Equal(18, CwgDescriptors.AllIds.Length);
+        Assert.Equal(19, CwgDescriptors.All.Length);
+        Assert.Equal(19, CwgDescriptors.AllIds.Length);
 
-        foreach (var id in new[] { "Regions5DegreeDays", "Regions9DegreeDays", "ISODegreeDays" })
+        foreach (var id in new[] { "Regions5DegreeDays", "Regions9DegreeDays", "ISODegreeDays", "StateDegreeDayObservation" })
         {
             Assert.Contains(id, CwgDescriptors.AllIds);
             Assert.Single(CwgDescriptors.All, d => d.EndpointId == id);
         }
+
+        // All / AllIds must stay in lockstep — AllIds is the default EnabledEndpoints list.
+        Assert.Equal(
+            CwgDescriptors.All.Select(d => d.EndpointId).OrderBy(s => s),
+            CwgDescriptors.AllIds.OrderBy(s => s));
+    }
+
+    // ---------------------------------------------------------------- StateDegreeDayObservation (its OWN filename family)
+
+    [Fact]
+    public void StateDegreeDayObservation_Descriptor_HasItsOwnFilename_NoSubregionToken()
+    {
+        var d = Descriptor("StateDegreeDayObservation");
+
+        // NOT part of northamerica_{subregion}_wdd_{date}.csv — a distinct template with no
+        // {subregion} placeholder. Verified live 2026-10-05.
+        Assert.Equal("northamerica_state_wdd_observations_{date}.csv", d.FilenameTemplate);
+        Assert.Empty(d.ExtraPlaceholders);
+
+        Assert.Equal(CwgParseShape.A, d.ParseShape);
+        Assert.True(d.Dated);
+        Assert.Equal(CwgDateToken.Ymd, d.DateToken);
+        Assert.Equal(0, d.DateOffsetDays);          // DATES equals the filename date
+        Assert.Equal(CwgRegionKind.None, d.RegionKind);
+        Assert.Equal(15, d.ExpectedColumns);
+        Assert.False(d.AllowShortRows);
+        Assert.False(d.RegionlessTarget);           // RegionName/State come from the FILE, not the filename
+
+        Assert.Equal("arm.StateDegreeDayObservation", d.TargetTable);
+        Assert.Equal("arm.StateDegreeDayObservationTvp", d.TargetTvp);
+        Assert.Equal("arm.usp_BulkMergeStateDegreeDayObservation", d.TargetProc);
+    }
+
+    [Fact]
+    public async Task StateDegreeDayObservation_Provider_ProducesExpectedFilename_NullVariant_HotKey()
+    {
+        var units = await Enumerate("StateDegreeDayObservation", Settings());
+
+        var unit = Assert.Single(units);
+        Assert.Equal("northamerica", unit.Region);
+        Assert.Null(unit.Variant);                  // no {subregion} token on this endpoint
+        Assert.Equal(new DateOnly(2026, 8, 11), unit.RepresentativeDate);
+        Assert.Equal("northamerica_state_wdd_observations_20260811.csv", unit.Filename);
+        Assert.Equal("cwg:StateDegreeDayObservation:northamerica:-:20260811:run=20260811", unit.Key);
+    }
+
+    [Fact]
+    public async Task StateDegreeDayObservation_NotFilteredByGeographies()
+    {
+        // RegionKind.None with a fixed northamerica — excluding it from Geographies must not
+        // zero the endpoint out (same rule as the rest of the wdd family).
+        var units = await Enumerate("StateDegreeDayObservation", Settings(geographies: new[] { "asia", "europe" }));
+
+        var unit = Assert.Single(units);
+        Assert.Equal("northamerica", unit.Region);
     }
 
     // ---------------------------------------------------------------- descriptor contract

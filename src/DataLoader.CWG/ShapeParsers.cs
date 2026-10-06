@@ -12,8 +12,17 @@ namespace DataLoader.CWG;
 /// <summary>Shape A — one raw data row (positional fields + the header for optional checks).</summary>
 public sealed record CwgTabularRecord(string[] Fields, string[] Header);
 
-/// <summary>Shape B — one unpivoted (key, region, value) cell.</summary>
-public sealed record CwgUnpivotCell(string KeyCell, string Region, string RawValue);
+/// <summary>
+/// Shape B — one WHOLE source row: its leading key cell plus the raw value of every
+/// region column that was present, keyed by region name.
+///
+/// <para>The Shape B targets (arm.DailyNormal / arm.SolarHourly / arm.WindHourly) are WIDE —
+/// one column per region on a single row — so this shape no longer unpivots. The row factory
+/// reads the descriptor's <c>TargetRegionColumns</c> out of <see cref="ByRegion"/>; a region the
+/// file did not publish is simply absent and becomes SQL NULL. Early SolarHourly history (2020)
+/// has only ERCOT populated, which is exactly this case.</para>
+/// </summary>
+public sealed record CwgWideRow(string KeyCell, IReadOnlyDictionary<string, string> ByRegion);
 
 /// <summary>Shape C — one unpivoted (forecast-date × hour) matrix cell.</summary>
 public sealed record CwgMatrixCell(DateOnly ForecastDate, string HourLabel, int HourOfDay, string RawValue);
@@ -124,20 +133,25 @@ public sealed class ShapeAParser : ICwgShapeParser<CwgTabularRecord>
 }
 
 /// <summary>
-/// Shape B — wide-by-region → unpivot. Validates the region columns against the
+/// Shape B — wide-by-region, kept WIDE. Validates the region columns against the
 /// descriptor's <c>WideRegionColumns</c> StormVista-style: fatal on an
 /// unknown/extra column, tolerate missing (early history has only some regions),
 /// warn on reordering; resolves region → column index by header name.
+///
+/// <para>Validation is against the FULL in-file set (<c>WideRegionColumns</c>), never against
+/// the narrower <c>TargetRegionColumns</c> — the file is still allowed to publish NW/SW and the
+/// other SolarHourly regions, they are simply not written. Keeping the guard on the full set is
+/// what makes a genuinely NEW region column fatal instead of silently ignored.</para>
 /// </summary>
-public sealed class ShapeBParser : ICwgShapeParser<CwgUnpivotCell>
+public sealed class ShapeBParser : ICwgShapeParser<CwgWideRow>
 {
-    public IReadOnlyList<CwgUnpivotCell> Parse(CwgEndpointDescriptor d, CwgWorkUnit unit, string csvText, ILogger log)
+    public IReadOnlyList<CwgWideRow> Parse(CwgEndpointDescriptor d, CwgWorkUnit unit, string csvText, ILogger log)
     {
         var records = CwgCsv.Parse(csvText);
         if (records.Count <= 1)
         {
             log.LogWarning("[CWG {Endpoint}] {File}: CSV has no data rows", d.EndpointId, unit.Filename);
-            return Array.Empty<CwgUnpivotCell>();
+            return Array.Empty<CwgWideRow>();
         }
 
         var header = records[0];
@@ -168,19 +182,21 @@ public sealed class ShapeBParser : ICwgShapeParser<CwgUnpivotCell>
             log.LogInformation("[CWG {Endpoint}] {File}: {Present}/{Expected} regions present (missing [{Missing}]); loading present columns",
                 d.EndpointId, unit.Filename, present.Count, expected.Length, string.Join(", ", missing));
 
-        var cells = new List<CwgUnpivotCell>((records.Count - 1) * Math.Max(1, present.Count));
+        var rows = new List<CwgWideRow>(records.Count - 1);
         for (var i = 1; i < records.Count; i++)
         {
             var row = records[i];
             if (row.Length == 0) continue;
             var keyCell = row[0]; // KeyColumns is always 1: DATE / UTC_HOUR_ENDING at index 0
+            if (keyCell.Trim().Length == 0) continue; // trailing blank line
+
+            var byRegion = new Dictionary<string, string>(present.Count, StringComparer.Ordinal);
             foreach (var (name, idx) in present)
-            {
-                var raw = idx < row.Length ? row[idx] : string.Empty;
-                cells.Add(new CwgUnpivotCell(keyCell, name, raw));
-            }
+                byRegion[name] = idx < row.Length ? row[idx] : string.Empty;
+
+            rows.Add(new CwgWideRow(keyCell, byRegion));
         }
-        return cells;
+        return rows;
     }
 }
 

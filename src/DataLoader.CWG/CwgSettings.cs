@@ -27,7 +27,7 @@ public sealed class CwgSettings : LoaderSettingsBase
     /// <summary>Per-request timeout on the shared <see cref="HttpClient"/>.</summary>
     public int HttpTimeoutSeconds { get; set; } = 60;
 
-    /// <summary>Endpoints to run this pass; matched case-insensitively against pipeline endpoint ids. Defaults to all 18.</summary>
+    /// <summary>Endpoints to run this pass; matched case-insensitively against pipeline endpoint ids. Defaults to all 19.</summary>
     public string[] EnabledEndpoints { get; set; } = CwgDescriptors.AllIds;
 
     /// <summary>Dated-endpoint enumeration window in days back from the newest represented date (undated endpoints ignore it). Default 21.</summary>
@@ -46,8 +46,18 @@ public sealed class CwgSettings : LoaderSettingsBase
     /// <summary>Hot-zone key suffix strategy — undated "latest" files and the hot dated window (design §3.1).</summary>
     public HotKeyStrategy HotZoneKeyStrategy { get; set; } = HotKeyStrategy.RunDate;
 
-    /// <summary>Filters <c>RegionKind == Geography</c> descriptors only (design §2.1 note). Default all three.</summary>
-    public string[] Geographies { get; set; } = { "northamerica", "asia", "europe" };
+    /// <summary>
+    /// Filters <c>RegionKind == Geography</c> descriptors only (design §2.1 note).
+    ///
+    /// <para>Default narrowed to <c>northamerica</c> ALONE on 2026-10-05. All three geography
+    /// endpoints (CityForecast, CityObservation, Station) now write to tables with NO Region
+    /// column, so a second geography has nowhere to go: its rows would land on the same primary
+    /// key and silently overwrite — and for CityForecast they would also mix °C into a °F table
+    /// with no marker. Those descriptors are flagged <c>RegionlessTarget</c> and
+    /// <see cref="CwgWorkUnitProvider"/> REFUSES to enumerate them when this list resolves to
+    /// more than one region, so widening it fails loudly instead of corrupting data.</para>
+    /// </summary>
+    public string[] Geographies { get; set; } = { "northamerica" };
 
     /// <summary>Optional global client-side throttle (requests/second). <c>null</c> or ≤ 0 = unlimited (design §8).</summary>
     public double? RequestsPerSecond { get; set; }

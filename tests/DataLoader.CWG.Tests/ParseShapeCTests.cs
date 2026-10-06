@@ -50,11 +50,38 @@ public class ParseShapeCTests
         // Row factory: noon row, first forecast-date column -> 30147 MW.
         var rows = cells.Select(c => SolarForecastRow.From(c, unit)).Where(r => r is not null).Cast<SolarForecastRow>().ToList();
         var noonFirstCol = Assert.Single(rows, r =>
-            r.HourOfDay == 12 && r.ForecastDate == init.AddDays(-1));
-        Assert.Equal("12:00 PM", noonFirstCol.HourLabel);
+            r.HourLabel == "12:00 PM" && r.ForecastLabel == init.AddDays(-1));
         Assert.Equal("ERCOT", noonFirstCol.Region);          // from the unit
-        Assert.Equal(init, noonFirstCol.InitDate);           // from the unit
-        Assert.Equal(30147m, noonFirstCol.ValueMw);
+        Assert.Equal(init, noonFirstCol.ForecastDate);       // ForecastDate is the INIT date (from the unit)
+        Assert.Equal(30147m, noonFirstCol.Value);
+
+        // UTCHourEnding = valid day + hour label + 4h. 12:00 PM on 8/10 -> 8/10 16:00 UTC.
+        Assert.Equal(new DateTime(2026, 8, 10, 16, 0, 0), noonFirstCol.UTCHourEnding);
+
+        // The key (ForecastDate, UTCHourEnding, Region) is exactly as selective as the old
+        // (Region, InitDate, ForecastDate, HourOfDay) — no cell collapses onto another.
+        Assert.Equal(rows.Count, rows.Select(r => (r.ForecastDate, r.UTCHourEnding, r.Region)).Distinct().Count());
+    }
+
+    [Fact]
+    public void SolarForecast_LastHourOfDay_RollsIntoTheNextUtcDay()
+    {
+        // 11:00 PM + 4h crosses midnight. This is expected and correct — and it is why a
+        // fixed offset matters: every forecast day yields exactly 24 distinct timestamps.
+        var csv = SampleData.Read("ERCOTsolar_08112026.csv");
+        var init = new DateOnly(2026, 8, 11);
+        var unit = Unit("SolarForecast", "ERCOT", init, "ERCOTsolar_08112026.csv");
+
+        var cells = Parser.Parse(CwgDescriptors.SolarForecast, unit, csv, NullLogger.Instance);
+        var rows = cells.Select(c => SolarForecastRow.From(c, unit)).Where(r => r is not null).Cast<SolarForecastRow>().ToList();
+
+        var lastHour = Assert.Single(rows, r => r.HourLabel == "11:00 PM" && r.ForecastLabel == init);
+        Assert.Equal(new DateTime(2026, 8, 12, 3, 0, 0), lastHour.UTCHourEnding);
+
+        // Midnight maps to +4h on the same day, so the 24 labels of one valid day stay distinct.
+        var oneDay = rows.Where(r => r.ForecastLabel == init).ToList();
+        Assert.Equal(24, oneDay.Count);
+        Assert.Equal(24, oneDay.Select(r => r.UTCHourEnding).Distinct().Count());
     }
 
     // ---------------------------------------------------------------- SolarForecastChange (no lead blank; 14 cols + trailing comma; MM/DD/YYYY; signed; footers skipped)
@@ -80,11 +107,14 @@ public class ParseShapeCTests
 
         // Signed change: 8:00 AM, first forecast-date column -> -532.
         var rows = cells.Select(c => SolarForecastChangeRow.From(c, unit)).Where(r => r is not null).Cast<SolarForecastChangeRow>().ToList();
-        var eightAmFirst = Assert.Single(rows, r => r.HourOfDay == 8 && r.ForecastDate == init);
-        Assert.Equal(-532m, eightAmFirst.ChangeMw);     // negative preserved
+        var eightAmFirst = Assert.Single(rows, r => r.HourLabel == "8:00 AM" && r.ForecastLabel == init);
+        Assert.Equal(-532m, eightAmFirst.Value);        // negative preserved
+        Assert.Equal(init, eightAmFirst.ForecastDate);  // init date
+        Assert.Equal(new DateTime(2026, 8, 11, 12, 0, 0), eightAmFirst.UTCHourEnding); // 08:00 + 4h
 
         // Every surviving record is a real hour row (footers can't reach the factory).
-        Assert.All(rows, r => Assert.InRange(r.HourOfDay, (byte)0, (byte)23));
+        Assert.All(rows, r => Assert.Contains(r.HourLabel, CwgHours.Labels));
+        Assert.Equal(rows.Count, rows.Select(r => (r.ForecastDate, r.UTCHourEnding, r.Region)).Distinct().Count());
     }
 
     [Fact]

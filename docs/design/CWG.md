@@ -1,9 +1,106 @@
 # CWG (Commodity Weather Group) loader — design & processing flow
 
 Design/flow spec for the CWG loader. Input of record is the field reference at
-`docs/apis/CWG.md` (18 endpoints, parse shapes A–E, natural keys, DECIMAL sizing).
+`docs/apis/CWG.md` (19 endpoints, parse shapes A–E, natural keys, DECIMAL sizing).
 This document is the CODER hand-off; it contains no code. SQL objects named here are
 proposed to DATABASE_DEVELOPER (open items are collected in §9).
+
+---
+
+> # ⚠ 2026-10-05 RESHAPE — the arm facts now MIRROR the incumbent `dbo` tables
+>
+> **This addendum SUPERSEDES the target-side (arm) model everywhere below**, including
+> every table/key/column list in **§6** and the resolved decisions in **§9** that concern
+> table shape. The **source-side** halves of §4 and §6 — what each CSV contains, its
+> ordered columns, its sentinels and its quirks — are unchanged and remain correct.
+>
+> Every `arm` fact table now matches its legacy `dbo` twin by NAME, PRIMARY KEY and
+> column name/type, so `arm.*` is a drop-in for `dbo.*` and the two reconcile 1:1.
+> The hand-written `sql/CWG/CompareLegacyDboVsArm.sql` is **deleted** — CWG is now an
+> ordinary entry in `scripts\Generate-ArmToDboComparison.ps1` (with four table-name
+> overrides for the `US*DegreeDay` pairs), to be generated once the schema is deployed.
+>
+> ### What changed on every fact
+> * **`FileLogId` and `DateCreated` are GONE.** `arm.FileLog` itself stays and is still
+>   written once per request — it is the run/status log the status matrix reads — but a
+>   fact row no longer carries a provenance FK, because the dbo tables have no such column.
+> * **`RecordHash CHAR(32)` added** — MD5 over the row's non-key value columns, computed
+>   **in the merge proc** (`sql/CWG/003`) and nowhere else. The MERGE updates only when
+>   the hash differs, so `ModifiedAtUtc` moves on real change and `IX_ModifiedAtUtc` is a
+>   usable incremental-pull index. Consequence: re-merging an unchanged file reports
+>   `RecordsProcessed = 0`.
+> * **Every measure column is NULL-able.** Blank / the literal `"NULL"` sentinel → SQL
+>   NULL on a KEPT row; a measure that is *present but unparseable* still drops the row,
+>   so a real format change stays visible in the reader's warning count.
+>
+> ### The 19 tables and their keys
+>
+> | Table | Primary key | Note |
+> |---|---|---|
+> | `CityForecast` | `(ProductionDate, Date, Station)` | no Region/Units column |
+> | `CityGasForecast` | `(ProductionDate, Date, Station)` | |
+> | `CityObservation` | `(Date, Station)` | no Region column |
+> | `DailyNormal` | `(Month, Day)` | **WIDE** — 10 region columns |
+> | `SolarForecast` | `(ForecastDate, UTCHourEnding, Region)` | + `ForecastLabel`, `HourLabel` |
+> | `SolarForecastChange` | `(ForecastDate, UTCHourEnding, Region)` | + `ForecastLabel`, `HourLabel` |
+> | `SolarHourly` | `(UTCHourEnding)` | **WIDE** — ERCOT, CAISO |
+> | `StateDegreeDayObservation` | `(ObservationDate, RegionName, State)` | **NEW endpoint** |
+> | `Station` | `(Identifier)` | + `Point` geography, `MappingId` IDENTITY |
+> | `Regions5DegreeDays` | `(ObservationDate, Date, Region)` | |
+> | `Regions9DegreeDays` | `(ObservationDate, Date, Region)` | |
+> | `ISODegreeDays` | `(ObservationDate, Date, Region)` | |
+> | `NationalDegreeDays` | `(ObservationDate, Date)` | |
+> | `WindForecast` | `(ForecastDate, UTCHourEnding, Region)` | + `ForecastLabel`, `HourLabel` |
+> | `WindForecastSubRegion` | `(ForecastDate, UTCHourEnding, Region, SubRegion)` | `Value DECIMAL(19,4)` |
+> | `WindHourly` | `(UTCHourEnding)` | **WIDE** — 10 region columns |
+> | `WindTotalCapacityClimatology` | `(ForecastDate, Region)` | |
+> | `WindTotalCapacityMW` | `(ForecastDate, Region)` | **Current block only** |
+> | `WindTotalCapacityPct` | `(ForecastDate, Region)` | **Current block only** |
+>
+> Degree-day column names are now the **source spellings verbatim** (`NG_HDD`,
+> `[30Y_POP_CDD]`, `IS_FORECAST`, `ELCT_WEIGHT`, …), not the old C#-style `NgHdd30y`.
+>
+> ### The forecast-key re-derivation (Shape C/D)
+> ```
+> ForecastDate   = the INIT date      (filename MMDDYYYY)          -- key
+> UTCHourEnding  = ForecastLabel + HourLabel-as-time + 4 HOURS     -- key
+> ForecastLabel  = the VALID day      ('Date (EST)' header cell)   -- record only
+> HourLabel      = the literal clock label, e.g. '7:00 AM'         -- record only
+> ```
+> `(ForecastLabel, HourLabel) → UTCHourEnding` is a **bijection**, so this key is exactly
+> as selective as the old `(Region, InitDate, ForecastDate, HourOfDay)` — no forecast run
+> is lost and nothing collapses. The **+4h is a FIXED offset, deliberately not a
+> time-zone lookup**: the source carries no UTC and no DST marker, and a fixed shift keeps
+> every forecast day at exactly 24 distinct timestamps. A DST-aware conversion would yield
+> 23 on spring-forward and a DUPLICATE hour on fall-back — and that duplicate would
+> collide on the primary key. `ForecastLabel`/`HourLabel` are additive to the agreed dbo
+> column set so the un-shifted source values stay recoverable.
+>
+> ### Four dimensions the new shapes cannot hold — all handled by NARROWING the read
+> Never by letting two different things collide on one primary key:
+> 1. **Region/Units** on CityForecast / CityObservation / Station. `Geographies` defaults
+>    to `northamerica` ALONE. Those three descriptors are flagged `RegionlessTarget`, and
+>    `CwgWorkUnitProvider` **throws** if more than one region survives the filter — a loud
+>    failure instead of a silent last-writer-wins (and, for CityForecast, °C silently
+>    overwriting °F with nothing recording which is which). The setting can still
+>    *repoint* the loader at a different single geography.
+> 2. **Block** on WindTotalCapacityMW / Pct. The file still has three blocks and the
+>    parser still checks for them; the row factory keeps `Current` and drops the rest. The
+>    drop is claimed by a sentinel predicate so it logs at Debug, not as a parse failure.
+> 3. **NW / SW** on DailyNormal and WindHourly (12 source columns → 10 written).
+> 4. **12 of 14 regions** on SolarHourly (ERCOT and CAISO written).
+>    For 3 and 4 the descriptor keeps TWO lists: `WideRegionColumns` is the full in-file
+>    VALIDATION set (an unknown column is still fatal) and `TargetRegionColumns` is the
+>    narrower WRITE set. Narrowing the write never relaxes the guard.
+>
+> ### Shape B is no longer an unpivot
+> The three Shape B targets are **wide** (one column per region on one row), so the parser
+> emits one `CwgWideRow` per source row instead of N cells, and the row factory projects
+> the target columns out of it. A region the file did not publish is absent → NULL (early
+> SolarHourly history has only ERCOT). This also removed the need for the hourly sentinel
+> predicates: a `"NULL"` cell is now a NULL column on a kept row, not a dropped record.
+
+---
 
 > **2026-08 addendum — three regional/ISO degree-day endpoints added (§2.1 #16–#18,
 > §6.16–§6.18).** `Regions5DegreeDays`, `Regions9DegreeDays`, `ISODegreeDays` are the
@@ -518,7 +615,7 @@ Emits `CwgCapacityRow { string Block; string Region; string TotalCapacityRaw; st
 
 ---
 
-## 5. FileLog flow (`arm.FileLog` hub, generalized across all 18 endpoints)
+## 5. FileLog flow (`arm.FileLog` hub, generalized across all 19 endpoints)
 
 `arm.FileLog` is the single hub logging **every outcome** (Success / NotAvailable /
 Failed) for every request. Generalized natural key:
@@ -597,7 +694,7 @@ resolved to small seeded lookups server-side (§9); the C# contract speaks strin
 
 ---
 
-## 6. Full-field mapping (all 18 endpoints)
+## 6. Full-field mapping (all 19 endpoints) — SOURCE side current, TARGET side superseded by the 2026-10-05 addendum
 
 Legend: **origin** = `unit` (from filename/work-unit) or the exact source CSV column.
 Every fact row also carries `FileLogId` (provenance; stamped in §5; UPDATEd on MERGE, not
@@ -991,7 +1088,7 @@ Parent-agent decisions on the designer's open items (apply these):
 
 ---
 
-## Coverage checklist — all 18 endpoints
+## Coverage checklist — all 19 endpoints
 
 | # | Endpoint | Descriptor (§2.1) | Work-unit / key rule (§3) | Shape (§4) | FileLog identity (§5) | Column map (§6) |
 |---|----------|:----------------:|:--------------------------:|:---------:|:---------------------:|:---------------:|

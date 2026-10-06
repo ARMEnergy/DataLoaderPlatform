@@ -95,6 +95,19 @@ public sealed class CwgWorkUnitProvider : IWorkUnitProvider<CwgWorkUnit>
             return Task.FromResult<IReadOnlyList<CwgWorkUnit>>(Array.Empty<CwgWorkUnit>());
         }
 
+        // A RegionlessTarget endpoint writes to a table with NO region column, so two regions'
+        // rows would share a primary key and the second would silently overwrite the first.
+        // Refuse to enumerate rather than corrupt the table — the settings comment on
+        // CwgSettings.Geographies explains how to fix it.
+        if (_d.RegionlessTarget && regionPairs.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"CWG endpoint '{_d.EndpointId}' targets {_d.TargetTable}, which has no region column, " +
+                $"but {regionPairs.Count} regions resolved [{string.Join(", ", regionPairs.Select(p => p.Region ?? "-"))}]. " +
+                $"Rows from different regions would collide on the primary key and overwrite each other. " +
+                $"Narrow Loaders:CWG:Geographies to exactly one geography.");
+        }
+
         var extras = BuildExtras(_d.ExtraPlaceholders);
 
         // Hot-zone run token. RunDate → one re-pull per calendar day; RunId → every run.

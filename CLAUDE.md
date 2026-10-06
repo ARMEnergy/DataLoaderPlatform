@@ -107,17 +107,23 @@ With `@Date` NULL the window is the **arm table's own MIN..MAX** of its date col
 not all of history — `dbo` holds years and `arm` only what the loader has run for, so
 an unfiltered compare would report nearly all of `dbo` as `MISSING_IN_ARM`.
 
-Four loaders are deliberately different:
+Three loaders are deliberately different:
 - **Argus** — no comparison is possible: not one table corresponds (dbo is a generic
   time-series model, arm is a single purpose-built fact), and the arm lookups have no
   primary keys. Its 004 file explains this and returns the reason per table.
 - **Criterion** — its database has **zero** `dbo` tables; nothing to reconcile.
 - **OilX** — the `OilX` database is NEW and holds no incumbent `dbo` dataset, so there
   is nothing to shadow. It ships 001/002/003/999 only.
-- **CWG** — deferred. Its arm redesign renamed keys and columns (`ObsDate`↔`Date`,
-  `InitDate`+`ForecastDate`+`HourOfDay`↔`ForecastDate`+`UTCHourEnding`,
-  `MonthDay`↔`Month`+`Day`) and some pairs share zero column names, so its 17 pairs
-  need hand-written mappings, not catalog matching.
+
+**CWG stopped being an exception on 2026-10-05.** Its arm tables were reshaped to mirror
+the incumbent `dbo` ones (same names, same primary keys, same column names/types), so the
+hand-written `sql/CWG/CompareLegacyDboVsArm.sql` was deleted and CWG is now an ordinary
+entry in the generator. Four pairs still need a name override (`$TableNameOverride`),
+because the arm names describe the breakdown while the legacy dbo names carry a `US`
+prefix and a singular `DegreeDay`: `Regions5DegreeDays`↔`US5RegionDegreeDay`,
+`Regions9DegreeDays`↔`US9RegionDegreeDay`, `ISODegreeDays`↔`USISODegreeDay`,
+`NationalDegreeDays`↔`USNationalDegreeDay`. Its `004` file does not exist yet — the
+generator reads the **live catalog**, and CWG's new schema has not been deployed.
 
 ## Skills
 
@@ -152,10 +158,26 @@ no write access to the share; red tests; `appsettings.json` differing from produ
 (pass `-KeepProdSettings` or `-OverwriteSettings`); a locked file during the archive.
 Deploying is outward-facing — never run it unless the user asks.
 
-⚠ As of 2026-09-28 `\\armh-opsdb01\DataLoaderPlatform` is **read-only** to
-`arm\yaroslav.chekhuta` — reachable, but both file creation and mkdir return Access
-Denied, so no deploy can succeed until the share grants write permission. The share is
-also empty, and the daily loader jobs do not run from it.
+**Share status — re-verified 2026-10-06** (this supersedes the 2026-09-28 note that said the
+share was read-only and empty; all of that is now false). `\\armh-opsdb01\DataLoaderPlatform`
+is reachable, **writable** by `arm\yaroslav.chekhuta` (the script's probe write+delete
+succeeds), and **populated**: 107 top-level files + 11 culture/runtime folders, with
+`appsettings.json` present. Deployed binaries date from 2026-09-22 to 2026-09-28
+(`DataLoader.Host.exe` 2026-09-28 18:15, `appsettings.json` 2026-09-24). There is no `Old\`
+folder yet, so nothing has ever been archived *by this script* — the current contents got
+there some other way, and the first real run will create the first archive. Whether the
+daily jobs run from this share is still **unverified** (no logs are written under it).
+
+⚠ **The config gate will stop a plain deploy today.** The repo's `appsettings.json` differs
+from production's in 18 keys, so `Publish-ToProd.ps1` exits 1 (surfaced as `MSB3073` when
+invoked through `-p:DeployToProd=true`) before moving anything. The repo is a strict
+**superset** — nothing in production would be lost: 16 keys exist only in the repo
+(all 14 `Loaders:OilX:*`, plus `Platform:RunAdditionalProcesses` and
+`Platform:AdditionalProcessesTimeoutSeconds` — production's config predates OilX), and only
+`Loaders:CWG:EnabledEndpoints` / `Loaders:CWG:Geographies` differ in value (the 2026-10-05
+CWG reshape). Pass **`-KeepProdSettings`** to deploy binaries and leave production's config
+alone — the right choice while CWG and OilX are still build-only and neither is in
+`Platform:EnabledLoaders` on either side.
 
 ## Workflows
 
@@ -310,6 +332,32 @@ and **Flow's two usually-empty sub-country columns are load-bearing in that key*
 collapses 28,887 of its 232,311 rows. Unlike ICE/Genscape/EvolutionMarkets it ships
 `SettledAfterDays = 1`, because a published OilX day is immutable and all-hot would re-download
 ~6.5 GB per run for data that cannot change. See `docs/apis/OilX.md` §2 and `docs/design/OilX.md`.
+
+CWG (19 endpoints, `arm` schema, DB `CWG`) was **reshaped on 2026-10-05 so every arm fact mirrors
+its incumbent `dbo` twin** by name, primary key and column name/type — arm is now a drop-in for
+dbo. Facts lost `FileLogId`/`DateCreated` and gained `RecordHash CHAR(32)`, an MD5 over the
+non-key value columns computed **only in the merge proc**; the MERGE updates solely when the hash
+differs, so `ModifiedAtUtc` tracks real change and **a no-op re-merge reports
+`RecordsProcessed = 0`** (correct, not a bug). `arm.FileLog` survives as the per-request run/status
+log. Five things are silent if you get them wrong. The forecast key is re-derived as
+`ForecastDate` = the INIT date and `UTCHourEnding` = valid day + hour label **+ 4 hours** — a
+**FIXED offset, never a time-zone lookup**, because the source carries no UTC or DST marker and
+DST would give 23 hours on spring-forward and a *duplicate* hour on fall-back that collides on the
+PK; `ForecastLabel`/`HourLabel` are kept alongside so the un-shifted values stay recoverable, and
+since `(ForecastLabel, HourLabel) → UTCHourEnding` is a bijection no forecast run is lost. Four
+dimensions no longer have a column and are handled by **narrowing the read, never by colliding**:
+`Geographies` is pinned to ONE value and CityForecast/CityObservation/Station are flagged
+`RegionlessTarget` so the provider **throws** if a second survives (two geographies would share a
+PK, and °C would overwrite °F with nothing recording which is which); WindTotalCapacityMW/Pct
+write the **Current block only**; DailyNormal/WindHourly drop NW+SW; SolarHourly keeps 2 of 14
+regions — and for those last two the descriptor holds `WideRegionColumns` (full in-file
+VALIDATION set, unknown column still fatal) separately from `TargetRegionColumns` (the narrower
+WRITE set). Shape B is **no longer an unpivot** — its three targets are wide, so a `"NULL"` cell
+is a NULL column on a kept row rather than a dropped record. `StateDegreeDayObservation` is a
+**19th endpoint added and live-verified 2026-10-05** (`northamerica_state_wdd_observations_{date}.csv`
+— its OWN filename, *not* the `{subregion}` wdd family; 48 rows, one `DATES` = the filename date,
+**no `END.` footer** unlike its siblings). Its SQL has never been deployed.
+See `docs/apis/CWG.md` §19 and the 2026-10-05 addendum at the top of `docs/design/CWG.md`.
 
 ## Key files
 

@@ -55,13 +55,20 @@ public class ParseShapeDTests
             Assert.Equal(24, block.Select(c => c.HourOfDay).Distinct().Count());
         }
 
-        // Row factory carries parent Region + InitDate from the unit, SubRegion from the block.
+        // Row factory carries the parent Region + init date from the unit, SubRegion from the block.
         var rows = cells.Select(c => WindForecastSubRegionRow.From(c, unit)).Where(r => r is not null).Cast<WindForecastSubRegionRow>().ToList();
         var northMidnightFirst = Assert.Single(rows, r =>
-            r.SubRegion == "North" && r.HourOfDay == 0 && r.ForecastDate == init);
+            r.SubRegion == "North" && r.HourLabel == "12:00 AM" && r.ForecastLabel == init);
         Assert.Equal("ERCOT", northMidnightFirst.Region);
-        Assert.Equal(init, northMidnightFirst.InitDate);
-        Assert.Equal(2120m, northMidnightFirst.ValueMw);
+        Assert.Equal(init, northMidnightFirst.ForecastDate);   // ForecastDate is the INIT date
+        Assert.Equal(2120m, northMidnightFirst.Value);
+        // 12:00 AM on the init day + 4h.
+        Assert.Equal(new DateTime(2026, 8, 11, 4, 0, 0), northMidnightFirst.UTCHourEnding);
+
+        // SubRegion is load-bearing in the key: without it the eight blocks would collapse.
+        Assert.Equal(rows.Count,
+            rows.Select(r => (r.ForecastDate, r.UTCHourEnding, r.Region, r.SubRegion)).Distinct().Count());
+        Assert.True(rows.Select(r => (r.ForecastDate, r.UTCHourEnding, r.Region)).Distinct().Count() < rows.Count);
     }
 
     // ---------------------------------------------------------------- CAISO (SP-15 / NP-15)

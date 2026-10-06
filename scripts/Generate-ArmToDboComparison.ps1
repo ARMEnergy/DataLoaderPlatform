@@ -21,11 +21,18 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Loader -> database. Argus and Criterion are deliberately absent (see the stub files
-# in their sql folders); CWG is deferred - its arm redesign renamed keys and columns,
-# so its pairs need hand-written mappings rather than catalog matching.
+# in their sql folders).
+#
+# CWG joined on 2026-10-05, when its arm tables were reshaped to MIRROR the incumbent
+# dbo ones (same names, same primary keys, same column names/types). Before that its
+# pairs could not be matched from the catalog at all - the old arm model renamed keys
+# and columns and some pairs shared zero column names - which is why it used to carry a
+# hand-written sql\CWG\CompareLegacyDboVsArm.sql. That file is gone; CWG is now an
+# ordinary generated pair list like every other loader, with four name overrides below.
 $Loaders = [ordered]@{
     AGSI              = 'AGSI'
     CME               = 'CMEGroup'
+    CWG               = 'CWG'
     EOX               = 'EOX'
     EvolutionMarkets  = 'EvolutionMarkets'
     Genscape          = 'Genscape'
@@ -37,6 +44,19 @@ $Loaders = [ordered]@{
     NGI               = 'NGI'
     NGX               = 'NGX'
     OPIS              = 'OPIS'
+}
+
+# Pairs whose two sides hold the SAME data under DIFFERENT table names, so the
+# normalized-name match cannot find them. Keyed '<Loader>.<ArmTable>' -> dbo table name.
+# CWG's four degree-day tables are the only such pairs today: the arm names describe the
+# breakdown (Regions5/Regions9/ISO/National), the legacy dbo names carry a 'US' prefix
+# and a singular 'DegreeDay'. Their COLUMNS already match exactly - only the table name
+# differs - so this override is all that is needed.
+$TableNameOverride = @{
+    'CWG.Regions5DegreeDays' = 'US5RegionDegreeDay'
+    'CWG.Regions9DegreeDays' = 'US9RegionDegreeDay'
+    'CWG.ISODegreeDays'      = 'USISODegreeDay'
+    'CWG.NationalDegreeDays' = 'USNationalDegreeDay'
 }
 
 # arm tables that exist only to run the loader - no dbo counterpart is expected.
@@ -106,8 +126,17 @@ foreach ($loader in $Loaders.Keys) {
         $armName = $ak.Split('|')[1]
         if ($InfraTables -contains $armName) { continue }
 
-        $match = @($dboKeys | Where-Object { (Normalize ($_.Split('|')[1])) -eq (Normalize $armName) })
-        if ($match.Count -eq 0) { $skipped += "$armName (no dbo counterpart)"; continue }
+        # An explicit override wins over the normalized-name match (same data, different name).
+        $ovName = "$loader.$armName"
+        if ($TableNameOverride.ContainsKey($ovName)) {
+            $want = $TableNameOverride[$ovName]
+            $match = @($dboKeys | Where-Object { $_.Split('|')[1] -eq $want })
+            if ($match.Count -eq 0) { $skipped += "$armName (override target dbo.$want not found)"; continue }
+        }
+        else {
+            $match = @($dboKeys | Where-Object { (Normalize ($_.Split('|')[1])) -eq (Normalize $armName) })
+            if ($match.Count -eq 0) { $skipped += "$armName (no dbo counterpart)"; continue }
+        }
 
         $dboName = $match[0].Split('|')[1]
         $armCols = $cat[$ak].Cols

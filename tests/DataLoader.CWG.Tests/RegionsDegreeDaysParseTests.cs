@@ -70,10 +70,10 @@ public class RegionsDegreeDaysParseTests
         Assert.Equal(110, rows.Count);
 
         var first = rows[0];
-        Assert.Equal(RunDate, first.RunDate);                    // RunDate from the unit (08-11)…
-        Assert.Equal(new DateOnly(2026, 8, 4), first.Dates);     // …NOT the CSV DATES (08-04)
-        Assert.NotEqual(first.RunDate, first.Dates);
-        Assert.Equal("Pacific", first.RegionName);               // REGION_NAME = Fields[1]
+        Assert.Equal(RunDate, first.ObservationDate);                    // RunDate from the unit (08-11)…
+        Assert.Equal(new DateOnly(2026, 8, 4), first.Date);     // …NOT the CSV DATES (08-04)
+        Assert.NotEqual(first.ObservationDate, first.Date);
+        Assert.Equal("Pacific", first.Region);               // REGION_NAME = Fields[1]
 
         // Exact fixture spot-checks (row 1: 2026-08-04, Pacific).
         Assert.Equal(0.0071m, first.NgHdd);
@@ -93,16 +93,16 @@ public class RegionsDegreeDaysParseTests
     {
         var rows = Parse5();
 
-        var regions = rows.Select(r => r.RegionName).Distinct().ToList();
+        var regions = rows.Select(r => r.Region).Distinct().ToList();
         Assert.Equal(5, regions.Count);
         Assert.Contains("Pacific", regions);
         Assert.Contains("East", regions);
         Assert.Contains("South Central", regions);
 
         // Observed (False) and forecast (True) rows both present; a late/forecast date is True.
-        Assert.Contains(rows, r => !r.IsForecast);
-        Assert.Contains(rows, r => r.IsForecast);
-        var eastForecast = Assert.Single(rows, r => r.RegionName == "East" && r.Dates == new DateOnly(2026, 8, 25));
+        Assert.Contains(rows, r => r.IsForecast == false);
+        Assert.Contains(rows, r => r.IsForecast == true);
+        var eastForecast = Assert.Single(rows, r => r.Region == "East" && r.Date == new DateOnly(2026, 8, 25));
         Assert.True(eastForecast.IsForecast);
         Assert.Equal(0.0532m, eastForecast.NgHdd);
     }
@@ -117,16 +117,16 @@ public class RegionsDegreeDaysParseTests
         // 9 regions × 22 dates; 'END.' footer excluded.
         Assert.Equal(198, rows.Count);
 
-        var regions = rows.Select(r => r.RegionName).Distinct().ToList();
+        var regions = rows.Select(r => r.Region).Distinct().ToList();
         Assert.Equal(9, regions.Count);
         Assert.Contains("NEW ENGLAND", regions);   // in-file names carry spaces
         Assert.Contains("PACIFIC", regions);
 
         // First data row: 2026-08-04, NEW ENGLAND, NG_HDD 0.0000, POP_CDD 6.7232, ELEC_CDD 6.7062, weights.
         var first = rows[0];
-        Assert.Equal(RunDate, first.RunDate);
-        Assert.Equal(new DateOnly(2026, 8, 4), first.Dates);
-        Assert.Equal("NEW ENGLAND", first.RegionName);
+        Assert.Equal(RunDate, first.ObservationDate);
+        Assert.Equal(new DateOnly(2026, 8, 4), first.Date);
+        Assert.Equal("NEW ENGLAND", first.Region);
         Assert.Equal(0.0000m, first.NgHdd);
         Assert.Equal(6.7232m, first.PopCdd);
         Assert.Equal(6.7062m, first.ElecCdd);
@@ -135,8 +135,8 @@ public class RegionsDegreeDaysParseTests
         Assert.Equal(0.0349m, first.ElctWeight);
         Assert.Equal(0.0459m, first.PopWeight);
 
-        Assert.Contains(rows, r => r.IsForecast);
-        Assert.Contains(rows, r => !r.IsForecast);
+        Assert.Contains(rows, r => r.IsForecast == true);
+        Assert.Contains(rows, r => r.IsForecast == false);
     }
 
     // ================================================================ ISO (divergent 11 cols; POP_HDD family; no ELEC/weights)
@@ -149,16 +149,16 @@ public class RegionsDegreeDaysParseTests
         // 21 regions × 22 dates; 'END.' footer excluded.
         Assert.Equal(462, rows.Count);
 
-        var regions = rows.Select(r => r.RegionName).Distinct().ToList();
+        var regions = rows.Select(r => r.Region).Distinct().ToList();
         Assert.Equal(21, regions.Count);
         Assert.Contains("ERCOT", regions);
         Assert.Contains("CAISO NORTH", regions);
 
         // First data row: 2026-08-04, ERCOT, POP_HDD 0.0000 … POP_CDD 23.9600.
         var first = rows[0];
-        Assert.Equal(RunDate, first.RunDate);
-        Assert.Equal(new DateOnly(2026, 8, 4), first.Dates);
-        Assert.Equal("ERCOT", first.RegionName);
+        Assert.Equal(RunDate, first.ObservationDate);
+        Assert.Equal(new DateOnly(2026, 8, 4), first.Date);
+        Assert.Equal("ERCOT", first.Region);
         Assert.Equal(0.0000m, first.PopHdd);          // ISO HDD family is POP_HDD (not NG_HDD)
         Assert.Equal(0.0175m, first.PopHdd30y);
         Assert.Equal(0.0000m, first.PopHdd10y);
@@ -169,8 +169,8 @@ public class RegionsDegreeDaysParseTests
         Assert.Equal(17.2050m, first.PopCddLastY);
         Assert.False(first.IsForecast);
 
-        Assert.Contains(rows, r => r.IsForecast);
-        Assert.Contains(rows, r => !r.IsForecast);
+        Assert.Contains(rows, r => r.IsForecast == true);
+        Assert.Contains(rows, r => r.IsForecast == false);
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public class RegionsDegreeDaysParseTests
         // Present: the POP_HDD family + POP_CDD family + IsForecast (+ the natural key columns).
         foreach (var p in new[]
                  {
-                     "FileLogId", "RunDate", "Dates", "RegionName",
+                     "ObservationDate", "Date", "Region",
                      "PopHdd", "PopHdd30y", "PopHdd10y", "PopHddLastY",
                      "PopCdd", "PopCdd30y", "PopCdd10y", "PopCddLastY", "IsForecast"
                  })
@@ -195,8 +195,11 @@ public class RegionsDegreeDaysParseTests
         Assert.DoesNotContain("ElctWeight", props);
         Assert.DoesNotContain("PopWeight", props);
 
-        // Exactly the 13 expected columns — proves nothing extra leaked in.
-        Assert.Equal(13, props.Count);
+        // Gone with the 2026-10-05 reshape: no fact row carries provenance any more.
+        Assert.DoesNotContain("FileLogId", props);
+
+        // Exactly the 12 expected columns — proves nothing extra leaked in.
+        Assert.Equal(12, props.Count);
     }
 
     // ================================================================ END. footer skip (ShapeAParser branch)
@@ -219,7 +222,7 @@ public class RegionsDegreeDaysParseTests
 
         var rec = Assert.Single(records);                       // only the real data row survives
         var row = Regions5DegreeDaysRow.From(rec, unit);
-        Assert.Equal("Pacific", row!.RegionName);
+        Assert.Equal("Pacific", row!.Region);
         Assert.Empty(log.OfLevel(LogLevel.Warning));                               // width guard never fired
         Assert.Contains(log.OfLevel(LogLevel.Debug), e => e.Message.Contains("END."));
     }

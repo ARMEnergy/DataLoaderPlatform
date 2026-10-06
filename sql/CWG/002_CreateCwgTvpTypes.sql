@@ -1,434 +1,429 @@
 -- =============================================================================
 -- 002_CreateCwgTvpTypes.sql
--- Table-valued parameter types for the 18 CWG bulk merges (schema [arm]).
+-- Table-valued parameter types for the 19 CWG bulk merges (schema [arm]).
 --
--- Column ORDER here is the C# sink contract: FileLogId is ALWAYS the first
--- column, then the target table's data columns in the SAME ORDER as 001. The
--- sink's BuildTable mirrors this order exactly — do NOT reorder either side
--- without updating the other (a load-bearing contract).
+-- Column ORDER here is the C# sink contract: the target table's key columns
+-- first, then its value columns, in the SAME ORDER as 001. Each sink's
+-- BuildTable mirrors this order exactly, by NAME + ORDER + TYPE — do NOT reorder
+-- either side without updating the other (a load-bearing contract).
 --
--- The TVPs intentionally do NOT carry Id / DateCreated / ModifiedAtUtc: those are
--- populated by the target table's IDENTITY / DEFAULTs. There is no PK on the type
--- — the merge procs (003) de-dup the batch on the merge key before MERGE, so a
--- same-file duplicate natural key cannot break the MERGE.
+-- The TVPs intentionally do NOT carry RecordHash or ModifiedAtUtc. The merge
+-- proc (003) COMPUTES RecordHash from the row's non-key value columns and sets
+-- ModifiedAtUtc, so the hash definition lives in exactly one place and a sink
+-- cannot drift from it. arm.Station's Point (derived from Latitude/Longitude in
+-- the proc) and MappingId (IDENTITY) are absent for the same reason.
 --
--- NULL-ability mirrors the target columns: fact measures are NOT NULL except the
--- hourly ActualMw, the capacity Change-block TotalCapacityMw, and the capacity
--- Avg_1_5/6_10/11_15 horizons (a short Change block can omit a trailing horizon).
+-- There is no PK on any type — the merge procs de-dup the batch on the merge key
+-- before MERGE, so a same-file duplicate natural key cannot break the MERGE.
+--
+-- NULL-ability mirrors the target columns: key columns NOT NULL, measures NULL.
 --
 -- Run 001 first. This script assumes CWG is the current database.
+--
+-- NOTE: a TVP type cannot be ALTERed and cannot be dropped while a procedure
+-- references it. To change one, drop the referencing arm.usp_BulkMerge* proc,
+-- drop the type, then re-run 002 and 003.
 -- =============================================================================
 
 USE CWG;
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.CityForecastTvp — feeds arm.usp_BulkMergeCityForecast.
--- Order: (FileLogId, Region, ProductionDate, ForecastDate, Station,
---         FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd, Units).
--- Units is the LAST column (matches the sink's BuildTable order — load-bearing).
--- Temps are DECIMAL(8,5): a narrow TVP column would truncate the _C 5-dp normals
--- before the merge runs (must equal the table width in 001).
+-- 1. arm.CityForecastTvp → arm.usp_BulkMergeCityForecast.
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.CityForecastTvp') IS NULL
 BEGIN
     CREATE TYPE arm.CityForecastTvp AS TABLE
     (
-        FileLogId      INT          NOT NULL,
-        Region         VARCHAR(16)  NOT NULL,
         ProductionDate DATE         NOT NULL,
-        ForecastDate   DATE         NOT NULL,
-        Station        VARCHAR(8)   NOT NULL,
-        FcstMin        DECIMAL(8,5) NOT NULL,
-        FcstMax        DECIMAL(8,5) NOT NULL,
-        FcstAvg        DECIMAL(8,5) NOT NULL,
-        NormMin        DECIMAL(8,5) NOT NULL,
-        NormMax        DECIMAL(8,5) NOT NULL,
-        Hdd            SMALLINT     NOT NULL,
-        Cdd            SMALLINT     NOT NULL,
-        Units          VARCHAR(1)   NOT NULL
+        [Date]         DATE         NOT NULL,
+        Station        VARCHAR(50)  NOT NULL,
+        ForecastMin    DECIMAL(9,4) NULL,
+        ForecastMax    DECIMAL(9,4) NULL,
+        ForecastAvg    DECIMAL(9,4) NULL,
+        NormMin        DECIMAL(9,4) NULL,
+        NormMax        DECIMAL(9,4) NULL,
+        HDD            DECIMAL(9,4) NULL,
+        CDD            DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.CityGasForecastTvp — feeds arm.usp_BulkMergeCityGasForecast.
--- Order: (FileLogId, ProductionDate, ForecastDate, Station,
---         FcstMin, FcstMax, FcstAvg, NormMin, NormMax, Hdd, Cdd). No Region.
+-- 2. arm.CityGasForecastTvp → arm.usp_BulkMergeCityGasForecast.
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.CityGasForecastTvp') IS NULL
 BEGIN
     CREATE TYPE arm.CityGasForecastTvp AS TABLE
     (
-        FileLogId      INT          NOT NULL,
         ProductionDate DATE         NOT NULL,
-        ForecastDate   DATE         NOT NULL,
-        Station        VARCHAR(8)   NOT NULL,
-        FcstMin        DECIMAL(5,1) NOT NULL,
-        FcstMax        DECIMAL(5,1) NOT NULL,
-        FcstAvg        DECIMAL(5,1) NOT NULL,
-        NormMin        DECIMAL(5,1) NOT NULL,
-        NormMax        DECIMAL(5,1) NOT NULL,
-        Hdd            SMALLINT     NOT NULL,
-        Cdd            SMALLINT     NOT NULL
+        [Date]         DATE         NOT NULL,
+        Station        VARCHAR(50)  NOT NULL,
+        ForecastMin    DECIMAL(9,4) NULL,
+        ForecastMax    DECIMAL(9,4) NULL,
+        ForecastAvg    DECIMAL(9,4) NULL,
+        NormMin        DECIMAL(9,4) NULL,
+        NormMax        DECIMAL(9,4) NULL,
+        HDD            DECIMAL(9,4) NULL,
+        CDD            DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.CityObservationTvp — feeds arm.usp_BulkMergeCityObservation.
--- Order: (FileLogId, Region, ObsDate, Station, MinTemp, MaxTemp, Hdd, Cdd).
+-- 3. arm.CityObservationTvp → arm.usp_BulkMergeCityObservation.
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.CityObservationTvp') IS NULL
 BEGIN
     CREATE TYPE arm.CityObservationTvp AS TABLE
     (
-        FileLogId INT          NOT NULL,
-        Region    VARCHAR(16)  NOT NULL,
-        ObsDate   DATE         NOT NULL,
-        Station   VARCHAR(8)   NOT NULL,
-        MinTemp   DECIMAL(5,1) NOT NULL,
-        MaxTemp   DECIMAL(5,1) NOT NULL,
-        Hdd       SMALLINT     NOT NULL,
-        Cdd       SMALLINT     NOT NULL
+        [Date]  DATE         NOT NULL,
+        Station VARCHAR(50)  NOT NULL,
+        MinTemp DECIMAL(9,4) NULL,
+        MaxTemp DECIMAL(9,4) NULL,
+        HDD     DECIMAL(9,4) NULL,
+        CDD     DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.DailyNormalTvp — feeds arm.usp_BulkMergeDailyNormal.
--- Order: (FileLogId, MonthDay, Region, NormalMw).
+-- 4. arm.DailyNormalTvp → arm.usp_BulkMergeDailyNormal. WIDE (one column per
+--    written region); NW/SW from the source file are not carried.
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.DailyNormalTvp') IS NULL
 BEGIN
     CREATE TYPE arm.DailyNormalTvp AS TABLE
     (
-        FileLogId INT           NOT NULL,
-        MonthDay  CHAR(5)       NOT NULL,
-        Region    VARCHAR(10)   NOT NULL,
-        NormalMw  DECIMAL(12,4) NOT NULL
+        [Month] TINYINT      NOT NULL,
+        [Day]   TINYINT      NOT NULL,
+        CAISO   DECIMAL(9,4) NULL,
+        SPP     DECIMAL(9,4) NULL,
+        ERCOT   DECIMAL(9,4) NULL,
+        MISO    DECIMAL(9,4) NULL,
+        PJM     DECIMAL(9,4) NULL,
+        NEPOOL  DECIMAL(9,4) NULL,
+        NYISO   DECIMAL(9,4) NULL,
+        BPA     DECIMAL(9,4) NULL,
+        IESO    DECIMAL(9,4) NULL,
+        AESO    DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.SolarForecastTvp — feeds arm.usp_BulkMergeSolarForecast.
--- Order: (FileLogId, Region, InitDate, ForecastDate, HourLabel, HourOfDay, ValueMw).
+-- 5. arm.SolarForecastTvp → arm.usp_BulkMergeSolarForecast.
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.SolarForecastTvp') IS NULL
 BEGIN
     CREATE TYPE arm.SolarForecastTvp AS TABLE
     (
-        FileLogId    INT           NOT NULL,
-        Region       VARCHAR(10)   NOT NULL,
-        InitDate     DATE          NOT NULL,
-        ForecastDate DATE          NOT NULL,
-        HourLabel    VARCHAR(8)    NOT NULL,
-        HourOfDay    TINYINT       NOT NULL,
-        ValueMw      DECIMAL(12,4) NOT NULL
+        ForecastDate  DATE         NOT NULL,
+        UTCHourEnding DATETIME2(0) NOT NULL,
+        Region        VARCHAR(50)  NOT NULL,
+        ForecastLabel DATE         NULL,
+        HourLabel     VARCHAR(8)   NULL,
+        [Value]       DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.SolarForecastChangeTvp — feeds arm.usp_BulkMergeSolarForecastChange.
--- Order: (FileLogId, Region, InitDate, ForecastDate, HourLabel, HourOfDay, ChangeMw).
+-- 6. arm.SolarForecastChangeTvp → arm.usp_BulkMergeSolarForecastChange.
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.SolarForecastChangeTvp') IS NULL
 BEGIN
     CREATE TYPE arm.SolarForecastChangeTvp AS TABLE
     (
-        FileLogId    INT           NOT NULL,
-        Region       VARCHAR(10)   NOT NULL,
-        InitDate     DATE          NOT NULL,
-        ForecastDate DATE          NOT NULL,
-        HourLabel    VARCHAR(8)    NOT NULL,
-        HourOfDay    TINYINT       NOT NULL,
-        ChangeMw     DECIMAL(12,4) NOT NULL
+        ForecastDate  DATE         NOT NULL,
+        UTCHourEnding DATETIME2(0) NOT NULL,
+        Region        VARCHAR(50)  NOT NULL,
+        ForecastLabel DATE         NULL,
+        HourLabel     VARCHAR(8)   NULL,
+        [Value]       DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.SolarHourlyTvp — feeds arm.usp_BulkMergeSolarHourly.
--- Order: (FileLogId, HourEndingUtc, Region, ActualMw).
+-- 7. arm.SolarHourlyTvp → arm.usp_BulkMergeSolarHourly. WIDE.
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.SolarHourlyTvp') IS NULL
 BEGIN
     CREATE TYPE arm.SolarHourlyTvp AS TABLE
     (
-        FileLogId     INT           NOT NULL,
-        HourEndingUtc DATETIME2(0)  NOT NULL,
-        Region        VARCHAR(10)   NOT NULL,
-        ActualMw      DECIMAL(12,4) NULL
+        UTCHourEnding DATETIME2(0) NOT NULL,
+        ERCOT         DECIMAL(9,4) NULL,
+        CAISO         DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.NationalDegreeDaysTvp — feeds arm.usp_BulkMergeNationalDegreeDays.
--- Order: (FileLogId, RunDate, Dates, NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
---         PopCdd, PopCdd30y, PopCdd10y, PopCddLastY,
---         ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY, IsForecast).
+-- 8. arm.StateDegreeDayObservationTvp → arm.usp_BulkMergeStateDegreeDayObservation.
 -- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.NationalDegreeDaysTvp') IS NULL
+IF TYPE_ID('arm.StateDegreeDayObservationTvp') IS NULL
 BEGIN
-    CREATE TYPE arm.NationalDegreeDaysTvp AS TABLE
+    CREATE TYPE arm.StateDegreeDayObservationTvp AS TABLE
     (
-        FileLogId    INT          NOT NULL,
-        RunDate      DATE         NOT NULL,
-        Dates        DATE         NOT NULL,
-        NgHdd        DECIMAL(9,4) NOT NULL,
-        NgHdd30y     DECIMAL(9,4) NOT NULL,
-        NgHdd10y     DECIMAL(9,4) NOT NULL,
-        NgHddLastY   DECIMAL(9,4) NOT NULL,
-        PopCdd       DECIMAL(9,4) NOT NULL,
-        PopCdd30y    DECIMAL(9,4) NOT NULL,
-        PopCdd10y    DECIMAL(9,4) NOT NULL,
-        PopCddLastY  DECIMAL(9,4) NOT NULL,
-        ElecCdd      DECIMAL(9,4) NOT NULL,
-        ElecCdd30y   DECIMAL(9,4) NOT NULL,
-        ElecCdd10y   DECIMAL(9,4) NOT NULL,
-        ElecCddLastY DECIMAL(9,4) NOT NULL,
-        IsForecast   BIT          NOT NULL
+        ObservationDate DATE         NOT NULL,
+        RegionName      VARCHAR(50)  NOT NULL,
+        [State]         VARCHAR(50)  NOT NULL,
+        POP_HDD         DECIMAL(9,4) NULL,
+        [30Y_POP_HDD]   DECIMAL(9,4) NULL,
+        [10Y_POP_HDD]   DECIMAL(9,4) NULL,
+        LAST_Y_POP_HDD  DECIMAL(9,4) NULL,
+        POP_CDD         DECIMAL(9,4) NULL,
+        [30Y_POP_CDD]   DECIMAL(9,4) NULL,
+        [10Y_POP_CDD]   DECIMAL(9,4) NULL,
+        LAST_Y_POP_CDD  DECIMAL(9,4) NULL,
+        IS_FORECAST     BIT          NULL,
+        GAS_WEIGHT      DECIMAL(9,4) NULL,
+        ELCT_WEIGHT     DECIMAL(9,4) NULL,
+        POP_WEIGHT      DECIMAL(9,4) NULL
     );
 END
 GO
 
 -- ----------------------------------------------------------------------------
--- arm.Regions5DegreeDaysTvp — feeds arm.usp_BulkMergeRegions5DegreeDays.
--- Order: (FileLogId, RunDate, Dates, RegionName,
---         NgHdd, NgHdd30y, NgHdd10y, NgHddLastY,
---         PopCdd, PopCdd30y, PopCdd10y, PopCddLastY,
---         ElecCdd, ElecCdd30y, ElecCdd10y, ElecCddLastY,
---         IsForecast, GasWeight, ElctWeight, PopWeight).
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.Regions5DegreeDaysTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.Regions5DegreeDaysTvp AS TABLE
-    (
-        FileLogId    INT          NOT NULL,
-        RunDate      DATE         NOT NULL,
-        Dates        DATE         NOT NULL,
-        RegionName   VARCHAR(32)  NOT NULL,
-        NgHdd        DECIMAL(9,4) NOT NULL,
-        NgHdd30y     DECIMAL(9,4) NOT NULL,
-        NgHdd10y     DECIMAL(9,4) NOT NULL,
-        NgHddLastY   DECIMAL(9,4) NOT NULL,
-        PopCdd       DECIMAL(9,4) NOT NULL,
-        PopCdd30y    DECIMAL(9,4) NOT NULL,
-        PopCdd10y    DECIMAL(9,4) NOT NULL,
-        PopCddLastY  DECIMAL(9,4) NOT NULL,
-        ElecCdd      DECIMAL(9,4) NOT NULL,
-        ElecCdd30y   DECIMAL(9,4) NOT NULL,
-        ElecCdd10y   DECIMAL(9,4) NOT NULL,
-        ElecCddLastY DECIMAL(9,4) NOT NULL,
-        IsForecast   BIT          NOT NULL,
-        GasWeight    DECIMAL(9,4) NOT NULL,
-        ElctWeight   DECIMAL(9,4) NOT NULL,
-        PopWeight    DECIMAL(9,4) NOT NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.Regions9DegreeDaysTvp — feeds arm.usp_BulkMergeRegions9DegreeDays.
--- IDENTICAL column set / order to arm.Regions5DegreeDaysTvp.
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.Regions9DegreeDaysTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.Regions9DegreeDaysTvp AS TABLE
-    (
-        FileLogId    INT          NOT NULL,
-        RunDate      DATE         NOT NULL,
-        Dates        DATE         NOT NULL,
-        RegionName   VARCHAR(32)  NOT NULL,
-        NgHdd        DECIMAL(9,4) NOT NULL,
-        NgHdd30y     DECIMAL(9,4) NOT NULL,
-        NgHdd10y     DECIMAL(9,4) NOT NULL,
-        NgHddLastY   DECIMAL(9,4) NOT NULL,
-        PopCdd       DECIMAL(9,4) NOT NULL,
-        PopCdd30y    DECIMAL(9,4) NOT NULL,
-        PopCdd10y    DECIMAL(9,4) NOT NULL,
-        PopCddLastY  DECIMAL(9,4) NOT NULL,
-        ElecCdd      DECIMAL(9,4) NOT NULL,
-        ElecCdd30y   DECIMAL(9,4) NOT NULL,
-        ElecCdd10y   DECIMAL(9,4) NOT NULL,
-        ElecCddLastY DECIMAL(9,4) NOT NULL,
-        IsForecast   BIT          NOT NULL,
-        GasWeight    DECIMAL(9,4) NOT NULL,
-        ElctWeight   DECIMAL(9,4) NOT NULL,
-        PopWeight    DECIMAL(9,4) NOT NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.ISODegreeDaysTvp — feeds arm.usp_BulkMergeISODegreeDays.
--- DIVERGENT 11-col shape: POP_HDD family (no NG_HDD / ELEC family / weights).
--- Order: (FileLogId, RunDate, Dates, RegionName,
---         PopHdd, PopHdd30y, PopHdd10y, PopHddLastY,
---         PopCdd, PopCdd30y, PopCdd10y, PopCddLastY, IsForecast).
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.ISODegreeDaysTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.ISODegreeDaysTvp AS TABLE
-    (
-        FileLogId   INT          NOT NULL,
-        RunDate     DATE         NOT NULL,
-        Dates       DATE         NOT NULL,
-        RegionName  VARCHAR(32)  NOT NULL,
-        PopHdd      DECIMAL(9,4) NOT NULL,
-        PopHdd30y   DECIMAL(9,4) NOT NULL,
-        PopHdd10y   DECIMAL(9,4) NOT NULL,
-        PopHddLastY DECIMAL(9,4) NOT NULL,
-        PopCdd      DECIMAL(9,4) NOT NULL,
-        PopCdd30y   DECIMAL(9,4) NOT NULL,
-        PopCdd10y   DECIMAL(9,4) NOT NULL,
-        PopCddLastY DECIMAL(9,4) NOT NULL,
-        IsForecast  BIT          NOT NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.WindForecastTvp — feeds arm.usp_BulkMergeWindForecast.
--- Order: (FileLogId, Region, InitDate, ForecastDate, HourLabel, HourOfDay, ValueMw).
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.WindForecastTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.WindForecastTvp AS TABLE
-    (
-        FileLogId    INT           NOT NULL,
-        Region       VARCHAR(10)   NOT NULL,
-        InitDate     DATE          NOT NULL,
-        ForecastDate DATE          NOT NULL,
-        HourLabel    VARCHAR(8)    NOT NULL,
-        HourOfDay    TINYINT       NOT NULL,
-        ValueMw      DECIMAL(12,4) NOT NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.WindForecastSubRegionTvp — feeds arm.usp_BulkMergeWindForecastSubRegion.
--- Order: (FileLogId, Region, SubRegion, InitDate, ForecastDate,
---         HourLabel, HourOfDay, ValueMw).
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.WindForecastSubRegionTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.WindForecastSubRegionTvp AS TABLE
-    (
-        FileLogId    INT           NOT NULL,
-        Region       VARCHAR(10)   NOT NULL,
-        SubRegion    VARCHAR(40)   NOT NULL,
-        InitDate     DATE          NOT NULL,
-        ForecastDate DATE          NOT NULL,
-        HourLabel    VARCHAR(8)    NOT NULL,
-        HourOfDay    TINYINT       NOT NULL,
-        ValueMw      DECIMAL(12,4) NOT NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.WindHourlyTvp — feeds arm.usp_BulkMergeWindHourly.
--- Order: (FileLogId, HourEndingUtc, Region, ActualMw).
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.WindHourlyTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.WindHourlyTvp AS TABLE
-    (
-        FileLogId     INT           NOT NULL,
-        HourEndingUtc DATETIME2(0)  NOT NULL,
-        Region        VARCHAR(10)   NOT NULL,
-        ActualMw      DECIMAL(12,4) NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.WindTotalCapacityClimatologyTvp — feeds arm.usp_BulkMergeWindTotalCapacityClimatology.
--- Order: (FileLogId, ProductionDate, Region, TotalCapacityMw, Avg_1_5, Avg_6_10, Avg_11_15).
--- No Block column (single block).
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.WindTotalCapacityClimatologyTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.WindTotalCapacityClimatologyTvp AS TABLE
-    (
-        FileLogId       INT           NOT NULL,
-        ProductionDate  DATE          NOT NULL,
-        Region          VARCHAR(10)   NOT NULL,
-        TotalCapacityMw DECIMAL(12,4) NOT NULL,
-        Avg_1_5         DECIMAL(6,2)  NOT NULL,
-        Avg_6_10        DECIMAL(6,2)  NOT NULL,
-        Avg_11_15       DECIMAL(6,2)  NOT NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.WindTotalCapacityMWTvp — feeds arm.usp_BulkMergeWindTotalCapacityMW.
--- Order: (FileLogId, ProductionDate, Block, Region, TotalCapacityMw,
---         Avg_1_5, Avg_6_10, Avg_11_15). Avg columns are MW.
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.WindTotalCapacityMWTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.WindTotalCapacityMWTvp AS TABLE
-    (
-        FileLogId       INT           NOT NULL,
-        ProductionDate  DATE          NOT NULL,
-        Block           VARCHAR(12)   NOT NULL,
-        Region          VARCHAR(10)   NOT NULL,
-        TotalCapacityMw DECIMAL(12,4) NULL,
-        Avg_1_5         DECIMAL(12,4) NULL,
-        Avg_6_10        DECIMAL(12,4) NULL,
-        Avg_11_15       DECIMAL(12,4) NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.WindTotalCapacityPctTvp — feeds arm.usp_BulkMergeWindTotalCapacityPct.
--- Order: (FileLogId, ProductionDate, Block, Region, TotalCapacityMw,
---         Avg_1_5, Avg_6_10, Avg_11_15). Avg columns are % (DECIMAL(6,2)).
--- ----------------------------------------------------------------------------
-IF TYPE_ID('arm.WindTotalCapacityPctTvp') IS NULL
-BEGIN
-    CREATE TYPE arm.WindTotalCapacityPctTvp AS TABLE
-    (
-        FileLogId       INT           NOT NULL,
-        ProductionDate  DATE          NOT NULL,
-        Block           VARCHAR(12)   NOT NULL,
-        Region          VARCHAR(10)   NOT NULL,
-        TotalCapacityMw DECIMAL(12,4) NULL,
-        Avg_1_5         DECIMAL(6,2)  NULL,
-        Avg_6_10        DECIMAL(6,2)  NULL,
-        Avg_11_15       DECIMAL(6,2)  NULL
-    );
-END
-GO
-
--- ----------------------------------------------------------------------------
--- arm.StationTvp — feeds arm.usp_BulkMergeStation.
--- Order: (FileLogId, Region, Identifier, WmoId, Wban, Ghcnd, Lat, Lon,
---         Name, State, Country).
+-- 9. arm.StationTvp → arm.usp_BulkMergeStation.
+--    No Point (derived in the proc from Latitude/Longitude) and no MappingId
+--    (IDENTITY on the target).
 -- ----------------------------------------------------------------------------
 IF TYPE_ID('arm.StationTvp') IS NULL
 BEGIN
     CREATE TYPE arm.StationTvp AS TABLE
     (
-        FileLogId  INT          NOT NULL,
-        Region     VARCHAR(16)  NOT NULL,
-        Identifier VARCHAR(8)   NOT NULL,
-        WmoId      VARCHAR(11)  NULL,
-        Wban       VARCHAR(11)  NULL,
-        Ghcnd      VARCHAR(16)  NULL,
-        Lat        DECIMAL(9,6) NULL,
-        Lon        DECIMAL(9,6) NULL,
-        [Name]     NVARCHAR(64) NULL,
-        [State]    VARCHAR(64)  NULL,
-        Country    VARCHAR(64)  NULL
+        Identifier VARCHAR(50) NOT NULL,
+        WMOID      VARCHAR(50) NULL,
+        WBAN       VARCHAR(50) NULL,
+        GHCND      VARCHAR(50) NULL,
+        Latitude   FLOAT       NULL,
+        Longitude  FLOAT       NULL,
+        [Name]     VARCHAR(50) NULL,
+        [State]    VARCHAR(50) NULL,
+        Country    VARCHAR(50) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 10. arm.Regions5DegreeDaysTvp → arm.usp_BulkMergeRegions5DegreeDays.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.Regions5DegreeDaysTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.Regions5DegreeDaysTvp AS TABLE
+    (
+        ObservationDate DATE         NOT NULL,
+        [Date]          DATE         NOT NULL,
+        Region          VARCHAR(50)  NOT NULL,
+        NG_HDD          DECIMAL(9,4) NULL,
+        [30Y_NG_HDD]    DECIMAL(9,4) NULL,
+        [10Y_NG_HDD]    DECIMAL(9,4) NULL,
+        LAST_Y_NG_HDD   DECIMAL(9,4) NULL,
+        POP_CDD         DECIMAL(9,4) NULL,
+        [30Y_POP_CDD]   DECIMAL(9,4) NULL,
+        [10Y_POP_CDD]   DECIMAL(9,4) NULL,
+        LAST_Y_POP_CDD  DECIMAL(9,4) NULL,
+        ELEC_CDD        DECIMAL(9,4) NULL,
+        [30Y_ELEC_CDD]  DECIMAL(9,4) NULL,
+        [10Y_ELEC_CDD]  DECIMAL(9,4) NULL,
+        LAST_Y_ELEC_CDD DECIMAL(9,4) NULL,
+        IS_FORECAST     BIT          NULL,
+        GAS_WEIGHT      DECIMAL(9,4) NULL,
+        ELCT_WEIGHT     DECIMAL(9,4) NULL,
+        POP_WEIGHT      DECIMAL(9,4) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 11. arm.Regions9DegreeDaysTvp → arm.usp_BulkMergeRegions9DegreeDays.
+--     Identical layout to #10.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.Regions9DegreeDaysTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.Regions9DegreeDaysTvp AS TABLE
+    (
+        ObservationDate DATE         NOT NULL,
+        [Date]          DATE         NOT NULL,
+        Region          VARCHAR(50)  NOT NULL,
+        NG_HDD          DECIMAL(9,4) NULL,
+        [30Y_NG_HDD]    DECIMAL(9,4) NULL,
+        [10Y_NG_HDD]    DECIMAL(9,4) NULL,
+        LAST_Y_NG_HDD   DECIMAL(9,4) NULL,
+        POP_CDD         DECIMAL(9,4) NULL,
+        [30Y_POP_CDD]   DECIMAL(9,4) NULL,
+        [10Y_POP_CDD]   DECIMAL(9,4) NULL,
+        LAST_Y_POP_CDD  DECIMAL(9,4) NULL,
+        ELEC_CDD        DECIMAL(9,4) NULL,
+        [30Y_ELEC_CDD]  DECIMAL(9,4) NULL,
+        [10Y_ELEC_CDD]  DECIMAL(9,4) NULL,
+        LAST_Y_ELEC_CDD DECIMAL(9,4) NULL,
+        IS_FORECAST     BIT          NULL,
+        GAS_WEIGHT      DECIMAL(9,4) NULL,
+        ELCT_WEIGHT     DECIMAL(9,4) NULL,
+        POP_WEIGHT      DECIMAL(9,4) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 12. arm.ISODegreeDaysTvp → arm.usp_BulkMergeISODegreeDays.
+--     POP_HDD family (not NG_HDD); no ELEC family, no weights.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.ISODegreeDaysTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.ISODegreeDaysTvp AS TABLE
+    (
+        ObservationDate DATE         NOT NULL,
+        [Date]          DATE         NOT NULL,
+        Region          VARCHAR(50)  NOT NULL,
+        POP_HDD         DECIMAL(9,4) NULL,
+        [30Y_POP_HDD]   DECIMAL(9,4) NULL,
+        [10Y_POP_HDD]   DECIMAL(9,4) NULL,
+        LAST_Y_POP_HDD  DECIMAL(9,4) NULL,
+        POP_CDD         DECIMAL(9,4) NULL,
+        [30Y_POP_CDD]   DECIMAL(9,4) NULL,
+        [10Y_POP_CDD]   DECIMAL(9,4) NULL,
+        LAST_Y_POP_CDD  DECIMAL(9,4) NULL,
+        IS_FORECAST     BIT          NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 13. arm.NationalDegreeDaysTvp → arm.usp_BulkMergeNationalDegreeDays.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.NationalDegreeDaysTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.NationalDegreeDaysTvp AS TABLE
+    (
+        ObservationDate DATE         NOT NULL,
+        [Date]          DATE         NOT NULL,
+        NG_HDD          DECIMAL(9,4) NULL,
+        [30Y_NG_HDD]    DECIMAL(9,4) NULL,
+        [10Y_NG_HDD]    DECIMAL(9,4) NULL,
+        LAST_Y_NG_HDD   DECIMAL(9,4) NULL,
+        POP_CDD         DECIMAL(9,4) NULL,
+        [30Y_POP_CDD]   DECIMAL(9,4) NULL,
+        [10Y_POP_CDD]   DECIMAL(9,4) NULL,
+        LAST_Y_POP_CDD  DECIMAL(9,4) NULL,
+        ELEC_CDD        DECIMAL(9,4) NULL,
+        [30Y_ELEC_CDD]  DECIMAL(9,4) NULL,
+        [10Y_ELEC_CDD]  DECIMAL(9,4) NULL,
+        LAST_Y_ELEC_CDD DECIMAL(9,4) NULL,
+        IS_FORECAST     BIT          NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 14. arm.WindForecastTvp → arm.usp_BulkMergeWindForecast.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.WindForecastTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.WindForecastTvp AS TABLE
+    (
+        ForecastDate  DATE         NOT NULL,
+        UTCHourEnding DATETIME2(0) NOT NULL,
+        Region        VARCHAR(50)  NOT NULL,
+        ForecastLabel DATE         NULL,
+        HourLabel     VARCHAR(8)   NULL,
+        [Value]       DECIMAL(9,4) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 15. arm.WindForecastSubRegionTvp → arm.usp_BulkMergeWindForecastSubRegion.
+--     [Value] is DECIMAL(19,4) here (matches the target column).
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.WindForecastSubRegionTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.WindForecastSubRegionTvp AS TABLE
+    (
+        ForecastDate  DATE          NOT NULL,
+        UTCHourEnding DATETIME2(0)  NOT NULL,
+        Region        VARCHAR(50)   NOT NULL,
+        SubRegion     VARCHAR(50)   NOT NULL,
+        ForecastLabel DATE          NULL,
+        HourLabel     VARCHAR(8)    NULL,
+        [Value]       DECIMAL(19,4) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 16. arm.WindHourlyTvp → arm.usp_BulkMergeWindHourly. WIDE.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.WindHourlyTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.WindHourlyTvp AS TABLE
+    (
+        UTCHourEnding DATETIME2(0) NOT NULL,
+        CAISO         DECIMAL(9,4) NULL,
+        SPP           DECIMAL(9,4) NULL,
+        ERCOT         DECIMAL(9,4) NULL,
+        MISO          DECIMAL(9,4) NULL,
+        PJM           DECIMAL(9,4) NULL,
+        NEPOOL        DECIMAL(9,4) NULL,
+        NYISO         DECIMAL(9,4) NULL,
+        BPA           DECIMAL(9,4) NULL,
+        IESO          DECIMAL(9,4) NULL,
+        AESO          DECIMAL(9,4) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 17. arm.WindTotalCapacityClimatologyTvp → arm.usp_BulkMergeWindTotalCapacityClimatology.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.WindTotalCapacityClimatologyTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.WindTotalCapacityClimatologyTvp AS TABLE
+    (
+        ForecastDate              DATE         NOT NULL,
+        Region                    VARCHAR(50)  NOT NULL,
+        TotalCapacity             DECIMAL(9,4) NULL,
+        OneToFiveDayAverage       DECIMAL(9,4) NULL,
+        SixToTenDayAverage        DECIMAL(9,4) NULL,
+        ElevenToFifteenDayAverage DECIMAL(9,4) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 18. arm.WindTotalCapacityMWTvp → arm.usp_BulkMergeWindTotalCapacityMW.
+--     Carries CURRENT-block rows only (the sink never emits the other blocks).
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.WindTotalCapacityMWTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.WindTotalCapacityMWTvp AS TABLE
+    (
+        ForecastDate              DATE         NOT NULL,
+        Region                    VARCHAR(50)  NOT NULL,
+        TotalCapacity             DECIMAL(9,4) NULL,
+        OneToFiveDayAverage       DECIMAL(9,4) NULL,
+        SixToTenDayAverage        DECIMAL(9,4) NULL,
+        ElevenToFifteenDayAverage DECIMAL(9,4) NULL
+    );
+END
+GO
+
+-- ----------------------------------------------------------------------------
+-- 19. arm.WindTotalCapacityPctTvp → arm.usp_BulkMergeWindTotalCapacityPct.
+-- ----------------------------------------------------------------------------
+IF TYPE_ID('arm.WindTotalCapacityPctTvp') IS NULL
+BEGIN
+    CREATE TYPE arm.WindTotalCapacityPctTvp AS TABLE
+    (
+        ForecastDate              DATE         NOT NULL,
+        Region                    VARCHAR(50)  NOT NULL,
+        TotalCapacity             DECIMAL(9,4) NULL,
+        OneToFiveDayAverage       DECIMAL(9,4) NULL,
+        SixToTenDayAverage        DECIMAL(9,4) NULL,
+        ElevenToFifteenDayAverage DECIMAL(9,4) NULL
     );
 END
 GO
