@@ -5,6 +5,16 @@
 -- =============================================================================
 
 -- ----------------------------------------------------------------------------
+-- Database. Idempotent CREATE DATABASE guard (legal inside an IF block).
+-- ----------------------------------------------------------------------------
+IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = N'EnergyAspects')
+    CREATE DATABASE EnergyAspects;
+GO
+
+USE EnergyAspects;
+GO
+
+-- ----------------------------------------------------------------------------
 -- DatasetMapping — the EA catalogue, refreshed every run.
 -- ----------------------------------------------------------------------------
 IF OBJECT_ID('dbo.DatasetMapping', 'U') IS NULL

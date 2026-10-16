@@ -1,0 +1,49 @@
+
+================ ENTITLEMENT CENSUS ================
+date: 2026-10-14 13:19   window probed: 2026-10-13 (1 day)
+distinct ids probed (licensed mappings) :   30,061
+  entitled                              :   27,090
+  NOT entitled                          :    2,971
+
+   Map Name                                             Ids     Lic     Pct
+   515 North America planned refinery outages         1,470       8    0.5%
+   508 North America total refinery outages           1,050       5    0.5%
+   536 North America unplanned refinery outages         400       2    0.5%
+   195 South Korea fuel switch prices                    34       1    2.9%
+    36 European gas storage                              62      42   67.7%
+   465 Western Europe non-thermal installed capacit      42      36   85.7%
+   602 Vietnam gas balance                                6       4   66.7%
+    35 European gas balance                              33      32   97.0%
+    96 Global LNG price forecasts                         9       8   88.9%
+   114 North America basis price forecasts               34      33   97.1%
+    92 China oil products data                           45      44   97.8%
+   194 Europe jet balances                               13      12   92.3%
+   106 Global butane supply                             450     450  100.0%
+   109 Global C5+ supply                                218     218  100.0%
+   204 Global ethane demand                             257     257  100.0%
+   104 Global ethane supply                             438     438  100.0%
+    78 Global LPG demand                                352     352  100.0%
+   107 Global LPG supply                                329     329  100.0%
+    72 Global naphtha demand                            432     432  100.0%
+   108 Global NGLs supply                                31      31  100.0%
+   105 Global propane supply                            444     444  100.0%
+   111 US NGLs by PADD                                  116     116  100.0%
+   484 California LCFS balance                           84      84  100.0%
+   486 US and Canada biofuels balance                    21      21  100.0%
+   483 US RINs balance                                   27      27  100.0%
+   155 Asia crude balance                                47      47  100.0%
+    12 Canada crude balance                              67      67  100.0%
+   162 Canada oil production                             17      17  100.0%
+    93 China crude data                                   3       3  100.0%
+    91 Crude price forecasts                             16      16  100.0%
+       ... 177 more mappings
+
+mappings with ZERO entitled ids (every request 417s): 0
+mappings fully entitled (100%)                      : 195
+
+requests per window  now:   216
+requests per window  entitlement-aware:   215   (0% fewer)
+
+ids appearing ONLY in Licensed='no' mappings, sampled 5,000: 2473 turned out entitled
+  => WARNING: Licensed='no' mappings DO contain entitled datasets you are not loading.
+====================================================

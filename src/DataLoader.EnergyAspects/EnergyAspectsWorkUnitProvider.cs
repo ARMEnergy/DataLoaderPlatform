@@ -1,3 +1,4 @@
+using System.Globalization;
 using DataLoader.Core.Abstractions;
 using DataLoader.EnergyAspects.Models;
 using Microsoft.Extensions.Logging;
@@ -63,25 +64,88 @@ public sealed class EnergyAspectsWorkUnitProvider : IWorkUnitProvider<EnergyAspe
             throw new InvalidOperationException(
                 $"DateFrom ({dateFrom:yyyy-MM-dd}) is after DateTo ({dateTo:yyyy-MM-dd})");
 
-        // Step 4 — expand into (mapping × window) units
+        // Step 4 — expand into (mapping × window × id-chunk) units
         var window = Math.Max(1, _settings.TimeseriesWindowDays);
+        var fixedUriLength = EnergyAspectsRequest.FixedUriLength(_settings);
+        var today = context.StartedAtUtc.Date;
+        var hotToken = BuildHotToken(context);
         var units = new List<EnergyAspectsWorkUnit>();
+        var splitMappings = 0;
+        var hotUnits = 0;
+
         foreach (var m in mappings.Where(m => m.DatasetIds.Count > 0))
         {
+            // Chunk once per mapping rather than once per window: the id list
+            // is fixed for the run, so every window splits the same way and a
+            // part's resume key means the same ids in all of them.
+            var chunks = EnergyAspectsRequest.ChunkDatasetIds(
+                m.DatasetIds, fixedUriLength, _settings.MaxRequestUriLength);
+
+            if (chunks.Count > 1)
+            {
+                splitMappings++;
+                _logger.LogInformation(
+                    "Mapping {MappingId} ({Name}) has {Ids} dataset ids — splitting each window into " +
+                    "{Parts} requests to stay inside the {Budget}-character URI budget",
+                    m.MappingId, m.Name, m.DatasetIds.Count, chunks.Count, _settings.MaxRequestUriLength);
+            }
+
             var winStart = dateFrom;
             while (winStart <= dateTo)
             {
                 var winEnd = winStart.AddDays(window - 1);
                 if (winEnd > dateTo) winEnd = dateTo;
-                units.Add(new EnergyAspectsWorkUnit
+
+                // A window is settled once its LAST day is older than the horizon —
+                // using the last day, not the first, so a window is only frozen when
+                // every day inside it is beyond revision.
+                var settled = (today - winEnd).Days > Math.Max(0, _settings.SettledAfterDays);
+
+                for (var part = 0; part < chunks.Count; part++)
                 {
-                    Mapping = m, WindowStart = winStart, WindowEnd = winEnd
-                });
+                    units.Add(new EnergyAspectsWorkUnit
+                    {
+                        Mapping = m,
+                        DatasetIds = chunks[part],
+                        PartNumber = part + 1,
+                        PartCount = chunks.Count,
+                        WindowStart = winStart,
+                        WindowEnd = winEnd,
+                        Settled = settled,
+                        HotToken = settled ? null : hotToken
+                    });
+                    if (!settled) hotUnits++;
+                }
                 winStart = winEnd.AddDays(1);
             }
         }
-        _logger.LogInformation("Built {Units} work units from {Mappings} mappings, {From:yyyy-MM-dd}–{To:yyyy-MM-dd}",
-            units.Count, mappings.Count, dateFrom, dateTo);
+        _logger.LogInformation(
+            "Built {Units} work units from {Mappings} mappings ({Split} split across several requests), " +
+            "{From:yyyy-MM-dd}–{To:yyyy-MM-dd}; {Hot} hot (re-fetched, token {Token}), {Settled} settled",
+            units.Count, mappings.Count, splitMappings, dateFrom, dateTo,
+            hotUnits, hotToken, units.Count - hotUnits);
         return units;
     }
+
+    /// <summary>
+    /// The token appended to every hot window's resume key this run.
+    ///
+    /// <para>
+    /// An unmapped strategy THROWS rather than quietly falling back to a stable key:
+    /// the fallback would freeze the hot zone and silently stop picking up the
+    /// revisions it exists to catch.
+    /// </para>
+    /// </summary>
+    private string BuildHotToken(LoaderRunContext context) =>
+        _settings.HotKeyStrategy switch
+        {
+            EnergyAspectsHotKeyStrategy.RunDate =>
+                context.StartedAtUtc.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
+            EnergyAspectsHotKeyStrategy.RunHour =>
+                context.StartedAtUtc.ToString("yyyyMMddHH", CultureInfo.InvariantCulture),
+            EnergyAspectsHotKeyStrategy.RunId =>
+                context.RunId.ToString("N"),
+            _ => throw new NotSupportedException(
+                $"Unmapped EnergyAspectsHotKeyStrategy '{_settings.HotKeyStrategy}'.")
+        };
 }

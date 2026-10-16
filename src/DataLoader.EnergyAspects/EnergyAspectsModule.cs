@@ -50,6 +50,14 @@ public sealed class EnergyAspectsModule : ILoaderModule
             client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
+        // 🔒 LOAD-BEARING. Energy Aspects authenticates with a QUERY PARAMETER, so the
+        // factory's own request-logging handlers write the api_key into the log on every
+        // call — at Information level, which is on by default. This loader's
+        // SanitiseForLog strips the query string, but those handlers run underneath it
+        // and log the raw URI regardless. Removing them means the only request lines in
+        // the log are the sanitized ones written here. Same posture as OilX, the repo's
+        // other query-string-authenticated loader.
+        .RemoveAllLoggers()
         .AddPolicyHandler((sp, _) =>
         {
             var s = sp.GetRequiredService<IOptions<EnergyAspectsSettings>>().Value;
@@ -93,8 +101,31 @@ public sealed class EnergyAspectsModule : ILoaderModule
 
     public async Task<LoaderRunResult> RunAsync(IServiceProvider services, LoaderRunContext context)
     {
+        WarnOnSettleHorizon(services);
         var pipeline = services.GetRequiredService<EnergyAspectsPipeline>();
         return await pipeline.ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Energy Aspects restates across the whole window, so a short settle horizon is the
+    /// misconfiguration here — the opposite of OilX, whose published files are immutable
+    /// and where a LARGE horizon is the waste. Measured 2026-10-15: of the 33,939 rows one
+    /// run changed, only 0.8% had a DataDate inside the last day, 61.6% were 8-30 days old
+    /// and 4.8% were 31-90 days old.
+    /// </summary>
+    private static void WarnOnSettleHorizon(IServiceProvider services)
+    {
+        var s = services.GetRequiredService<IOptions<EnergyAspectsSettings>>().Value;
+        if (s.SettledAfterDays >= s.DaysBackStart) return;
+
+        var logger = services.GetRequiredService<ILogger<EnergyAspectsModule>>();
+        logger.LogWarning(
+            "EnergyAspects SettledAfterDays={Settled} is below DaysBackStart={DaysBack}, so windows " +
+            "older than {Settled} day(s) are frozen at the first value seen. The vendor restates far " +
+            "beyond that — on a measured run only 0.8% of changed rows were within a day, while 61.6% " +
+            "were 8-30 days old — so those revisions will be missed. Set it to {DaysBack} to keep the " +
+            "whole window hot",
+            s.SettledAfterDays, s.DaysBackStart, s.SettledAfterDays, s.DaysBackStart);
     }
 
     /// <summary>

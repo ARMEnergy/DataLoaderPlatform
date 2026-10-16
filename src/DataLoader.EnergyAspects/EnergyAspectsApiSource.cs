@@ -32,12 +32,12 @@ public sealed class EnergyAspectsApiSource : HttpJsonSourceReaderBase<EnergyAspe
 
     protected override Uri BuildRequestUri(EnergyAspectsWorkUnit unit)
     {
-        var ids = string.Join(",", unit.Mapping.DatasetIds);
-        var from = unit.WindowStart.ToString("yyyy-MM-dd");
-        var to = unit.WindowEnd.ToString("yyyy-MM-dd");
-        // BaseAddress is set on the HttpClient — pass relative
+        // DatasetIds is the unit's own chunk, not the whole mapping — the work
+        // unit provider already split anything too long for one request URI.
+        // BaseAddress is set on the HttpClient — pass relative.
         return new Uri(
-            $"{_settings.TimeseriesEndpoint}?api_key={_settings.ApiKey}&dataset_id={ids}&date_from={from}&date_to={to}",
+            EnergyAspectsRequest.BuildTimeseriesUri(
+                _settings, unit.DatasetIds, unit.WindowStart, unit.WindowEnd),
             UriKind.Relative);
     }
 
@@ -48,10 +48,80 @@ public sealed class EnergyAspectsApiSource : HttpJsonSourceReaderBase<EnergyAspe
         // response code for this mapping
         await _apiLogger.LogApiResponseAsync(unit.Mapping.MappingId, (int)response.StatusCode, ct);
 
-        // The original treated 417 as "not authorized for this licensed
-        // dataset" — translate so the pipeline can short-circuit
+        // 414 means the chunking budget is wrong, not that the data is bad.
+        // Say so plainly — the bare status text sent the previous investigation
+        // looking at the vendor rather than at config. The URI itself carries
+        // the api key, so report its length and never the string.
+        if ((int)response.StatusCode == 414)
+            throw new InvalidOperationException(
+                $"Mapping {unit.Mapping.MappingId} part {unit.PartNumber}/{unit.PartCount} " +
+                $"built a {BuildRequestUri(unit).OriginalString.Length}-character request URI for " +
+                $"{unit.DatasetIds.Count} dataset ids and the API rejected it with 414. The server's " +
+                $"limit is {EnergyAspectsRequest.ServerRequestUriLimit}; lower " +
+                "Loaders:EnergyAspects:MaxRequestUriLength so the mapping splits into more parts.");
+    }
+
+    /// <summary>
+    /// Standard read, except that <c>417</c> is classified rather than thrown.
+    ///
+    /// <para>
+    /// Measured against the live API: <c>417 {"detail":"User is not licensed to
+    /// data."}</c> is returned only when <b>not one</b> of the requested dataset
+    /// ids is licensed. If even one is, the answer is <c>200</c> and the
+    /// unlicensed ids are silently omitted from the body. So for a work unit
+    /// holding part of a mapping, a 417 is a true statement about that slice —
+    /// "nothing here is licensed" — and not a failure: mapping 515 has 1,470
+    /// ids of which only 8 are licensed, so the part that happens to hold none
+    /// of them answers 417 on every window while the other part loads fine.
+    /// </para>
+    ///
+    /// <para>
+    /// Since <c>usp_GetActiveMappings</c> no longer filters on <c>Licensed</c>,
+    /// a 417 is the normal answer for any slice we are not entitled to, and
+    /// tolerating it is what lets the API — rather than the vendor's unreliable
+    /// per-mapping flag — decide what gets loaded.
+    /// </para>
+    ///
+    /// <para>
+    /// One combination is still an error. If a mapping the vendor flags
+    /// <c>Licensed = 'yes'</c> answers 417 for its ENTIRE id list, the vendor's
+    /// own metadata and its API disagree in the dangerous direction: we are told
+    /// we hold the licence and served nothing. A 2026-10-14 census of all 30,061
+    /// ids under licensed mappings found none with zero entitlement, so that
+    /// means something really changed — an entitlement lapse or a downgraded key
+    /// — and it must fail loudly rather than quietly become "0 rows". The flag
+    /// is thus kept as a corroborating hint after being dropped as a filter.
+    /// </para>
+    /// </summary>
+    public override async Task<IReadOnlyList<TimeseriesApiItem>> ReadAsync(
+        EnergyAspectsWorkUnit unit, CancellationToken cancellationToken)
+    {
+        var uri = BuildRequestUri(unit);
+        Logger.LogDebug("GET {Uri}", SanitiseForLog(uri));
+
+        var response = await HttpClient.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+        await OnResponseReceivedAsync(unit, response, cancellationToken).ConfigureAwait(false);
+
         if ((int)response.StatusCode == 417)
-            throw new UnauthorizedAccessException($"Mapping {unit.Mapping.MappingId} returned 417 — likely unlicensed");
+        {
+            if (unit.PartCount <= 1 && unit.Mapping.IsLicensed)
+                throw new UnauthorizedAccessException(
+                    $"Mapping {unit.Mapping.MappingId} ({unit.Mapping.Name}) returned 417 for its " +
+                    $"entire {unit.DatasetIds.Count}-id list, even though the vendor flags it " +
+                    "Licensed='yes'. Entitlement has changed, or the API key has.");
+
+            Logger.LogInformation(
+                "Mapping {MappingId} part {Part}/{Parts} (Licensed={Licensed}): none of its {Ids} " +
+                "dataset ids is licensed (417) — empty read for {From:yyyy-MM-dd}–{To:yyyy-MM-dd}",
+                unit.Mapping.MappingId, unit.PartNumber, unit.PartCount,
+                string.IsNullOrWhiteSpace(unit.Mapping.Licensed) ? "?" : unit.Mapping.Licensed,
+                unit.DatasetIds.Count, unit.WindowStart, unit.WindowEnd);
+
+            return Array.Empty<TimeseriesApiItem>();
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await DeserializeAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
     protected override async Task<IReadOnlyList<TimeseriesApiItem>> DeserializeAsync(

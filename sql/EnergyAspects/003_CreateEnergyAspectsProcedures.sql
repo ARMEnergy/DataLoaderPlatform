@@ -3,6 +3,9 @@
 -- Stored procedures called by EnergyAspectsSink.
 -- =============================================================================
 
+USE EnergyAspects;
+GO
+
 -- ----------------------------------------------------------------------------
 -- dbo.usp_BulkUpsertDatasetMappings
 -- ----------------------------------------------------------------------------
@@ -74,6 +77,23 @@ BEGIN
                FOR XML PATH(''), TYPE
         ).value('.', 'NVARCHAR(MAX)'), 1, 1, '')
     FROM dbo.DatasetMapping m
+    -- Deliberately NOT filtered on Licensed. That column is the vendor's
+    -- per-MAPPING flag and it does not match per-DATASET entitlement: a census
+    -- of the catalogue on 2026-10-14 found that datasets appearing only in
+    -- Licensed='no' mappings are served normally (2,473 of a random 5,000, and
+    -- 366 of 400 id-ordered), e.g. mapping 13 'US regional refinery slates'.
+    -- Filtering on it excluded ~246k dataset ids, a large share of which the
+    -- API will happily return.
+    --
+    -- The API is the authority instead: a request for ids we are not entitled
+    -- to answers 417, which the source reader records as a legitimate empty
+    -- read, so asking costs a request and nothing else. Licensed is still
+    -- SELECTed above because the reader uses it as a corroborating hint — see
+    -- EnergyAspectsApiSource.ReadAsync.
+    --
+    -- IsActive remains the manual off-switch, though it does not currently
+    -- discriminate: usp_BulkUpsertDatasetMappings stamps IsActive = 1 on every
+    -- upsert, so all rows are active until someone clears one by hand.
     WHERE m.IsActive = 1
     ORDER BY m.MappingId;
 END
@@ -121,8 +141,55 @@ CREATE PROCEDURE dbo.usp_BulkUpsertDatasetMetadata
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    -- The vendor can return the SAME dataset_id more than once in one response.
+    -- Mapping 122 (Global refinery maintenance) answers with 547 items for 546
+    -- requested ids because dataset 7019 arrives twice: once as the current
+    -- revision (release_date 2026-10-09, forecast_start_date 2025-03-28) and
+    -- once superseded (release_date 2025-09-12, no forecast start). Everything
+    -- else on the two rows is identical.
+    --
+    -- Both copies reach the TVP, both miss on DatasetId, and MERGE's NOT
+    -- MATCHED branch inserts both — which the unique index on DatasetId then
+    -- rejects. Note this is the NOT MATCHED side, so SQL Server does NOT raise
+    -- its usual "MERGE statement attempted to UPDATE or DELETE the same row
+    -- more than once" (error 8672); it surfaces as a plain unique-key violation
+    -- that reads like a concurrency problem and is not one. Live effect: every
+    -- window of mapping 122 failed on every run.
+    --
+    -- So collapse to one row per DatasetId before the MERGE. Newest ReleaseDate
+    -- wins — that is the vendor's own marker for which revision is current, and
+    -- under DESC a NULL sorts last, so a dated row always beats an undated one.
+    ;WITH Fingerprinted AS
+    (
+        SELECT r.*,
+               -- Pure tiebreak: makes the pick a function of the row's content
+               -- rather than of whatever order the TVP happened to arrive in.
+               -- Only reached when ReleaseDate and ForecastStartDate both tie.
+               -- CONCAT, not CONCAT_WS: CONCAT_WS *skips* NULL arguments, which
+               -- would slide later columns into their place and let two
+               -- different rows fingerprint the same. CONCAT substitutes ''.
+               -- The leading CAST forces the whole expression to NVARCHAR(MAX)
+               -- so a long Description cannot be silently truncated at 4000.
+               RowFingerprint = HASHBYTES('MD5', CONCAT(
+                   CAST(r.Country AS NVARCHAR(MAX)), N'|', r.CountryIso, N'|', r.Region, N'|',
+                   r.SubRegion, N'|', r.[Description], N'|', r.Aspect, N'|', r.AspectSubtype, N'|',
+                   r.Category, N'|', r.CategorySubtype, N'|', r.ForecastStartDate, N'|',
+                   r.Frequency, N'|', r.LifecycleStage, N'|', r.[Source], N'|', r.Unit, N'|',
+                   r.ReleaseDate, N'|', r.Basin, N'|', r.PartnerSubRegion, N'|', r.Pipeline, N'|',
+                   r.EaIsoRto))
+        FROM @Records AS r
+    ),
+    Ranked AS
+    (
+        SELECT f.*,
+               RowRank = ROW_NUMBER() OVER (
+                   PARTITION BY f.DatasetId
+                   ORDER BY f.ReleaseDate DESC, f.ForecastStartDate DESC, f.RowFingerprint)
+        FROM Fingerprinted AS f
+    )
     MERGE dbo.DatasetMetadata AS tgt
-    USING @Records AS src
+    USING (SELECT * FROM Ranked WHERE RowRank = 1) AS src
        ON tgt.DatasetId = src.DatasetId
     WHEN MATCHED THEN UPDATE SET
         Country           = src.Country,

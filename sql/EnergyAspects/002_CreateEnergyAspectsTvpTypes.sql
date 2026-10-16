@@ -3,6 +3,9 @@
 -- Table-valued parameter types for the bulk merges.
 -- =============================================================================
 
+USE EnergyAspects;
+GO
+
 IF TYPE_ID('dbo.MappingDatasetTvp') IS NULL
 BEGIN
     CREATE TYPE dbo.MappingDatasetTvp AS TABLE
