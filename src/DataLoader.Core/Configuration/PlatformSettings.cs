@@ -49,4 +49,32 @@ public sealed class PlatformSettings
     /// post-load work across several databases.
     /// </summary>
     public int AdditionalProcessesTimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Command timeout for the <c>core.LoadLog</c> / <c>core.LoaderRun</c> commands, in seconds.
+    ///
+    /// <para>Deliberately NOT ADO.NET's 30-second default. Every work unit opens its own
+    /// connection to call <c>usp_BeginLoadLog</c>, and a large loader fans hundreds of them
+    /// through a few concurrent slots — CWG alone runs 476 units. A client-side timeout there
+    /// is uniquely damaging: the INSERT has already committed, so the row exists while the
+    /// client never learns its id, leaving a row that nothing can close
+    /// (see <c>sql/Core/006_CreateLoadLogSweeper.sql</c>). A longer timeout makes that race
+    /// far rarer; the sweeper cleans up whatever still slips through.</para>
+    /// </summary>
+    public int LoadLogCommandTimeoutSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// Whether to close never-closed <c>core.LoadLog</c> rows left behind by EARLIER runs at the
+    /// start of each invocation (<c>core.usp_AbandonStaleLoadLogs</c>). On by default. A row is
+    /// only closed when its own run is definitively over, so a concurrently-running invocation is
+    /// never disturbed.
+    /// </summary>
+    public bool AbandonStaleLoadLogs { get; set; } = true;
+
+    /// <summary>
+    /// How long a run that never wrote its own <c>CompletedAtUtc</c> (i.e. the process was killed)
+    /// must have been started before its open rows are swept. Runs that DID complete are swept
+    /// immediately regardless of this. Default 24 hours.
+    /// </summary>
+    public int AbandonStaleAfterHours { get; set; } = 24;
 }

@@ -25,6 +25,7 @@ public sealed class PlatformHost
     private readonly ILoadLogRepository _runLog;
     private readonly ILoaderOverlapGuard _overlapGuard;
     private readonly IAdditionalProcessRunner _additionalProcesses;
+    private readonly ILoadLogSweeper? _loadLogSweeper;
     private readonly PlatformSettings _settings;
     private readonly ILogger<PlatformHost> _logger;
 
@@ -35,15 +36,45 @@ public sealed class PlatformHost
         ILoaderOverlapGuard overlapGuard,
         IAdditionalProcessRunner additionalProcesses,
         IOptions<PlatformSettings> settings,
-        ILogger<PlatformHost> logger)
+        ILogger<PlatformHost> logger,
+        ILoadLogSweeper? loadLogSweeper = null)
     {
         _services = services;
         _modules = modules;
         _runLog = runLog;
         _overlapGuard = overlapGuard;
         _additionalProcesses = additionalProcesses;
+        _loadLogSweeper = loadLogSweeper;
         _settings = settings.Value;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Closes <c>core.LoadLog</c> rows left open by EARLIER runs, so the table has no
+    /// permanently-open rows. Those arise when <c>usp_BeginLoadLog</c>'s INSERT commits but the
+    /// client never receives the id back (a command timeout or dropped connection), or when the
+    /// process is killed mid-unit — in both cases nothing holds the handle needed to close the row.
+    ///
+    /// <para>Best-effort and never fatal: housekeeping must not stop a run from loading data. Rows
+    /// belonging to a still-running invocation are never touched — the proc only closes rows whose
+    /// own run has finished or started outside the staleness window.</para>
+    /// </summary>
+    private async Task SweepStaleLoadLogsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        if (!_settings.AbandonStaleLoadLogs || _loadLogSweeper is null) return;
+
+        try
+        {
+            var closed = await _loadLogSweeper.AbandonStaleAsync(runId, cancellationToken).ConfigureAwait(false);
+            if (closed > 0)
+                _logger.LogWarning(
+                    "Closed {Count} load-log row(s) left open by earlier runs — a unit opened its row " +
+                    "but never closed it (see core.usp_AbandonStaleLoadLogs)", closed);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sweep stale load-log rows; continuing with the run");
+        }
     }
 
     public async Task<int> RunAsync(CancellationToken cancellationToken)
@@ -63,6 +94,7 @@ public sealed class PlatformHost
             runId, enabled.Count, string.Join(", ", enabled.Select(m => m.LoaderId)));
 
         await _runLog.BeginRunAsync(runId, cancellationToken).ConfigureAwait(false);
+        await SweepStaleLoadLogsAsync(runId, cancellationToken).ConfigureAwait(false);
 
         var context = BuildContext(runId, startedAt, cancellationToken);
         var results = new List<LoaderRunResult>();

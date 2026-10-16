@@ -162,7 +162,12 @@ internal static class Program
             b.AddConfiguration(configuration.GetSection("Logging"));
         });
 
-        services.AddSingleton<ILoadLogRepository, SqlLoadLogRepository>();
+        // One instance, two roles: the per-work-unit load log and the once-per-run sweeper that
+        // closes rows an earlier run opened but never closed. Resolve the concrete type for both
+        // so they genuinely share it rather than each getting their own.
+        services.AddSingleton<SqlLoadLogRepository>();
+        services.AddSingleton<ILoadLogRepository>(sp => sp.GetRequiredService<SqlLoadLogRepository>());
+        services.AddSingleton<ILoadLogSweeper>(sp => sp.GetRequiredService<SqlLoadLogRepository>());
         services.AddSingleton<ILoaderOverlapGuard, SqlLoaderOverlapGuard>();
         services.AddSingleton<IAdditionalProcessRunner, SqlAdditionalProcessRunner>();
         services.AddSingleton<IReadOnlyList<ILoaderModule>>(modules);

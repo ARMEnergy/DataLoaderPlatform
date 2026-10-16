@@ -112,20 +112,45 @@ public class PlatformHostTests
         }
     }
 
+    /// <summary>Records sweeper calls, and can fault to prove housekeeping never kills a run.</summary>
+    private sealed class FakeSweeper : ILoadLogSweeper
+    {
+        public int Calls;
+        public Guid LastRunId;
+        public int Returns;
+        public bool Throw;
+
+        public Task<int> AbandonStaleAsync(Guid currentRunId, CancellationToken ct)
+        {
+            Calls++;
+            LastRunId = currentRunId;
+            return Throw
+                ? Task.FromException<int>(new InvalidOperationException("sweeper blew up"))
+                : Task.FromResult(Returns);
+        }
+    }
+
     private static PlatformHost Build(
         IEnumerable<ILoaderModule> modules,
         FakeRunLog runLog,
         FakeAdditionalProcesses hook,
         ILoaderOverlapGuard? guard = null,
-        int maxConcurrent = 1)
+        int maxConcurrent = 1,
+        ILoadLogSweeper? sweeper = null,
+        bool abandonStale = true)
         => new(
             new ServiceCollection().BuildServiceProvider(),
             modules.ToList(),
             runLog,
             guard ?? new FakeOverlapGuard(),
             hook,
-            Options.Create(new PlatformSettings { MaxConcurrentLoaders = maxConcurrent }),
-            NullLogger<PlatformHost>.Instance);
+            Options.Create(new PlatformSettings
+            {
+                MaxConcurrentLoaders = maxConcurrent,
+                AbandonStaleLoadLogs = abandonStale
+            }),
+            NullLogger<PlatformHost>.Instance,
+            sweeper);
 
     // ------------------------------------------------- hook: when it DOES fire
 
@@ -296,5 +321,60 @@ public class PlatformHostTests
         Assert.Equal(1, exit);
         Assert.Equal(1, runLog.CompleteRunCalls);
         Assert.False(runLog.CompletedSuccess);
+    }
+
+    // ------------------------------------------------- stale load-log sweeper
+
+    [Fact]
+    public async Task Sweeper_RunsOnceAtStartOfRun_WithThisRunsId()
+    {
+        var runLog = new FakeRunLog();
+        var sweeper = new FakeSweeper();
+        var host = Build(new[] { FakeModule.Succeeding("A") }, runLog, new FakeAdditionalProcesses(), sweeper: sweeper);
+
+        await host.RunAsync(CancellationToken.None);
+
+        Assert.Equal(1, sweeper.Calls);
+        // It must pass the CURRENT run id: the proc excludes that run so this invocation
+        // can never close its own in-flight rows.
+        Assert.NotEqual(Guid.Empty, sweeper.LastRunId);
+    }
+
+    [Fact]
+    public async Task Sweeper_IsSkipped_WhenDisabledByConfiguration()
+    {
+        var sweeper = new FakeSweeper();
+        var host = Build(new[] { FakeModule.Succeeding("A") }, new FakeRunLog(),
+                         new FakeAdditionalProcesses(), sweeper: sweeper, abandonStale: false);
+
+        await host.RunAsync(CancellationToken.None);
+
+        Assert.Equal(0, sweeper.Calls);
+    }
+
+    [Fact]
+    public async Task Sweeper_Failure_DoesNotFailTheRun()
+    {
+        // Housekeeping must never stop a run from loading data.
+        var sweeper = new FakeSweeper { Throw = true };
+        var runLog = new FakeRunLog();
+        var host = Build(new[] { FakeModule.Succeeding("A") }, runLog,
+                         new FakeAdditionalProcesses(), sweeper: sweeper);
+
+        var exit = await host.RunAsync(CancellationToken.None);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(1, sweeper.Calls);
+        Assert.True(runLog.CompletedSuccess);
+    }
+
+    [Fact]
+    public async Task Sweeper_Absent_IsNotAnError()
+    {
+        // The dependency is optional, so a host built without one still runs.
+        var host = Build(new[] { FakeModule.Succeeding("A") }, new FakeRunLog(),
+                         new FakeAdditionalProcesses(), sweeper: null);
+
+        Assert.Equal(0, await host.RunAsync(CancellationToken.None));
     }
 }
