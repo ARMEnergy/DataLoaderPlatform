@@ -13,6 +13,9 @@
 -- then re-run 002-003 (or re-provision the database).
 -- =============================================================================
 
+USE Vulcan;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.types WHERE name = 'UnderConstructionTvp' AND schema_id = SCHEMA_ID('dbo'))
 CREATE TYPE dbo.UnderConstructionTvp AS TABLE
 (

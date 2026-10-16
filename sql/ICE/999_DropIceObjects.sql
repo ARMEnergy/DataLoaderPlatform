@@ -11,6 +11,9 @@
 -- arm.FileLog before arm.Status because of the FK.
 -- =============================================================================
 
+USE ICE;
+GO
+
 -- ---- procedures -------------------------------------------------------------
 DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;

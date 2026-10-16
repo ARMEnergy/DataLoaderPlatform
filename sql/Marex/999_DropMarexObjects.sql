@@ -19,6 +19,9 @@
 -- fact tables freely in development; think twice about the three dimensions.
 -- =============================================================================
 
+USE Marex;
+GO
+
 -- ---- procedures -------------------------------------------------------------
 DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;

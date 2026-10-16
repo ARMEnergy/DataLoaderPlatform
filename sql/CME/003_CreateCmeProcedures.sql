@@ -40,6 +40,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE CMEGroup;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_UpsertFileLog -- one hub row per source bulletin, every outcome
 -- (Success / Failed). FileName is the natural key, so re-checking a file updates

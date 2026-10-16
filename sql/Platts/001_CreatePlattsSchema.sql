@@ -7,6 +7,9 @@
 -- All objects live in schema [arm].
 -- =============================================================================
 
+USE Platts;
+GO
+
 -- ----------------------------------------------------------------------------
 -- Schema arm — CREATE SCHEMA must be the first statement in its batch, so it is
 -- wrapped in EXEC and followed by GO.

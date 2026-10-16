@@ -12,6 +12,9 @@
 -- database AFTER 001-003. Idempotent / re-runnable.
 -- =============================================================================
 
+USE DataLoaderPlatform;
+GO
+
 -- ----------------------------------------------------------------------------
 -- core.Param — one row per (loader, parameter). The (LoaderName, ParamName)
 -- pair is the natural key; the UNIQUE constraint guarantees at most one Value

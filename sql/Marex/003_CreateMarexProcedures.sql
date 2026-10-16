@@ -56,6 +56,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE Marex;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_BulkMergeClosingPrice
 --   -> arm.ClosingPrice

@@ -30,6 +30,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE Argus;
+GO
+
 -- ----------------------------------------------------------------------------
 -- dlp.usp_UpsertFileLog — one hub row per source FILE, for EVERY outcome
 -- (Success / NotAvailable / Failed). FileName is the natural key, so a

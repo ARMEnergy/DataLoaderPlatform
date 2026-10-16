@@ -36,6 +36,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE ICE;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_UpsertFileLog — one hub row per (feed, trade date), for EVERY outcome
 -- (Success / NotAvailable / Failed / AuthExpired / Malformed).

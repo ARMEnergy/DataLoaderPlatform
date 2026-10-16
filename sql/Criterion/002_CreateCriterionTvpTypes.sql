@@ -37,6 +37,9 @@
 -- reference it, drop the type, then re-run 002 and 003 (999 does this in order).
 -- =============================================================================
 
+USE Criterion;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.FinancialMetadataTvp -> arm.Financial_Metadata
 -- 19 columns: the table's 21 less Enabled (no source) and ModifiedAtUtc.

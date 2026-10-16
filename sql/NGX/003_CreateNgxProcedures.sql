@@ -45,6 +45,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE NGX;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_BulkMergeIndexPrice
 --   -> arm.IndexPrice

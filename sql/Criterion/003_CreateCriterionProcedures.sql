@@ -45,6 +45,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE Criterion;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_BulkMergeFinancialMetadata -> arm.Financial_Metadata
 --

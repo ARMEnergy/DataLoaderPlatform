@@ -12,6 +12,9 @@
 -- database AFTER 001-004. Idempotent / re-runnable.
 -- =============================================================================
 
+USE DataLoaderPlatform;
+GO
+
 -- ----------------------------------------------------------------------------
 -- core.usp_RunAdditionalProcesses
 --

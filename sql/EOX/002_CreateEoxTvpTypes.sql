@@ -34,6 +34,9 @@
 -- it, drop the type, then re-run 002 and 003 (999 does this in the right order).
 -- =============================================================================
 
+USE EOX;
+GO
+
 IF TYPE_ID('arm.CrudeOilTvp') IS NULL
 BEGIN
     CREATE TYPE arm.CrudeOilTvp AS TABLE

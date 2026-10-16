@@ -39,6 +39,9 @@
 -- and never for @CurrentRunId itself.
 -- =============================================================================
 
+USE DataLoaderPlatform;
+GO
+
 -- ----------------------------------------------------------------------------
 -- Filtered index: the sweep runs at the start of every invocation and
 -- core.LoadLog holds millions of rows, so the open-row predicate must not become

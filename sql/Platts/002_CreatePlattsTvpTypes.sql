@@ -5,6 +5,9 @@
 -- sinks build. Do NOT reorder without updating the sinks.
 -- =============================================================================
 
+USE Platts;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.SymbolDataTvp — feeds arm.usp_BulkMergeSymbolData.
 -- NO primary key: the sink de-dups the batch (keeping latest ActionDate) before

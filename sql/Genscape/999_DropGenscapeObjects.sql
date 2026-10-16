@@ -11,6 +11,9 @@
 -- There are no foreign keys between these tables, so table order is free.
 -- =============================================================================
 
+USE Genscape;
+GO
+
 -- ---- procedures -------------------------------------------------------------
 DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;

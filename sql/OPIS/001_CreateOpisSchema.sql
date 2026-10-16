@@ -34,6 +34,9 @@
 -- Guarded with IF OBJECT_ID(...) IS NULL so the script is re-runnable.
 -- =============================================================================
 
+USE OPIS;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE [name] = 'arm')
     EXEC ('CREATE SCHEMA arm AUTHORIZATION dbo;');
 GO

@@ -32,6 +32,9 @@
 -- reference it, drop the type, then re-run 002 and 003 (999 does this in order).
 -- =============================================================================
 
+USE Genscape;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.OilFundamentalsCrudeStorageWeeklyTvp
 --   -> arm.OilFundamentals_CrudeStorage_Weekly

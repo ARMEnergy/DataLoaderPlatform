@@ -28,6 +28,9 @@
 -- Guarded with IF OBJECT_ID(...) IS NULL so the script is re-runnable.
 -- =============================================================================
 
+USE Argus;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE [name] = 'dlp')
     EXEC ('CREATE SCHEMA dlp AUTHORIZATION dbo;');
 GO

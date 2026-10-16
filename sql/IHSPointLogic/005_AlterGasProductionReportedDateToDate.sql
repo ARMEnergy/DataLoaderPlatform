@@ -30,6 +30,9 @@
 -- next GO would still run and drop the proc and rebuild the PK a second time.
 -- =============================================================================
 
+USE IHSPointLogic;
+GO
+
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 GO

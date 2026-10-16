@@ -41,6 +41,9 @@
 -- reference it, drop the type, then re-run 002 and 003 (999 does this in order).
 -- =============================================================================
 
+USE OilX;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.CargoTrackingTvp  ->  arm.CargoTracking
 -- 35 columns: the table's 36 less ModifiedAtUtc.

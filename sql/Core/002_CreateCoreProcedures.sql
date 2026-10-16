@@ -3,6 +3,9 @@
 -- Stored procedures the platform's SqlLoadLogRepository calls.
 -- =============================================================================
 
+USE DataLoaderPlatform;
+GO
+
 -- ----------------------------------------------------------------------------
 -- core.usp_BeginLoaderRun — open a run row.
 -- Idempotent: if the row already exists (re-run with the same id) it just

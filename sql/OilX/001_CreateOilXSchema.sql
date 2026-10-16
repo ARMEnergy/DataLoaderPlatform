@@ -64,6 +64,9 @@
 -- re-runnable creates, no TINYINT, [arm] schema throughout (NOT the dbo default).
 -- =============================================================================
 
+USE OilX;
+GO
+
 IF SCHEMA_ID('arm') IS NULL
     EXEC('CREATE SCHEMA arm AUTHORIZATION dbo;');
 GO

@@ -16,6 +16,9 @@
 -- themselves.
 -- =============================================================================
 
+USE OilX;
+GO
+
 -- ---- procedures -------------------------------------------------------------
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;
 DROP PROCEDURE IF EXISTS arm.usp_BulkMergeCargoTracking;

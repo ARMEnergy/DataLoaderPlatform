@@ -43,6 +43,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE EOX;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_UpsertFileLog -- one hub row per source FILE, every outcome
 -- (Success / NotAvailable / Failed). FileName is the natural key, so re-checking

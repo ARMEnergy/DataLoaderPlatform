@@ -29,6 +29,9 @@
 -- reference it, drop the type, and re-run 002 then 003 (999 does this in order).
 -- =============================================================================
 
+USE OPIS;
+GO
+
 IF TYPE_ID('arm.LPReportTvp') IS NULL
 BEGIN
     CREATE TYPE arm.LPReportTvp AS TABLE

@@ -8,6 +8,9 @@
 -- table's IDENTITY and DEFAULT.
 -- =============================================================================
 
+USE Vulcan;
+GO
+
 CREATE OR ALTER PROCEDURE dbo.usp_GetVulcanWatermark @TableName NVARCHAR(100)
 AS
 BEGIN

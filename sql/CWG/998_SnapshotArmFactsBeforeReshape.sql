@@ -41,6 +41,9 @@
 -- ForecastDate -> [Date]) and dropped FileLogId/DateCreated.
 -- =============================================================================
 
+USE CWG;
+GO
+
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 GO

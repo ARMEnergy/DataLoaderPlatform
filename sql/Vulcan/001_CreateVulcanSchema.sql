@@ -21,6 +21,9 @@
 -- and re-run 001-003.
 -- =============================================================================
 
+USE Vulcan;
+GO
+
 -- Incremental resume state: one row per source table.
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'LoadWatermark' AND schema_id = SCHEMA_ID('dbo'))
 BEGIN

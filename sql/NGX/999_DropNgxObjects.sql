@@ -16,6 +16,9 @@
 -- a dbo object, and nothing below should ever be edited to.
 -- =============================================================================
 
+USE NGX;
+GO
+
 -- ---- procedures -------------------------------------------------------------
 DROP PROCEDURE IF EXISTS arm.usp_CompareArmToDbo;
 DROP PROCEDURE IF EXISTS arm.usp_ValidateLoad;

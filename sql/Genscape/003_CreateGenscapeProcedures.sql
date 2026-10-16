@@ -49,6 +49,9 @@
 -- All CREATE OR ALTER, so the script is re-runnable.
 -- =============================================================================
 
+USE Genscape;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_BulkMergeOilFundamentalsCrudeStorageWeekly
 --   -> arm.OilFundamentals_CrudeStorage_Weekly

@@ -31,6 +31,9 @@
 -- reference it, drop the type, then re-run 002 and 003 (999 does this in order).
 -- =============================================================================
 
+USE ICE;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.EnvFuturesTvp -> arm.EnvFutures   (feed: EnvFutures)
 -- Strip is VARCHAR: month codes and daily contracts, not dates.

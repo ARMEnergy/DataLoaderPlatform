@@ -14,6 +14,9 @@
 -- crashed runner doesn't leave it stuck.
 -- =============================================================================
 
+USE DataLoaderPlatform;
+GO
+
 IF OBJECT_ID('core.usp_TryAcquireLoaderLock', 'P') IS NOT NULL
     DROP PROCEDURE core.usp_TryAcquireLoaderLock;
 GO

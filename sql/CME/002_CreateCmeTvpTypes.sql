@@ -53,6 +53,9 @@
 -- right order).
 -- =============================================================================
 
+USE CMEGroup;
+GO
+
 IF TYPE_ID('arm.STLBASIC_OptionTvp') IS NULL
 BEGIN
     CREATE TYPE arm.STLBASIC_OptionTvp AS TABLE

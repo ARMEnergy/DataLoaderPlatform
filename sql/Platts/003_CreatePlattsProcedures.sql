@@ -7,6 +7,9 @@
 -- script is safely re-runnable.
 -- =============================================================================
 
+USE Platts;
+GO
+
 -- ----------------------------------------------------------------------------
 -- arm.usp_BulkMergeSymbolData
 -- Merge key: (Symbol, Bate, Date, Action). MDC and SourcePath are payload.

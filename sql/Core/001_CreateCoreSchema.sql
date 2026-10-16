@@ -4,6 +4,9 @@
 -- connection string Platform:LoadLogConnectionString points at).
 -- =============================================================================
 
+USE DataLoaderPlatform;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'core')
     EXEC ('CREATE SCHEMA core');
 GO

@@ -17,6 +17,9 @@
 -- database, not for production use.
 -- =============================================================================
 
+USE OPIS;
+GO
+
 -- ---- 1) Procedures ----------------------------------------------------------
 IF OBJECT_ID(N'arm.usp_CompareArmToDbo', 'P')          IS NOT NULL DROP PROCEDURE arm.usp_CompareArmToDbo;
 IF OBJECT_ID(N'arm.usp_ValidateLoad', 'P')      IS NOT NULL DROP PROCEDURE arm.usp_ValidateLoad;
