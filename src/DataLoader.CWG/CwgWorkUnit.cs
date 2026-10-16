@@ -95,17 +95,19 @@ public sealed class CwgWorkUnitProvider : IWorkUnitProvider<CwgWorkUnit>
             return Task.FromResult<IReadOnlyList<CwgWorkUnit>>(Array.Empty<CwgWorkUnit>());
         }
 
-        // A RegionlessTarget endpoint writes to a table with NO region column, so two regions'
-        // rows would share a primary key and the second would silently overwrite the first.
-        // Refuse to enumerate rather than corrupt the table — the settings comment on
-        // CwgSettings.Geographies explains how to fix it.
-        if (_d.RegionlessTarget && regionPairs.Count > 1)
+        // A RegionMergedTarget endpoint writes to a table with NO region column: every geography's
+        // rows land in the SAME table, exactly as the incumbent dbo tables have always held them.
+        // That is safe because all three such targets key on the station and CWG's station
+        // identifiers are globally unique, so no two geographies can reach the same primary key.
+        // Log the merge so the mixed-unit consequence is visible in the run log.
+        if (_d.RegionMergedTarget && regionPairs.Count > 1)
         {
-            throw new InvalidOperationException(
-                $"CWG endpoint '{_d.EndpointId}' targets {_d.TargetTable}, which has no region column, " +
-                $"but {regionPairs.Count} regions resolved [{string.Join(", ", regionPairs.Select(p => p.Region ?? "-"))}]. " +
-                $"Rows from different regions would collide on the primary key and overwrite each other. " +
-                $"Narrow Loaders:CWG:Geographies to exactly one geography.");
+            _logger.LogInformation(
+                "[CWG {Endpoint}] merging {Count} geographies [{Regions}] into {Table}, which has no region " +
+                "column — rows are kept apart by the station in the primary key. Units are per-geography and " +
+                "are NOT recorded on the row; join arm.Station.Country to resolve them.",
+                _d.EndpointId, regionPairs.Count,
+                string.Join(", ", regionPairs.Select(p => p.Region ?? "-")), _d.TargetTable);
         }
 
         var extras = BuildExtras(_d.ExtraPlaceholders);

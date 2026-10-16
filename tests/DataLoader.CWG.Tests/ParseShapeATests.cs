@@ -75,9 +75,9 @@ public class ParseShapeATests
     public void CityForecast_NoLongerDependsOnUnitRegionOrUnits()
     {
         // arm.CityForecast has neither a Region nor a Units column, so the factory must not
-        // gate on them any more — a unit with both null still produces rows. Enumerating more
-        // than one geography is prevented upstream, by the RegionlessTarget guard in the
-        // work-unit provider (see WorkUnitProviderTests), not by dropping rows here.
+        // gate on them any more — a unit with both null still produces rows. Multiple geographies
+        // merge into the one table upstream (RegionMergedTarget), kept apart by
+        // (ProductionDate, Date, Station); rows are never dropped here to achieve that.
         var csv = SampleData.Read("city15dfcst_northamerica_20260811_F.csv");
         var unit = Unit("CityForecast", region: null, new DateOnly(2026, 8, 11), "f.csv", units: null);
 
@@ -290,6 +290,85 @@ public class ParseShapeATests
 
         // Identifier is the WHOLE primary key now — it must be unique within a file.
         Assert.Equal(rows.Count, rows.Select(r => r.Identifier).Distinct().Count());
+    }
+
+    [Fact]
+    public void Station_EuropeCsv_OmitsGhcnd_AndIsStillMappedByHeaderNotPosition()
+    {
+        // REGRESSION: the europe file has 8 columns — it has no `ghcnd` — while northamerica has 9.
+        // Reading by ordinal shifted every field from index 3 one place left for all 468 european
+        // stations: LTCI landed GHCND='38.467' (its latitude), Latitude=43.35 (its longitude),
+        // Longitude/Name NULL and State='TURKEY' (its country). Verified against dbo.Station.
+        var csv = SampleData.Read("europe_station_information.csv");
+        var unit = Unit("Station", "europe", date: null, "europe_station_information.csv");
+
+        var records = Parser.Parse(CwgDescriptors.Station, unit, csv, NullLogger.Instance);
+        var rows = records.Select(r => StationRow.From(r, unit)).Where(r => r is not null).Cast<StationRow>().ToList();
+
+        Assert.Equal(5, rows.Count);
+
+        var ltci = rows.Single(r => r.Identifier == "LTCI");
+        Assert.Equal("17170", ltci.WmoId);
+        Assert.Equal("99999", ltci.Wban);
+        Assert.Null(ltci.Ghcnd);              // column absent for europe -> NULL, NOT the latitude
+        Assert.Equal(38.467, ltci.Latitude);  // the real latitude, not shifted into Ghcnd
+        Assert.Equal(43.350, ltci.Longitude); // the real longitude, not NULL
+        Assert.Equal("VAN", ltci.Name);       // the real name, not NULL
+        Assert.Null(ltci.State);              // europe carries no state
+        Assert.Equal("TURKEY", ltci.Country); // the country, not shifted into State
+
+        var bihn = rows.Single(r => r.Identifier == "BIHN");
+        Assert.Equal(64.300, bihn.Latitude);
+        Assert.Equal(-15.217, bihn.Longitude);
+        Assert.Equal("AKURNES", bihn.Name);
+        Assert.Equal("ICELAND", bihn.Country);
+
+        // Nothing may leak the country into State on any row.
+        Assert.All(rows, r => Assert.Null(r.State));
+        Assert.All(rows, r => Assert.Null(r.Ghcnd));
+    }
+
+    [Fact]
+    public void Station_ColumnOrderIsIrrelevant_BecauseMappingIsByHeaderName()
+    {
+        // Same data, columns deliberately shuffled — a positional reader would scramble this.
+        var csv =
+            "country,identifier,lon,lat,name,wmoid,wban\n" +
+            "TURKEY,LTCI,43.350,38.467,VAN,17170,99999\n";
+        var unit = Unit("Station", "europe", date: null, "shuffled.csv");
+
+        var records = Parser.Parse(CwgDescriptors.Station, unit, csv, NullLogger.Instance);
+        var row = StationRow.From(Assert.Single(records), unit);
+
+        Assert.NotNull(row);
+        Assert.Equal("LTCI", row!.Identifier);
+        Assert.Equal(38.467, row.Latitude);
+        Assert.Equal(43.350, row.Longitude);
+        Assert.Equal("VAN", row.Name);
+        Assert.Equal("TURKEY", row.Country);
+        Assert.Null(row.Ghcnd);
+        Assert.Null(row.State);
+    }
+
+    [Fact]
+    public void Station_UnusableHeader_FallsBackToTheDocumentedOrdinals()
+    {
+        // If the header does not even carry `identifier` we cannot map by name; the documented
+        // northamerica order is the fallback, so such a file still loads instead of yielding NULLs.
+        var csv =
+            "a,b,c,d,e,f,g,h,i\n" +
+            "CWKD,71383,99999,,50.733,-71.017,Bonnard,NB,CA\n";
+        var unit = Unit("Station", "northamerica", date: null, "noheader.csv");
+
+        var records = Parser.Parse(CwgDescriptors.Station, unit, csv, NullLogger.Instance);
+        var row = StationRow.From(Assert.Single(records), unit);
+
+        Assert.NotNull(row);
+        Assert.Equal("CWKD", row!.Identifier);
+        Assert.Equal(50.733, row.Latitude);
+        Assert.Equal(-71.017, row.Longitude);
+        Assert.Equal("Bonnard", row.Name);
+        Assert.Equal("CA", row.Country);
     }
 
     [Fact]

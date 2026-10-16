@@ -143,39 +143,72 @@ public class WorkUnitProviderTests
         Assert.Equal("cwg:Station:northamerica:-:run=20260811", na.Key);
     }
 
-    // ---------------------------------------------------------------- RegionlessTarget guard
+    // ---------------------------------------------------------------- RegionMergedTarget guard
 
     [Theory]
     [InlineData("CityForecast")]
     [InlineData("CityObservation")]
     [InlineData("Station")]
-    public async Task RegionlessTarget_MoreThanOneGeography_FailsLoudly_RatherThanOverwriting(string endpointId)
+    public async Task RegionMergedTarget_EnumeratesEveryGeography_IntoTheOneTable(string endpointId)
     {
-        // These three write to tables with NO Region column. Enumerating two geographies would
-        // put two different regions' rows on the SAME primary key, and the second would silently
-        // overwrite the first (and for CityForecast, mix °C into a °F table with no marker).
-        // The provider must refuse instead.
+        // These three write to tables with NO Region column, and every geography MERGES into that
+        // one table — which is how the incumbent dbo tables have always held them. Safe because all
+        // three key on the station and CWG station identifiers are globally unique (dbo.Station:
+        // 891 rows, 891 distinct Identifiers, 51 countries). Enumerating both must NOT throw and
+        // must NOT silently drop one.
         var descriptor = CwgDescriptors.All.Single(d => d.EndpointId == endpointId);
-        Assert.True(descriptor.RegionlessTarget);
+        Assert.True(descriptor.RegionMergedTarget);
 
         var settings = Settings(daysBack: 1, geographies: new[] { "northamerica", "europe" });
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => Enumerate(descriptor, settings));
+        var units = await Enumerate(descriptor, settings);
 
-        Assert.Contains(endpointId, ex.Message);
-        Assert.Contains("no region column", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Geographies", ex.Message);
+        var regions = units.Select(u => u.Region).Distinct().ToArray();
+        Assert.Equal(2, regions.Length);
+        Assert.Contains("northamerica", regions);
+        Assert.Contains("europe", regions);
+    }
+
+    [Theory]
+    [InlineData("CityForecast")]
+    [InlineData("CityObservation")]
+    [InlineData("Station")]
+    public async Task RegionMergedTarget_BothGeographies_ProduceDistinctWorkUnitKeys(string endpointId)
+    {
+        // The region is part of the work-unit key, so the two geographies stay separate units in
+        // core.LoadLog. If they collapsed to one key, one geography's file would never be fetched.
+        var descriptor = CwgDescriptors.All.Single(d => d.EndpointId == endpointId);
+        var settings = Settings(daysBack: 1, geographies: new[] { "northamerica", "europe" });
+
+        var units = await Enumerate(descriptor, settings);
+
+        Assert.Equal(units.Count, units.Select(u => u.Key).Distinct().Count());
+        // Each geography resolves its own filename, so neither overwrites the other's download.
+        Assert.Equal(units.Count, units.Select(u => u.Filename).Distinct().Count());
     }
 
     [Fact]
-    public async Task RegionlessTarget_IsNotSetOnEndpointsThatKeepARegionColumn()
+    public async Task RegionMergedTarget_SingleGeography_StillWorks()
+    {
+        // Narrowing back to one geography must remain valid — it is the documented way to get a
+        // single-unit CityForecast table.
+        var units = await Enumerate(
+            CwgDescriptors.CityForecast,
+            Settings(daysBack: 1, geographies: new[] { "northamerica" }));
+
+        var unit = Assert.Single(units);
+        Assert.Equal("northamerica", unit.Region);
+        Assert.Equal("F", unit.Units);
+    }
+
+    [Fact]
+    public async Task RegionMergedTarget_IsNotSetOnEndpointsThatKeepARegionColumn()
     {
         // The ISO-axis forecast tables all keep a Region key column, so they are free to
         // enumerate their full region list — the guard must not touch them.
-        Assert.False(CwgDescriptors.SolarForecast.RegionlessTarget);
-        Assert.False(CwgDescriptors.WindForecast.RegionlessTarget);
-        Assert.False(CwgDescriptors.WindForecastSubRegion.RegionlessTarget);
+        Assert.False(CwgDescriptors.SolarForecast.RegionMergedTarget);
+        Assert.False(CwgDescriptors.WindForecast.RegionMergedTarget);
+        Assert.False(CwgDescriptors.WindForecastSubRegion.RegionMergedTarget);
 
         var solar = await Enumerate(CwgDescriptors.SolarForecast, Settings(daysBack: 1));
         Assert.Equal(10, solar.Count);
@@ -224,12 +257,11 @@ public class WorkUnitProviderTests
     public async Task CityForecast_DropsAsiaStructurally_AndTheSettingPicksOneOfTheRest()
     {
         // 'asia' is dropped STRUCTURALLY (there is no CityForecast file for it), independent of
-        // the setting. The remaining two are narrowed to exactly one by Geographies — and because
-        // the target has no Region/Units column, the RegionlessTarget guard makes "both" an error
-        // rather than a silent overwrite.
+        // the setting. Either of the remaining two can run alone, or both together — they merge
+        // into the one table, kept apart by (ProductionDate, Date, Station).
         Assert.Equal(new[] { "northamerica", "europe" }, CwgDescriptors.CityForecast.Regions);
         Assert.Equal(new[] { "F", "C" }, CwgDescriptors.CityForecast.RegionUnits);
-        Assert.True(CwgDescriptors.CityForecast.RegionlessTarget);
+        Assert.True(CwgDescriptors.CityForecast.RegionMergedTarget);
         Assert.DoesNotContain("asia", CwgDescriptors.CityForecast.Regions);
 
         // Default setting -> northamerica in °F.
@@ -243,6 +275,27 @@ public class WorkUnitProviderTests
         Assert.Equal("europe", eu.Region);
         Assert.Equal("C", eu.Units);
         Assert.Equal("C", eu.Variant);
+        Assert.Equal("city15dfcst_europe_20260811_C.csv", eu.Filename);
+    }
+
+    [Fact]
+    public async Task CityForecast_BothGeographies_KeepUnitsIndexAlignedPerRegion()
+    {
+        // The whole point of mirroring dbo: northamerica must still be fetched °F and europe °C
+        // when BOTH run. A units token that leaked across regions would silently store Celsius
+        // under a Fahrenheit station (or vice versa) with nothing on the row to reveal it.
+        var units = await Enumerate(
+            CwgDescriptors.CityForecast,
+            Settings(daysBack: 1, geographies: new[] { "northamerica", "europe" }));
+
+        Assert.Equal(2, units.Count);
+
+        var na = units.Single(u => u.Region == "northamerica");
+        var eu = units.Single(u => u.Region == "europe");
+
+        Assert.Equal("F", na.Units);
+        Assert.Equal("C", eu.Units);
+        Assert.Equal("city15dfcst_northamerica_20260811_F.csv", na.Filename);
         Assert.Equal("city15dfcst_europe_20260811_C.csv", eu.Filename);
     }
 

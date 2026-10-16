@@ -20,8 +20,10 @@ namespace DataLoader.CWG;
 // -------------------------------------------------------------------- 1. CityForecast (Shape A)
 /// <summary>
 /// arm.CityForecast — key (ProductionDate, Date, Station).
-/// The table has no Region and no Units column, so exactly one geography/unit may be
-/// enumerated (northamerica, °F) — enforced by the descriptor's RegionlessTarget flag.
+/// The table has no Region and no Units column: every enumerated geography merges into it,
+/// kept apart by the station in the key (descriptor's RegionMergedTarget flag), mirroring
+/// dbo.CityForecast. ⚠ Temperatures are °F for northamerica and °C for europe with nothing
+/// on the row recording which — join arm.Station.Country to resolve the unit.
 /// </summary>
 public sealed class CityForecastRow
 {
@@ -183,7 +185,7 @@ public sealed class SolarForecastRow
         return new SolarForecastRow
         {
             ForecastDate = init.Value,
-            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay),
+            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay, cell.UtcOffsetHours),
             Region = region,
             ForecastLabel = cell.ForecastDate,
             HourLabel = cell.HourLabel,
@@ -212,7 +214,7 @@ public sealed class SolarForecastChangeRow
         return new SolarForecastChangeRow
         {
             ForecastDate = init.Value,
-            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay),
+            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay, cell.UtcOffsetHours),
             Region = region,
             ForecastLabel = cell.ForecastDate,
             HourLabel = cell.HourLabel,
@@ -321,26 +323,47 @@ public sealed class StationRow
     public string? State { get; init; }
     public string? Country { get; init; }
 
-    // Fields: 0 identifier, 1 wmoid, 2 wban, 3 ghcnd, 4 lat, 5 lon, 6 name, 7 state, 8 country.
+    // Documented northamerica order, used ONLY as the fallback for a file with no usable header:
+    // 0 identifier, 1 wmoid, 2 wban, 3 ghcnd, 4 lat, 5 lon, 6 name, 7 state, 8 country.
+    //
+    // Fields are normally resolved BY HEADER NAME, because the two geographies publish different
+    // widths: europe_station_information.csv omits `ghcnd` (8 columns vs northamerica's 9). Reading
+    // by ordinal shifted every field from index 3 on one place left for every european station —
+    // e.g. LTCI stored GHCND='38.467' (its latitude), Latitude=43.35 (its longitude),
+    // Longitude/Name NULL and State='TURKEY' (its country). AllowShortRows made the vanished 9th
+    // column a silent NULL instead of an error, so nothing failed. Resolving by name makes an
+    // absent column correctly NULL and leaves every other field on its own value.
     public static StationRow? From(CwgTabularRecord rec, CwgWorkUnit unit)
     {
         var f = rec.Fields;
+        string AtOrdinal(int i) => i < f.Length ? f[i] : string.Empty;
+
+        // A file whose header does not even carry `identifier` is not one we can map by name;
+        // fall back to the documented ordinals rather than returning a row of NULLs.
+        var byName = rec.HasHeaderColumn("identifier");
+
+        string At(string headerName, int fallbackOrdinal)
+        {
+            if (!byName) return AtOrdinal(fallbackOrdinal);
+            var i = rec.IndexOf(headerName);
+            return i >= 0 ? AtOrdinal(i) : string.Empty;   // column absent for this geography → NULL
+        }
+
         // Short rows are tolerated (descriptor AllowShortRows): any missing/blank field → NULL.
         // Only the identifier (the whole PK now) is required; without it the row cannot be keyed.
-        string At(int i) => i < f.Length ? f[i] : string.Empty;
-        var id = At(0).Trim();
+        var id = At("identifier", 0).Trim();
         if (id.Length == 0) return null;
         return new StationRow
         {
             Identifier = id,
-            WmoId = CwgParse.NullIfBlank(At(1)),
-            Wban = CwgParse.NullIfBlank(At(2)),   // keep 99999 literal (no sentinel remap)
-            Ghcnd = CwgParse.NullIfBlank(At(3)),
-            Latitude = CwgParse.LenientDouble(At(4)),
-            Longitude = CwgParse.LenientDouble(At(5)),
-            Name = CwgParse.NullIfBlank(At(6)),
-            State = CwgParse.NullIfBlank(At(7)),
-            Country = CwgParse.NullIfBlank(At(8))
+            WmoId = CwgParse.NullIfBlank(At("wmoid", 1)),
+            Wban = CwgParse.NullIfBlank(At("wban", 2)),   // keep 99999 literal (no sentinel remap)
+            Ghcnd = CwgParse.NullIfBlank(At("ghcnd", 3)),
+            Latitude = CwgParse.LenientDouble(At("lat", 4)),
+            Longitude = CwgParse.LenientDouble(At("lon", 5)),
+            Name = CwgParse.NullIfBlank(At("name", 6)),
+            State = CwgParse.NullIfBlank(At("state", 7)),
+            Country = CwgParse.NullIfBlank(At("country", 8))
         };
     }
 }
@@ -553,7 +576,7 @@ public sealed class WindForecastRow
         return new WindForecastRow
         {
             ForecastDate = init.Value,
-            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay),
+            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay, cell.UtcOffsetHours),
             Region = region,
             ForecastLabel = cell.ForecastDate,
             HourLabel = cell.HourLabel,
@@ -583,7 +606,7 @@ public sealed class WindForecastSubRegionRow
         return new WindForecastSubRegionRow
         {
             ForecastDate = init.Value,
-            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay),
+            UTCHourEnding = CwgHours.ToUtcHourEnding(cell.ForecastDate, cell.HourOfDay, cell.UtcOffsetHours),
             Region = region,
             SubRegion = cell.SubRegion,
             ForecastLabel = cell.ForecastDate,

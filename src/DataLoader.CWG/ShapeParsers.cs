@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace DataLoader.CWG;
@@ -10,7 +11,34 @@ namespace DataLoader.CWG;
 // =============================================================================
 
 /// <summary>Shape A — one raw data row (positional fields + the header for optional checks).</summary>
-public sealed record CwgTabularRecord(string[] Fields, string[] Header);
+public sealed record CwgTabularRecord(string[] Fields, string[] Header)
+{
+    /// <summary>
+    /// Index of the named header column (case-, space- and BOM-insensitive), or <c>-1</c> when the
+    /// file does not carry that column.
+    ///
+    /// <para>Shape A files are NOT all the same width for the same endpoint: the CWG
+    /// <c>europe_station_information.csv</c> omits <c>ghcnd</c>, which the
+    /// <c>northamerica</c> one has. A row factory that reads by ORDINAL therefore shifts every
+    /// later field one place left on the europe file — observed on LTCI and BIHN, where the
+    /// latitude landed in <c>GHCND</c> and the country landed in <c>State</c>. Resolve by name
+    /// instead; an absent column correctly yields NULL rather than the next column's value.</para>
+    /// </summary>
+    public int IndexOf(string headerName)
+    {
+        for (var i = 0; i < Header.Length; i++)
+        {
+            if (Clean(Header[i]).Equals(headerName, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>True when the header looks usable, i.e. it contains the named anchor column.</summary>
+    public bool HasHeaderColumn(string headerName) => IndexOf(headerName) >= 0;
+
+    private static string Clean(string cell) => cell.Trim().TrimStart('﻿').Trim();
+}
 
 /// <summary>
 /// Shape B — one WHOLE source row: its leading key cell plus the raw value of every
@@ -25,10 +53,10 @@ public sealed record CwgTabularRecord(string[] Fields, string[] Header);
 public sealed record CwgWideRow(string KeyCell, IReadOnlyDictionary<string, string> ByRegion);
 
 /// <summary>Shape C — one unpivoted (forecast-date × hour) matrix cell.</summary>
-public sealed record CwgMatrixCell(DateOnly ForecastDate, string HourLabel, int HourOfDay, string RawValue);
+public sealed record CwgMatrixCell(DateOnly ForecastDate, string HourLabel, int HourOfDay, string RawValue, int UtcOffsetHours);
 
 /// <summary>Shape D — one unpivoted matrix cell tagged with its block's sub-region.</summary>
-public sealed record CwgSubRegionCell(string SubRegion, DateOnly ForecastDate, string HourLabel, int HourOfDay, string RawValue);
+public sealed record CwgSubRegionCell(string SubRegion, DateOnly ForecastDate, string HourLabel, int HourOfDay, string RawValue, int UtcOffsetHours);
 
 /// <summary>Shape E — one region row within a block (raw numeric cells kept as strings).</summary>
 public sealed record CwgCapacityRow(string Block, string Region, string TotalCapacityRaw, string Avg1_5Raw, string Avg6_10Raw, string Avg11_15Raw);
@@ -61,6 +89,41 @@ internal static class CwgShapeParsers
 /// </summary>
 internal static class CwgMatrix
 {
+    /// <summary>
+    /// Matches the matrix header's leading cell: <c>Date (EST)</c> on the northamerica files,
+    /// <c>Date (UTC)</c> on the europe ones. Matching the literal "Date (EST)" is what made every
+    /// european file parse to zero rows — the header was never found, so the parser returned empty
+    /// on an otherwise perfectly good HTTP 200.
+    /// </summary>
+    private static readonly Regex DateHeaderCell =
+        new(@"^Date\s*\(\s*([A-Za-z]+)\s*\)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// True when <paramref name="cell"/> is a matrix header cell, yielding its zone token.
+    /// </summary>
+    public static bool IsDateHeaderCell(string cell, out string zoneToken)
+    {
+        var m = DateHeaderCell.Match(cell.Trim());
+        zoneToken = m.Success ? m.Groups[1].Value : string.Empty;
+        return m.Success;
+    }
+
+    /// <summary>
+    /// Resolves the zone token to its fixed UTC offset, logging and returning false when the token
+    /// is one we have never seen — better a loud empty read than every row at the wrong timestamp.
+    /// </summary>
+    public static bool TryResolveOffset(string zoneToken, CwgEndpointDescriptor d, CwgWorkUnit unit,
+                                        ILogger log, out int offsetHours)
+    {
+        if (CwgHours.TryUtcOffsetForZone(zoneToken, out offsetHours)) return true;
+
+        log.LogError(
+            "[CWG {Endpoint}] {File}: matrix header declares time zone '{Zone}', which has no known " +
+            "UTC offset; refusing to guess. Rows from this file are dropped.",
+            d.EndpointId, unit.Filename, zoneToken);
+        return false;
+    }
+
     public static List<DateOnly?> ParseDateHeader(string[] header, CwgEndpointDescriptor d, CwgWorkUnit unit, ILogger log)
     {
         var dates = new List<DateOnly?>();
@@ -213,22 +276,27 @@ public sealed class ShapeCParser : ICwgShapeParser<CwgMatrixCell>
         var records = CwgCsv.Parse(csvText);
 
         var headerIdx = -1;
+        var zone = string.Empty;
         for (var i = 0; i < records.Count; i++)
         {
             var r = records[i];
-            if (r.Length > 0 && r[0].Trim() == "Date (EST)") { headerIdx = i; break; }
+            if (r.Length > 0 && CwgMatrix.IsDateHeaderCell(r[0], out zone)) { headerIdx = i; break; }
         }
         if (headerIdx < 0)
         {
-            log.LogWarning("[CWG {Endpoint}] {File}: no 'Date (EST)' header row found", d.EndpointId, unit.Filename);
+            log.LogWarning("[CWG {Endpoint}] {File}: no 'Date (<zone>)' header row found", d.EndpointId, unit.Filename);
             return Array.Empty<CwgMatrixCell>();
         }
+
+        if (!CwgMatrix.TryResolveOffset(zone, d, unit, log, out var offsetHours))
+            return Array.Empty<CwgMatrixCell>();
 
         var dates = CwgMatrix.ParseDateHeader(records[headerIdx], d, unit, log);
         var width = dates.Count;
         if (width == 0)
         {
-            log.LogWarning("[CWG {Endpoint}] {File}: 'Date (EST)' header has no forecast dates", d.EndpointId, unit.Filename);
+            log.LogWarning("[CWG {Endpoint}] {File}: 'Date ({Zone})' header has no forecast dates",
+                d.EndpointId, unit.Filename, zone);
             return Array.Empty<CwgMatrixCell>();
         }
 
@@ -253,7 +321,9 @@ public sealed class ShapeCParser : ICwgShapeParser<CwgMatrixCell>
             {
                 if (dates[k] is not { } fdate) continue;
                 var raw = (k + 1) < row.Length ? row[k + 1] : string.Empty;
-                cells.Add(new CwgMatrixCell(fdate, CwgHours.Labels[hourIdx], hourIdx, raw));
+                // Keep the file's OWN label (arm.*.HourLabel is an arm-only column kept so the
+                // un-shifted value stays recoverable) — "12:00 AM" for EST files, "00:00" for UTC.
+                cells.Add(new CwgMatrixCell(fdate, label, hourIdx, raw, offsetHours));
             }
         }
         return cells;
@@ -278,6 +348,7 @@ public sealed class ShapeDParser : ICwgShapeParser<CwgSubRegionCell>
         string? subRegion = null;
         List<DateOnly?>? dates = null;
         var width = 0;
+        int? offsetHours = null;   // set by each block's own 'Date (<zone>)' header
 
         foreach (var row in records)
         {
@@ -290,24 +361,36 @@ public sealed class ShapeDParser : ICwgShapeParser<CwgSubRegionCell>
                 subRegion = sr;
                 dates = null;
                 width = 0;
+                offsetHours = null;
                 continue;
             }
 
-            if (first == "Date (EST)")
+            // 'Date (EST)' on the northamerica files, 'Date (UTC)' on the europe ones.
+            if (CwgMatrix.IsDateHeaderCell(first, out var zone))
             {
+                if (!CwgMatrix.TryResolveOffset(zone, d, unit, log, out var resolved))
+                {
+                    // Unknown zone: drop this block rather than timestamp it by guesswork.
+                    dates = null;
+                    width = 0;
+                    offsetHours = null;
+                    continue;
+                }
+                offsetHours = resolved;
                 dates = CwgMatrix.ParseDateHeader(row, d, unit, log);
                 width = dates.Count;
                 continue;
             }
 
             var hourIdx = CwgHours.IndexOf(first);
-            if (hourIdx < 0 || subRegion is null || dates is null) continue;
+            if (hourIdx < 0 || subRegion is null || dates is null || offsetHours is null) continue;
 
             for (var k = 0; k < width; k++)
             {
                 if (dates[k] is not { } fdate) continue;
                 var raw = (k + 1) < row.Length ? row[k + 1] : string.Empty;
-                cells.Add(new CwgSubRegionCell(subRegion, fdate, CwgHours.Labels[hourIdx], hourIdx, raw));
+                // Keep the file's OWN hour label; see the Shape C note.
+                cells.Add(new CwgSubRegionCell(subRegion, fdate, first, hourIdx, raw, offsetHours.Value));
             }
         }
         return cells;

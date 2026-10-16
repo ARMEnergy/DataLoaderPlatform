@@ -78,7 +78,7 @@ public class RegionsDegreeDaysWiringTests
         Assert.Equal(CwgRegionKind.None, d.RegionKind);
         Assert.Equal(15, d.ExpectedColumns);
         Assert.False(d.AllowShortRows);
-        Assert.False(d.RegionlessTarget);           // RegionName/State come from the FILE, not the filename
+        Assert.False(d.RegionMergedTarget);           // RegionName/State come from the FILE, not the filename
 
         Assert.Equal("arm.StateDegreeDayObservation", d.TargetTable);
         Assert.Equal("arm.StateDegreeDayObservationTvp", d.TargetTvp);

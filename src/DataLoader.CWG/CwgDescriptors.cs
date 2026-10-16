@@ -39,11 +39,18 @@ namespace DataLoader.CWG;
 /// trailing comma on the header row does not drop every data row; null → guard on header width.</param>
 /// <param name="AllowShortRows">Shape A: when true, data rows with fewer than the expected column
 /// count are NOT dropped — missing (trailing) fields are read as NULL (Station tolerates truncated rows).</param>
-/// <param name="RegionlessTarget">The target table has NO region column, so a row from region A and a
-/// row from region B would land on the SAME primary key and silently overwrite each other. True for
-/// CityForecast / CityObservation / Station. The work-unit provider REFUSES to enumerate such an
-/// endpoint when more than one region survives the Geographies filter (see CwgWorkUnitProvider) —
-/// a loud failure instead of a silent last-writer-wins.</param>
+/// <param name="RegionMergedTarget">The target table has NO region column, so every geography's rows
+/// MERGE into one table — exactly as the incumbent dbo tables have always held them. True for
+/// CityForecast / CityObservation / Station.
+/// <para>This is safe because all three targets key on the station — Station(Identifier),
+/// CityObservation(Date, Station), CityForecast(ProductionDate, Date, Station) — and CWG's station
+/// identifiers are globally unique, so no two geographies can reach the same primary key. Verified
+/// against the live incumbent data on 2026-10-12: dbo.Station holds 891 rows with 891 DISTINCT
+/// Identifiers spanning 51 countries, and dbo.CityForecast has carried US (19.47M rows) alongside
+/// France (1.47M), Italy (1.40M) and the UK (1.22M) under that key for years.</para>
+/// <para>⚠ What DOES differ per geography is the unit, and nothing on the row records it:
+/// CityForecast is fetched °F for northamerica and °C for europe (see RegionUnits), which is what
+/// dbo stores too. CityObservation is °F for both. Resolve the unit by joining arm.Station.Country.</para></param>
 public sealed record CwgEndpointDescriptor(
     string EndpointId,
     string DisplayName,
@@ -66,7 +73,7 @@ public sealed record CwgEndpointDescriptor(
     bool AllowShortRows = false,
     string[]? RegionUnits = null,
     string[]? TargetRegionColumns = null,
-    bool RegionlessTarget = false)
+    bool RegionMergedTarget = false)
 {
     /// <summary>Undated endpoints use the RunDate/RunId hot key (design §3.1).</summary>
     public bool IsHot => !Dated;
@@ -77,12 +84,11 @@ public static class CwgDescriptors
 {
     private static readonly (string, string[])[] NoExtras = System.Array.Empty<(string, string[])>();
 
-    // The geography axis each geography descriptor COULD serve. Which one it actually runs is
-    // chosen by the CwgSettings.Geographies setting (default: northamerica alone) — the single
-    // narrowing point. All three of these targets are RegionlessTarget, so the work-unit provider
-    // refuses to enumerate when the setting leaves more than one standing. Keeping the full axis
-    // here means the loader can be REPOINTED at another geography by config, one at a time,
-    // instead of being frozen at compile time.
+    // The geography axis each geography descriptor COULD serve. Which ones it actually runs is
+    // chosen by the CwgSettings.Geographies setting — the single narrowing point. All three of
+    // these targets are RegionMergedTarget: they have no Region column and every enumerated
+    // geography merges into the one table, kept apart by the station in the primary key, which
+    // is how the incumbent dbo tables have always stored them.
     private static readonly string[] Geographies = { "northamerica", "asia", "europe" };
 
     // CityForecast fetches each region in its native unit via the {units} filename token:
@@ -113,21 +119,22 @@ public static class CwgDescriptors
     private static readonly string[] SolarRegions =
         { "ERCOT", "CAISO", "MISO", "PJM", "SPP", "NEPOOL", "IESO", "AESO", "NW", "SW" };
     private static readonly string[] WindRegions =
-        { "ERCOT", "CAISO", "MISO", "PJM", "SPP", "NYISO", "NEPOOL", "BPA", "IESO", "AESO", "UK", "GERMANY", "FRANCE", "SPAIN", "NW", "SW" };
+        { "ERCOT", "CAISO", "MISO", "PJM", "SPP", "NYISO", "NEPOOL", "BPA", "IESO", "AESO", "UK", "GERMANY", "FRANCE", "SPAIN", "ITALY", "NETHERLANDS", "NW", "SW" };
     private static readonly string[] WindSubRegionParents =
-        { "ERCOT", "CAISO", "MISO", "PJM", "SPP", "UK", "GERMANY", "FRANCE" };
+        { "ERCOT", "CAISO", "MISO", "PJM", "SPP", "UK", "GERMANY", "FRANCE", "NETHERLANDS" };
 
     public static readonly CwgEndpointDescriptor CityForecast = new(
-        // arm.CityForecast has NO Region and NO Units column, so exactly ONE (region, units) pair may
-        // survive the Geographies filter — northamerica in °F by default. RegionlessTarget makes
-        // widening Geographies a loud enumeration failure rather than a silent overwrite of °F rows
-        // by °C ones (the two geographies disagree about the unit and nothing records which is which).
+        // arm.CityForecast has NO Region and NO Units column. Every enumerated (region, units) pair
+        // merges into it, kept apart by (ProductionDate, Date, Station) — mirroring dbo.CityForecast,
+        // which holds northamerica and europe together under that same key.
+        // ⚠ The geographies disagree about the unit (NA °F, europe °C per RegionUnits) and nothing on
+        // the row records which; dbo has the same property. Join arm.Station.Country to resolve it.
         "CityForecast", "City 15-day Forecast", CwgParseShape.A,
         "city15dfcst_{region}_{date}_{units}.csv", true, CwgDateToken.Ymd, 0,
         CwgRegionKind.Geography, "region", CityForecastRegions, NoExtras,
         null, 0, null,
         "arm.CityForecast", "arm.CityForecastTvp", "arm.usp_BulkMergeCityForecast",
-        ExpectedColumns: 10, RegionUnits: CityForecastUnits, RegionlessTarget: true);
+        ExpectedColumns: 10, RegionUnits: CityForecastUnits, RegionMergedTarget: true);
 
     public static readonly CwgEndpointDescriptor CityGasForecast = new(
         "CityGasForecast", "City Gas-day Forecast", CwgParseShape.A,
@@ -142,7 +149,7 @@ public static class CwgDescriptors
         CwgRegionKind.Geography, "region", Geographies, NoExtras,
         null, 0, null,
         "arm.CityObservation", "arm.CityObservationTvp", "arm.usp_BulkMergeCityObservation",
-        ExpectedColumns: 6, RegionlessTarget: true);
+        ExpectedColumns: 6, RegionMergedTarget: true);
 
     public static readonly CwgEndpointDescriptor DailyNormal = new(
         "DailyNormal", "Daily Normal Generation", CwgParseShape.B,
@@ -236,7 +243,7 @@ public static class CwgDescriptors
         CwgRegionKind.Geography, "region", Geographies, NoExtras,
         null, 0, null,
         "arm.Station", "arm.StationTvp", "arm.usp_BulkMergeStation",
-        ExpectedColumns: 9, AllowShortRows: true, RegionlessTarget: true);
+        ExpectedColumns: 9, AllowShortRows: true, RegionMergedTarget: true);
 
     // Regions5/9/ISO degree-days: per-region siblings of NationalDegreeDays in the same
     // northamerica_{subregion}_wdd_{date}.csv family. Like National, RegionKind.None with the

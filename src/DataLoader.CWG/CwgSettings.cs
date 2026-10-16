@@ -49,15 +49,22 @@ public sealed class CwgSettings : LoaderSettingsBase
     /// <summary>
     /// Filters <c>RegionKind == Geography</c> descriptors only (design §2.1 note).
     ///
-    /// <para>Default narrowed to <c>northamerica</c> ALONE on 2026-10-05. All three geography
-    /// endpoints (CityForecast, CityObservation, Station) now write to tables with NO Region
-    /// column, so a second geography has nowhere to go: its rows would land on the same primary
-    /// key and silently overwrite — and for CityForecast they would also mix °C into a °F table
-    /// with no marker. Those descriptors are flagged <c>RegionlessTarget</c> and
-    /// <see cref="CwgWorkUnitProvider"/> REFUSES to enumerate them when this list resolves to
-    /// more than one region, so widening it fails loudly instead of corrupting data.</para>
+    /// <para>The three geography endpoints (CityForecast, CityObservation, Station) write to tables
+    /// with NO Region column, so every geography listed here MERGES into the one table. That is how
+    /// the incumbent <c>dbo</c> tables have always stored them, and it is safe because all three key
+    /// on the station and CWG's station identifiers are globally unique — verified 2026-10-12:
+    /// <c>dbo.Station</c> holds 891 rows with 891 distinct Identifiers across 51 countries.</para>
+    ///
+    /// <para>⚠ Units are per-geography and are NOT recorded on the row. <c>CityForecast</c> is
+    /// fetched °F for <c>northamerica</c> and °C for <c>europe</c> (the descriptor's
+    /// <c>RegionUnits</c>), which is exactly what <c>dbo.CityForecast</c> stores; <c>CityObservation</c>
+    /// is °F for both. Consumers resolve the unit by joining <c>arm.Station.Country</c>. Narrow this
+    /// list to one geography if a single-unit table matters more than mirroring <c>dbo</c>.</para>
+    ///
+    /// <para><c>asia</c> is droppable here but is also excluded STRUCTURALLY from CityForecast
+    /// (no such file).</para>
     /// </summary>
-    public string[] Geographies { get; set; } = { "northamerica" };
+    public string[] Geographies { get; set; } = { "northamerica", "europe" };
 
     /// <summary>Optional global client-side throttle (requests/second). <c>null</c> or ≤ 0 = unlimited (design §8).</summary>
     public double? RequestsPerSecond { get; set; }

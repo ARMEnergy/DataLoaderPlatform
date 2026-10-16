@@ -20,31 +20,61 @@ internal static class CwgHours
 
     private static Dictionary<string, int> BuildIndex()
     {
-        var d = new Dictionary<string, int>(StringComparer.Ordinal);
+        var d = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < Labels.Length; i++) d[Labels[i]] = i;
+        // The europe matrices label their hour rows on a 24-HOUR clock ("00:00" … "23:00")
+        // where northamerica uses the 12-hour form above. Both map to the same 0-23 ordinal.
+        // Without these every european data row was dropped by IndexOf returning -1.
+        for (var i = 0; i < 24; i++) d[i.ToString("00", CultureInfo.InvariantCulture) + ":00"] = i;
         return d;
     }
 
-    /// <summary>0–23 for a known label (exact match after Trim); −1 otherwise.</summary>
+    /// <summary>0–23 for a known label (12- or 24-hour form, exact match after Trim); −1 otherwise.</summary>
     public static int IndexOf(string label) => Index.TryGetValue(label.Trim(), out var i) ? i : -1;
 
     /// <summary>
-    /// The agreed clock-label → UTC offset for the Shape C/D forecast matrices: FOUR hours.
-    /// A FIXED offset, deliberately not a time-zone lookup — the source carries no UTC and no
-    /// DST marker, and a fixed shift keeps every forecast day at exactly 24 distinct timestamps.
-    /// A DST-aware conversion would produce 23 on spring-forward and a DUPLICATE hour on
-    /// fall-back, and that duplicate would collide on the primary key.
+    /// The clock-label → UTC offset for a northamerica Shape C/D matrix, whose header reads
+    /// <c>Date (EST)</c>: FOUR hours. See <see cref="TryUtcOffsetForZone"/> for why this is a
+    /// FIXED offset rather than a time-zone lookup.
     /// </summary>
-    public const int UtcOffsetHours = 4;
+    public const int EasternOffsetHours = 4;
 
     /// <summary>
-    /// <c>UTCHourEnding</c> for one matrix cell: the VALID day (the 'Date (EST)' header cell)
-    /// plus the hour-row label as a time-of-day, plus <see cref="UtcOffsetHours"/>.
-    /// Crossing midnight is expected and correct — <c>11:00 PM</c> on 8/12 lands on
-    /// <c>2026-08-13 03:00:00</c>.
+    /// Resolves the matrix header's time-zone token to the fixed hour offset that turns its
+    /// clock labels into UTC.
+    ///
+    /// <para>CWG publishes the SAME matrix in two zones: northamerica files head their matrix
+    /// <c>Date (EST)</c> and europe files <c>Date (UTC)</c>. The europe labels are already UTC,
+    /// so applying the Eastern +4 to them shifts every european row four hours into the future.
+    /// Confirmed against the incumbent: for ForecastDate 2026-10-12 <c>dbo.WindForecast</c> spans
+    /// 10-11 04:00 → 10-27 03:00 for ERCOT but 10-11 00:00 → 10-26 23:00 for UK/FRANCE/GERMANY/
+    /// ITALY/NETHERLANDS/SPAIN.</para>
+    ///
+    /// <para>Each offset is still FIXED per zone, deliberately not a DST-aware conversion: a
+    /// DST lookup would yield 23 hours on spring-forward and a DUPLICATE hour on fall-back, and
+    /// that duplicate would collide on the primary key.</para>
+    ///
+    /// <para>An unrecognised zone returns false so the caller can fail loudly — guessing an
+    /// offset would silently store every row at the wrong timestamp.</para>
     /// </summary>
-    public static DateTime ToUtcHourEnding(DateOnly forecastLabel, int hourOfDay) =>
-        forecastLabel.ToDateTime(new TimeOnly(hourOfDay, 0)).AddHours(UtcOffsetHours);
+    public static bool TryUtcOffsetForZone(string zoneToken, out int offsetHours)
+    {
+        switch (zoneToken.Trim().ToUpperInvariant())
+        {
+            case "EST": offsetHours = EasternOffsetHours; return true;
+            case "UTC": offsetHours = 0; return true;
+            default: offsetHours = 0; return false;
+        }
+    }
+
+    /// <summary>
+    /// <c>UTCHourEnding</c> for one matrix cell: the VALID day (the matrix header's date cell)
+    /// plus the hour-row label as a time-of-day, plus the file's own zone offset.
+    /// Crossing midnight is expected and correct — <c>11:00 PM</c> EST on 8/12 lands on
+    /// <c>2026-08-13 03:00:00</c>, while <c>23:00</c> UTC on 8/12 stays on <c>2026-08-12 23:00:00</c>.
+    /// </summary>
+    public static DateTime ToUtcHourEnding(DateOnly forecastLabel, int hourOfDay, int utcOffsetHours) =>
+        forecastLabel.ToDateTime(new TimeOnly(hourOfDay, 0)).AddHours(utcOffsetHours);
 }
 
 /// <summary>
