@@ -11,8 +11,32 @@ namespace DataLoader.Core.Resilience;
 public static class RetryPolicyFactory
 {
     /// <summary>
-    /// HTTP retry policy for transient failures (5xx, 408, network errors).
-    /// Use with <c>AddPolicyHandler</c> on an <c>HttpClient</c>.
+    /// HTTP retry policy for transient failures (5xx, 408, network errors) and
+    /// for a client-side request timeout.
+    ///
+    /// <para>
+    /// <c>HandleTransientHttpError</c> alone does NOT cover an
+    /// <see cref="HttpClient.Timeout"/> expiry: that surfaces as
+    /// <see cref="TaskCanceledException"/>, not <c>HttpRequestException</c>, so a
+    /// single slow response used to cost a whole work unit with no retry at all.
+    /// EnergyAspects lost a unit to exactly that — one request over the 60s limit
+    /// while the same request took 13-17s on every other window.
+    /// </para>
+    ///
+    /// <para>
+    /// The predicate is what makes this safe. A timeout throws
+    /// <see cref="TaskCanceledException"/> with a <see cref="TimeoutException"/>
+    /// inside it; a genuine cancellation (run abort, per-unit budget) throws the
+    /// same type with a different inner, so it is NOT matched and still
+    /// propagates immediately rather than being retried against a dead token.
+    /// </para>
+    ///
+    /// <para>
+    /// Note the interaction with <c>WorkUnitTimeoutSeconds</c>: retries are
+    /// serial, so the worst case is roughly
+    /// <c>HttpTimeoutSeconds × (retryCount + 1)</c> plus backoff. Keep that under
+    /// the per-unit budget or the unit is cancelled mid-retry.
+    /// </para>
     /// </summary>
     public static IAsyncPolicy<HttpResponseMessage> BuildHttpRetryPolicy(
         int retryCount,
@@ -20,6 +44,7 @@ public static class RetryPolicyFactory
         Action<DelegateResult<HttpResponseMessage>, TimeSpan, int>? onRetry = null) =>
         HttpPolicyExtensions
             .HandleTransientHttpError()
+            .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
             .WaitAndRetryAsync(
                 retryCount,
                 attempt => TimeSpan.FromMilliseconds(delayMs * Math.Pow(2, attempt - 1)),

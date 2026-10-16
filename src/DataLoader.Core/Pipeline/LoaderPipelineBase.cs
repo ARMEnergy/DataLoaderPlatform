@@ -159,12 +159,25 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
             counters.IncrementSucceeded(written);
             _logger.LogDebug("[{Loader}] {Unit} → {Rows} rows", _loaderId, unit.DisplayName, written);
         }
-        catch (OperationCanceledException) when (!context.CancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!context.CancellationToken.IsCancellationRequested)
         {
-            // Per-unit timeout, not whole-run cancellation — record as failure and move on
+            // Not whole-run cancellation — record as failure and move on.
+            //
+            // Two very different failures arrive here as the same exception type,
+            // and reporting both as "Work unit timed out" sent one investigation
+            // straight to the wrong setting. Tell them apart:
+            //   - the per-unit budget expiring cancels unitCts;
+            //   - an HttpClient.Timeout does not, and carries a TimeoutException.
             counters.IncrementFailed();
-            await TryCompleteFailureAsync(handle, "Work unit timed out").ConfigureAwait(false);
-            _logger.LogWarning("[{Loader}] {Unit} timed out", _loaderId, unit.DisplayName);
+
+            var reason = unitCts.IsCancellationRequested
+                ? $"Work unit timed out after {_settings.WorkUnitTimeoutSeconds}s (WorkUnitTimeoutSeconds)"
+                : ex.InnerException is TimeoutException
+                    ? "HTTP request timed out (HttpTimeoutSeconds); the work unit budget was not reached"
+                    : "Cancelled before completion (not the work unit budget)";
+
+            await TryCompleteFailureAsync(handle, reason).ConfigureAwait(false);
+            _logger.LogWarning("[{Loader}] {Unit}: {Reason}", _loaderId, unit.DisplayName, reason);
         }
         catch (OperationCanceledException)
         {
