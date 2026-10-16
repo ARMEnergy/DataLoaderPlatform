@@ -89,6 +89,16 @@ dotnet test DataLoaderPlatform.sln -c Release
 For SQL changes, parse-check scripts with ScriptDom before reporting done.
 Green build/test does not validate SQL syntax.
 
+**Every `.sql` file must declare its target database** with `USE <DatabaseName>;`
+followed by `GO`, before any statement touching a database object. No exceptions
+— loader scripts, `sql/Core/`, hotfixes, migrations, one-off scripts. The name is
+literal (there is no templating in this repo) and comes from the `Database=` value
+in `appsettings.json`, not from the folder name: CME's database is **`CMEGroup`**
+and `sql/Core/`'s is **`DataLoaderPlatform`**. These scripts are run by hand in
+SSMS against a server holding every loader's database side by side, several with
+identically-named objects, so a missing `USE` runs the script wherever the editor
+was last pointed. Always apply `.claude/skills/sql-use-database/SKILL.md`.
+
 ## arm-to-dbo reconciliation (`004_Create<Loader>Comparison.sql`)
 
 Each loader that shadows an incumbent `dbo` dataset has a 5th SQL file creating
@@ -133,6 +143,7 @@ Project skills are under `.claude/skills/`:
 - `scoped-test-policy`
 - `compact-stage-reporting`
 - `resume-key-and-status-matrix-check`
+- `sql-use-database` (required for every `.sql` file)
 
 Use relevant skills on demand; do not load unrelated guidance.
 
@@ -201,9 +212,13 @@ Avoid large inline dumps of code, SQL, or logs.
 
 ## Build-only loaders
 
-CWG, IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, EOX, CME,
+IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, EOX, CME,
 Genscape, NGX, Marex, OilX are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
+
+**CWG is only HALF build-only** — it is not in `Platform:EnabledLoaders`, so it never runs on a
+schedule, but its **pre-reshape SQL is deployed and carries ~1.91M manually-loaded rows**. Treat
+it as a live database for anything destructive. See the CWG paragraph below.
 
 **AGSI is NOT build-only any more** — its SQL is deployed to `ARMH-OPSDB01`/`AGSI` and it has been
 running daily since ~2026-08-18. Three vendor behaviours are silent if you get them wrong, all
@@ -340,15 +355,29 @@ non-key value columns computed **only in the merge proc**; the MERGE updates sol
 differs, so `ModifiedAtUtc` tracks real change and **a no-op re-merge reports
 `RecordsProcessed = 0`** (correct, not a bug). `arm.FileLog` survives as the per-request run/status
 log. Five things are silent if you get them wrong. The forecast key is re-derived as
-`ForecastDate` = the INIT date and `UTCHourEnding` = valid day + hour label **+ 4 hours** — a
-**FIXED offset, never a time-zone lookup**, because the source carries no UTC or DST marker and
-DST would give 23 hours on spring-forward and a *duplicate* hour on fall-back that collides on the
-PK; `ForecastLabel`/`HourLabel` are kept alongside so the un-shifted values stay recoverable, and
-since `(ForecastLabel, HourLabel) → UTCHourEnding` is a bijection no forecast run is lost. Four
+`ForecastDate` = the INIT date and `UTCHourEnding` = valid day + hour label **+ the file's own zone
+offset**, read from the Shape C/D matrix header: `Date (EST)` → **+4h** (northamerica),
+`Date (UTC)` → **+0h** (europe). Each offset is a **FIXED per-zone constant, never a time-zone
+lookup**, because DST would give 23 hours on spring-forward and a *duplicate* hour on fall-back that
+collides on the PK; an unrecognised zone is **refused** rather than guessed. (Until 2026-10-12 the
++4h was hardcoded and the header matched the literal `Date (EST)`, so **every europe wind file
+parsed to ZERO rows on an HTTP 200** — see the wind paragraph below.) `ForecastLabel`/`HourLabel`
+are kept alongside so the un-shifted values stay recoverable — and they hold the file's *own* label
+(`12:00 AM` NA, `00:00` europe), since `CwgHours` now indexes both clock formats; both are arm-only
+columns that `dbo` lacks. Since `(ForecastLabel, HourLabel) → UTCHourEnding` is a bijection no
+forecast run is lost. Four
 dimensions no longer have a column and are handled by **narrowing the read, never by colliding**:
-`Geographies` is pinned to ONE value and CityForecast/CityObservation/Station are flagged
-`RegionlessTarget` so the provider **throws** if a second survives (two geographies would share a
-PK, and °C would overwrite °F with nothing recording which is which); WindTotalCapacityMW/Pct
+CityForecast/CityObservation/Station are flagged `RegionMergedTarget`, meaning every geography in
+`Geographies` **merges into the one table** exactly as the incumbent `dbo` tables do — safe because
+all three key on the station and CWG station identifiers are globally unique (verified 2026-10-12:
+`dbo.Station` = 891 rows / 891 distinct `Identifier` across 51 countries, and `dbo.CityForecast`
+has carried US 19.47M alongside France 1.47M / Italy 1.40M / UK 1.22M under that key for years).
+⚠ **Units are per-geography and nothing on the row records them**: CityForecast is fetched °F for
+`northamerica` and °C for `europe` (`RegionUnits`), which is what `dbo.CityForecast` stores too
+(US mean 65.6 °F vs Norway 8.8 °C); CityObservation is °F for both. Join `arm.Station.Country` to
+resolve the unit. *(Until 2026-10-12 the provider instead **threw** when a second geography
+survived, on the belief the rows would collide on the PK — they cannot, and that guard was what
+kept Europe out of the load.)* WindTotalCapacityMW/Pct
 write the **Current block only**; DailyNormal/WindHourly drop NW+SW; SolarHourly keeps 2 of 14
 regions — and for those last two the descriptor holds `WideRegionColumns` (full in-file
 VALIDATION set, unknown column still fatal) separately from `TargetRegionColumns` (the narrower
@@ -356,8 +385,22 @@ WRITE set). Shape B is **no longer an unpivot** — its three targets are wide, 
 is a NULL column on a kept row rather than a dropped record. `StateDegreeDayObservation` is a
 **19th endpoint added and live-verified 2026-10-05** (`northamerica_state_wdd_observations_{date}.csv`
 — its OWN filename, *not* the `{subregion}` wdd family; 48 rows, one `DATES` = the filename date,
-**no `END.` footer** unlike its siblings). Its SQL has never been deployed.
+**no `END.` footer** unlike its siblings).
 See `docs/apis/CWG.md` §19 and the 2026-10-05 addendum at the top of `docs/design/CWG.md`.
+
+**CWG's SQL IS deployed — corrected 2026-10-06** (earlier notes here claimed it never had been;
+that was wrong, verified against the live catalog). `ARMH-OPSDB01`/`CWG` holds the **pre-reshape**
+`arm` schema with **~1.91M loaded rows** (CityForecast 600,030; SolarHourly 498,213;
+WindForecastSubRegion 232,560; …), 18 TVP types, 19 procs and 3,088 `arm.FileLog` rows. CWG is
+still **not** in `Platform:EnabledLoaders` on either side, so nothing loads it on a schedule —
+the data came from manual runs. The reshape therefore needs a **tear-down first**: 001/002 are
+creation-guarded (`IF OBJECT_ID … IS NULL` / `IF TYPE_ID … IS NULL`), so re-running them over the
+old objects is a silent no-op. `sql/CWG/999_DropCwgObjects.sql` does it in dependency order
+(procs → types → facts), keeping `FileLog`/`Endpoint`/`Status`/`Region` since their shapes did not
+change and 001's seed MERGEs top them up. 🔒 That script is the single most dangerous file in the
+repo: the same database's `dbo` schema holds the live incumbent dataset (~95M rows) in tables with
+**identical names** (`dbo.CityForecast` vs `arm.CityForecast`), so every statement is explicitly
+`arm.`-qualified and must stay that way.
 
 ## Key files
 
