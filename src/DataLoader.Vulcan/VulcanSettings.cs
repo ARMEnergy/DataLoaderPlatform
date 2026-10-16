@@ -14,8 +14,9 @@ public sealed class VulcanSettings : LoaderSettingsBase
     public int HttpTimeoutSeconds { get; set; } = 60;
     public int PageSize { get; set; } = 50000;
     public int MaxPages { get; set; } = 10000;
-    public List<string> EnabledTables { get; set; } = new()
-    {
-        "under_construction", "datacenters", "lng_projects", "project_rankings", "metadata_history"
-    };
+
+    // NOTE: which tables to load is NOT a setting. It lives in dbo.LoaderTable in the Vulcan
+    // database (Enabled / LastRun), read through IVulcanTableRegistry, so the set can be changed
+    // without a redeploy. The old Loaders:Vulcan:EnabledTables list was removed on 2026-10-13 —
+    // do not reintroduce it, or the enabled set would live in two places that can disagree.
 }

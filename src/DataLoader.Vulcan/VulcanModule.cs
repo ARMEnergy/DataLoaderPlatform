@@ -70,6 +70,7 @@ public sealed class VulcanModule : ILoaderModule
         });
 
         services.AddSingleton<IVulcanWatermarkStore, VulcanWatermarkStore>();
+        services.AddSingleton<IVulcanTableRegistry, VulcanTableRegistry>();
 
         services.AddSingleton<UnderConstructionSink>();
         services.AddSingleton<DataCentersSink>();
@@ -117,29 +118,77 @@ public sealed class VulcanModule : ILoaderModule
 
     public async Task<LoaderRunResult> RunAsync(IServiceProvider services, LoaderRunContext context)
     {
-        var settings = services.GetRequiredService<IOptions<VulcanSettings>>().Value;
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("Vulcan.Module");
-        var enabled = new HashSet<string>(settings.EnabledTables, StringComparer.OrdinalIgnoreCase);
+        var registry = services.GetRequiredService<IVulcanTableRegistry>();
+        var ct = context.CancellationToken;
 
-        var pipelines = services.GetServices<IVulcanTablePipeline>()
-            .Where(p => enabled.Contains(p.TableId))
-            .ToList();
+        // Which tables to load comes from dbo.LoaderTable, not appsettings, so the set is
+        // operable without a redeploy. A missing or empty registry is a FAILURE, not an empty
+        // run: silently loading nothing would hide an undeployed sql/Vulcan/001.
+        IReadOnlyList<VulcanTableRegistration> registrations;
+        try
+        {
+            registrations = await registry.GetAllAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not read dbo.LoaderTable; deploy sql/Vulcan/001 before running");
+            return LoaderRunResult.Failed(Id,
+                $"Could not read the Vulcan table registry (dbo.LoaderTable): {ex.Message}", TimeSpan.Zero);
+        }
 
-        var known = services.GetServices<IVulcanTablePipeline>().Select(p => p.TableId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in settings.EnabledTables.Where(t => !known.Contains(t)))
-            logger.LogWarning("Enabled Vulcan table '{Table}' has no matching pipeline and will be skipped", t);
+        if (registrations.Count == 0)
+        {
+            logger.LogError("dbo.LoaderTable is empty — deploy sql/Vulcan/001 to seed it");
+            return LoaderRunResult.Failed(Id,
+                "The Vulcan table registry (dbo.LoaderTable) is empty; deploy sql/Vulcan/001 to seed it.",
+                TimeSpan.Zero);
+        }
+
+        foreach (var r in registrations.Where(r => !r.Enabled))
+            logger.LogInformation("Vulcan table '{Table}' is disabled in dbo.LoaderTable — skipping " +
+                                  "(last successful load {LastRun})",
+                                  r.TableName, r.LastRun?.ToString("u") ?? "never");
+
+        var enabled = new HashSet<string>(
+            registrations.Where(r => r.Enabled).Select(r => r.TableName), StringComparer.OrdinalIgnoreCase);
+
+        var allPipelines = services.GetServices<IVulcanTablePipeline>().ToList();
+        var pipelines = allPipelines.Where(p => enabled.Contains(p.TableId)).ToList();
+
+        var known = allPipelines.Select(p => p.TableId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in enabled.Where(t => !known.Contains(t)))
+            logger.LogWarning("Vulcan table '{Table}' is enabled in dbo.LoaderTable but has no matching " +
+                              "pipeline and will be skipped", t);
 
         if (pipelines.Count == 0)
         {
-            logger.LogWarning("No Vulcan tables enabled");
-            return new LoaderRunResult { LoaderId = Id, Success = true };
+            logger.LogError("No Vulcan tables are enabled in dbo.LoaderTable");
+            return LoaderRunResult.Failed(Id,
+                "No Vulcan tables are enabled in dbo.LoaderTable.", TimeSpan.Zero);
         }
 
         var results = new List<LoaderRunResult>();
         foreach (var pipeline in pipelines)
         {
-            context.CancellationToken.ThrowIfCancellationRequested();
-            results.Add(await pipeline.ExecuteAsync(context).ConfigureAwait(false));
+            ct.ThrowIfCancellationRequested();
+            var result = await pipeline.ExecuteAsync(context).ConfigureAwait(false);
+            results.Add(result);
+
+            // LastRun means "last SUCCESSFUL load", so only a clean run stamps it. Best-effort:
+            // failing to record the stamp must not turn a good load into a failed one.
+            if (result.Success)
+            {
+                try
+                {
+                    await registry.SetLastRunAsync(pipeline.TableId, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Loaded {Table} but could not stamp dbo.LoaderTable.LastRun",
+                        pipeline.TableId);
+                }
+            }
         }
 
         return new LoaderRunResult

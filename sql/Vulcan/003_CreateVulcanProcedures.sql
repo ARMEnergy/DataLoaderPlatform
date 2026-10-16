@@ -32,6 +32,38 @@ BEGIN
 END
 GO
 
+-- ----------------------------------------------------------------------------
+-- dbo.LoaderTable accessors - the enabled-table registry that replaced
+-- Loaders:Vulcan:EnabledTables. Get returns EVERY row (not just the enabled
+-- ones) so the loader can log precisely which tables it is skipping and why.
+-- ----------------------------------------------------------------------------
+CREATE OR ALTER PROCEDURE dbo.usp_GetVulcanLoaderTables
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT TableName, Enabled, LastRun
+      FROM dbo.LoaderTable
+     ORDER BY TableName;
+END
+GO
+
+-- Stamped only after a table loads with no failed work units => "last SUCCESSFUL
+-- load". @LastRun defaults to now; it is a parameter so a backfill can set it.
+CREATE OR ALTER PROCEDURE dbo.usp_SetVulcanTableLastRun
+    @TableName NVARCHAR(100),
+    @LastRun   DATETIME2(3) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE dbo.LoaderTable
+       SET LastRun      = ISNULL(@LastRun, SYSUTCDATETIME()),
+           UpdatedAtUtc = SYSUTCDATETIME()
+     WHERE TableName = @TableName;
+END
+GO
+
 -- ---- UnderConstruction (watermark: DateImage) ----
 CREATE OR ALTER PROCEDURE dbo.usp_BulkMergeUnderConstruction @Records dbo.UnderConstructionTvp READONLY
 AS

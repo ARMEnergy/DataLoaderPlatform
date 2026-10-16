@@ -8,7 +8,8 @@ namespace DataLoader.Vulcan;
 /// </summary>
 public sealed class VulcanTableSpec
 {
-    /// <summary>Loader-facing table id (matches EnabledTables and dbo.LoadWatermark.TableName), e.g. "datacenters".</summary>
+    /// <summary>Loader-facing table id. Matches dbo.LoaderTable.TableName (the enabled registry)
+    /// and dbo.LoadWatermark.TableName (the resume state), e.g. "datacenters".</summary>
     public required string TableId { get; init; }
 
     /// <summary>Fully-qualified source datalink table, e.g. "vdl.datacenters".</summary>

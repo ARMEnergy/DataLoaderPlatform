@@ -35,6 +35,44 @@ BEGIN
 END
 GO
 
+-- ----------------------------------------------------------------------------
+-- dbo.LoaderTable - WHICH source tables the loader may load. This replaced the
+-- Loaders:Vulcan:EnabledTables list in appsettings.json, so the set is operable
+-- without a redeploy: set Enabled = 0 and the next run skips that table.
+--
+-- Deliberately NOT extra columns on dbo.LoadWatermark. That table is lazily
+-- populated RUNTIME state -- a row only appears once a merge advances a
+-- watermark (live check 2026-10-13: 3 rows for 5 tables), and the reset block
+-- further down this file DELETEs from it. Operator configuration must not be
+-- created as a side effect of a load, nor wiped by a watermark reset.
+--
+-- LastRun is stamped only after a table's pipeline completes with NO failed work
+-- units, so it means "last SUCCESSFUL load" and pairs with LoadWatermark.
+-- ----------------------------------------------------------------------------
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'LoaderTable' AND schema_id = SCHEMA_ID('dbo'))
+BEGIN
+    CREATE TABLE dbo.LoaderTable
+    (
+        Id           INT           IDENTITY(1,1) NOT NULL CONSTRAINT PK_LoaderTable PRIMARY KEY,
+        DateCreated  DATETIME      NOT NULL CONSTRAINT DF_LoaderTable_DateCreated DEFAULT GETDATE(),
+        TableName    NVARCHAR(100) NOT NULL CONSTRAINT UQ_LoaderTable_TableName UNIQUE,
+        Enabled      BIT           NOT NULL CONSTRAINT DF_LoaderTable_Enabled DEFAULT 1,
+        LastRun      DATETIME2(3)  NULL,
+        UpdatedAtUtc DATETIME2(3)  NOT NULL CONSTRAINT DF_LoaderTable_Updated DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+-- Seed the known table ids. WHEN NOT MATCHED only: re-running this script must
+-- never resurrect a table an operator deliberately disabled.
+MERGE dbo.LoaderTable AS tgt
+USING (VALUES (N'under_construction'), (N'datacenters'), (N'lng_projects'),
+              (N'project_rankings'), (N'metadata_history')) AS src (TableName)
+   ON tgt.TableName = src.TableName
+WHEN NOT MATCHED BY TARGET THEN
+    INSERT (TableName, Enabled) VALUES (src.TableName, 1);
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'UnderConstruction' AND schema_id = SCHEMA_ID('dbo'))
 BEGIN
     CREATE TABLE dbo.UnderConstruction
