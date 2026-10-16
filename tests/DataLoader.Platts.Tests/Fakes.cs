@@ -21,16 +21,22 @@ internal sealed class FakePlattsSftp : IPlattsSftp
 
     public List<string> OpenedPaths { get; } = new();
 
+    /// <summary>Directories <see cref="ListAsync"/> was actually called for, in order.</summary>
+    public List<string> ListedPaths { get; } = new();
+
     public void AddTextFile(string fullPath, string content) =>
         Files[fullPath] = Encoding.UTF8.GetBytes(content);
 
     public Task<IReadOnlyList<string>> ListDirectoriesAsync(string path, CancellationToken ct) =>
         Task.FromResult(Directories);
 
-    public Task<IReadOnlyList<RemoteFile>> ListAsync(string path, string pattern, CancellationToken ct) =>
-        Task.FromResult(Listings.TryGetValue(path, out var files)
+    public Task<IReadOnlyList<RemoteFile>> ListAsync(string path, string pattern, CancellationToken ct)
+    {
+        ListedPaths.Add(path);
+        return Task.FromResult(Listings.TryGetValue(path, out var files)
             ? files
             : (IReadOnlyList<RemoteFile>)Array.Empty<RemoteFile>());
+    }
 
     public Task<Stream> OpenReadAsync(string fullPath, CancellationToken ct)
     {

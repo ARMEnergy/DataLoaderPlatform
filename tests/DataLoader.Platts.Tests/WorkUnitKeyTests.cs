@@ -1,3 +1,4 @@
+using DataLoader.Core.Abstractions;
 using DataLoader.Core.Sources;
 using Xunit;
 
@@ -70,5 +71,64 @@ public class WorkUnitKeyTests
         var a = SymUnit(new RemoteFile("symbols/csv-version/AA_sym.csv", "AA_sym.csv", 1024, T1));
         var b = SymUnit(new RemoteFile("symbols/csv-version/AA_sym.csv", "AA_sym.csv", 1024, T2));
         Assert.NotEqual(a.Key, b.Key);
+    }
+
+    // ---- ReloadAllFiles: the run token that defeats the LoadLog skip ----
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void NoRunToken_LeavesTheStableKeyUntouched(string? token)
+    {
+        var file = new RemoteFile("/20260731/market.ftp", "market.ftp", 4096, T1);
+        var plain = new SymbolDataWorkUnit { File = file, Folder = "20260731" };
+        var tokened = new SymbolDataWorkUnit { File = file, Folder = "20260731", RunToken = token };
+
+        // An absent token must not alter the settled key, or switching the flag back
+        // off would orphan every key written while it was on.
+        Assert.Equal(plain.Key, tokened.Key);
+        Assert.DoesNotContain(":run=", tokened.Key);
+    }
+
+    [Fact]
+    public void SymbolDataKey_WithRunToken_DiffersPerRun_SoNothingIsEverSkipped()
+    {
+        var file = new RemoteFile("/20260731/market.ftp", "market.ftp", 4096, T1);
+        var run1 = new SymbolDataWorkUnit { File = file, Folder = "20260731", RunToken = "aaaaaaaa" };
+        var run2 = new SymbolDataWorkUnit { File = file, Folder = "20260731", RunToken = "bbbbbbbb" };
+
+        Assert.NotEqual(run1.Key, run2.Key);
+        Assert.StartsWith($"platts:sd:20260731/market.ftp:4096:{T1:O}", run1.Key);
+        Assert.EndsWith(":run=aaaaaaaa", run1.Key);
+        // DisplayName stays clean so the log stays readable.
+        Assert.Equal("20260731/market.ftp", run1.DisplayName);
+    }
+
+    [Fact]
+    public void SymbolKey_WithRunToken_DiffersPerRun_SoNothingIsEverSkipped()
+    {
+        var file = new RemoteFile("symbols/csv-version/AA_sym.csv", "AA_sym.csv", 1024, T1);
+        var run1 = new SymbolWorkUnit { File = file, RunToken = "aaaaaaaa" };
+        var run2 = new SymbolWorkUnit { File = file, RunToken = "bbbbbbbb" };
+
+        Assert.NotEqual(run1.Key, run2.Key);
+        Assert.Equal($"platts:sym:AA_sym.csv:1024:{T1:O}:run=aaaaaaaa", run1.Key);
+        Assert.Equal("AA_sym.csv", run1.DisplayName);
+    }
+
+    [Fact]
+    public void RunToken_IsNullUnlessReloadAllFilesIsSet()
+    {
+        var context = new LoaderRunContext
+        {
+            RunId = Guid.NewGuid(),
+            StartedAtUtc = DateTime.UtcNow,
+            CancellationToken = CancellationToken.None
+        };
+
+        Assert.Null(PlattsKey.RunToken(new PlattsSettings(), context));
+        Assert.Null(PlattsKey.RunToken(new PlattsSettings { ReloadAllFiles = false }, context));
+        Assert.Equal(context.RunId.ToString("N"),
+                     PlattsKey.RunToken(new PlattsSettings { ReloadAllFiles = true }, context));
     }
 }

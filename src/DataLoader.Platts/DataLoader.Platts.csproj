@@ -10,6 +10,9 @@
     <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.Platts.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- SSH.NET (Renci.SshNet, MIT) — SSH SFTP client for sftp.platts.com.
 
          Kept in lockstep with DataLoader.CME: the host references both loader
