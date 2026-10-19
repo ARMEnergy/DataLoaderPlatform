@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.EIA</RootNamespace>
+    <AssemblyName>DataLoader.EIA</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core brings Microsoft.Data.SqlClient, Microsoft.Extensions.Http(.Polly) and
+         Polly in transitively, and System.Text.Json is in-box for net8.0. This loader
+         parses JSON only, so it needs no extra packages. -->
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.EIA.Tests" />
+  </ItemGroup>
+</Project>
