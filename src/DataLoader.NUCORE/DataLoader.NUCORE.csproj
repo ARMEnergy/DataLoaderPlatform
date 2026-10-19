@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.NUCORE</RootNamespace>
+    <AssemblyName>DataLoader.NUCORE</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core brings Microsoft.Data.SqlClient, Microsoft.Extensions.Http(.Polly) and Polly
+         in transitively; System.Text.Json is in-box for net8.0. The responses are JSON and
+         are read with a streaming Utf8JsonReader, so no extra packages are needed. -->
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.NUCORE.Tests" />
+  </ItemGroup>
+</Project>

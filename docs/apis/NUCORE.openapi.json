@@ -1,0 +1,5425 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "NUCORE.IntegrationService",
+    "version": "1.0"
+  },
+  "paths": {
+    "/Integration/api/common/DataSourceMappings/Get": {
+      "get": {
+        "tags": [
+          "Common Service"
+        ],
+        "summary": "Gets Datasource mappings",
+        "description": "Used to pull data source mappings.",
+        "parameters": [
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is ",
+            "schema": {
+              "type": "string"
+            },
+            "example": ""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataSourceMappingsDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataSourceMappingsDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataSourceMappingsDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/ArmErcotSettlePrices/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Ercot Settle Prices",
+        "description": "Used to pull Ercot Settle Prices.",
+        "parameters": [
+          {
+            "name": "FlowDateFrom",
+            "in": "query",
+            "description": "For pulling a range of flowdates",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "FlowDateTo",
+            "in": "query",
+            "description": "For pulling a range of flowdates",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is FlowDate,SettlementPublication,SettlementPublicationIndex",
+            "schema": {
+              "type": "string"
+            },
+            "example": "FlowDate,SettlementPublication,SettlementPublicationIndex"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArmErcotSettlePriceVDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArmErcotSettlePriceVDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArmErcotSettlePriceVDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/CurveScalars/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Curve Scalars",
+        "description": "Used to pull Curve Scalars.",
+        "parameters": [
+          {
+            "name": "SystemDate",
+            "in": "query",
+            "description": "For pulling scalars for a specific system date. Will default to the current system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "TradeMonthFrom",
+            "in": "query",
+            "description": "For pulling curves for a specific trade month",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "TradeMonthTo",
+            "in": "query",
+            "description": "For pulling curves for a specific trade month",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "CurveScalarType",
+            "in": "query",
+            "description": "For pulling curves for a specific scalars based on type",
+            "schema": {
+              "type": "string"
+            },
+            "example": "ERCOT"
+          },
+          {
+            "name": "CurveScalarDef",
+            "in": "query",
+            "description": "For pulling curves for a specific scalars based on definition",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Weekday"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is TradeMonth",
+            "schema": {
+              "type": "string"
+            },
+            "example": "TradeMonth"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurveScalarsViewDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurveScalarsViewDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurveScalarsViewDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/HistoricalVolatility/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Historical Volatility",
+        "description": "Used to pull Historical Volatility",
+        "parameters": [
+          {
+            "name": "SystemDate",
+            "in": "query",
+            "description": "For pulling Historical Volatility for a specific system date. Will default to the system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is SystemDate",
+            "schema": {
+              "type": "string"
+            },
+            "example": "SystemDate"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalVolatilitesDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalVolatilitesDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalVolatilitesDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/PnlExplain/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Pnl Explain Details",
+        "description": "Used to pull Pnl Explanation",
+        "parameters": [
+          {
+            "name": "CurDate",
+            "in": "query",
+            "description": "For pulling Pnl Explain for a specific system date. Will default to the prior system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is CurDate",
+            "schema": {
+              "type": "string"
+            },
+            "example": "CurDate"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnlExplainDetailsDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnlExplainDetailsDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnlExplainDetailsDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/PositionDetails/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Position Details",
+        "description": "Used to pull Position Details",
+        "parameters": [
+          {
+            "name": "TradeMonthFrom",
+            "in": "query",
+            "description": "For pulling position details for a specefic trade month range",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "TradeMonthTo",
+            "in": "query",
+            "description": "For pulling position details for a specefic trade month range",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "TradeStatus",
+            "in": "query",
+            "description": "For pulling position details for a specific trade status",
+            "schema": {
+              "type": "string"
+            },
+            "example": "New"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is TradeId,DetailId",
+            "schema": {
+              "type": "string"
+            },
+            "example": "TradeId,DetailId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionDetailsDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionDetailsDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionDetailsDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/PositionSummary/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Position Summary",
+        "description": "Used to pull Position Summary",
+        "parameters": [
+          {
+            "name": "SystemDate",
+            "in": "query",
+            "description": "For pulling curves for a specific system date. Will default to the current system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "TradeMonthFrom",
+            "in": "query",
+            "description": "For pulling position details for a specefic trade month range",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "TradeMonthTo",
+            "in": "query",
+            "description": "For pulling position details for a specefic trade month range",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "TradeStatus",
+            "in": "query",
+            "description": "For pulling position details for a specific trade status",
+            "schema": {
+              "type": "string"
+            },
+            "example": "New"
+          },
+          {
+            "name": "Trader",
+            "in": "query",
+            "description": "For pulling position details for a specific trader",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Kevin Gerold"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is SystemDate,TradeId,ProductName,ProductGroupId,ProductSpec,TotalUnrealizedUnits",
+            "schema": {
+              "type": "string"
+            },
+            "example": "SystemDate,TradeId,ProductName,ProductGroupId,ProductSpec,TotalUnrealizedUnits"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionSummaryViewDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionSummaryViewDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionSummaryViewDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/ProductSpecCurves/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Product Spec Curves",
+        "description": "Used to pull Product Spec Curves.",
+        "parameters": [
+          {
+            "name": "SystemDateFrom",
+            "in": "query",
+            "description": "For pulling curves for a specific system date. Will default to the current system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "SystemDateTo",
+            "in": "query",
+            "description": "For pulling curves for a specific system date. Will default to the current system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "ProductSpec",
+            "in": "query",
+            "description": "For pulling a specific product spec",
+            "schema": {
+              "type": "string"
+            },
+            "example": "HB_SOUTH 5x16"
+          },
+          {
+            "name": "ProductGroup",
+            "in": "query",
+            "description": "For pulling curves for a specific product group",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Electricity"
+          },
+          {
+            "name": "ProductRegion",
+            "in": "query",
+            "description": "For pulling curves for a specific product region",
+            "schema": {
+              "type": "string"
+            },
+            "example": "ERCOT"
+          },
+          {
+            "name": "TradeMonthFrom",
+            "in": "query",
+            "description": "For pulling curves for a specific trade month",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "TradeMonthTo",
+            "in": "query",
+            "description": "For pulling curves for a specific trade month",
+            "schema": {
+              "type": "string"
+            },
+            "example": "202501"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is TradeMonth,StartFlowDate,LocalStartFlowHour",
+            "schema": {
+              "type": "string"
+            },
+            "example": "TradeMonth,StartFlowDate,LocalStartFlowHour"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSpecCurvesVDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSpecCurvesVDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSpecCurvesVDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/RtHourlyPositions/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Hourly Power Positions",
+        "description": "Used to Hourly Power Positions",
+        "parameters": [
+          {
+            "name": "PdThTradeId",
+            "in": "query",
+            "description": "For pulling Range of Real Time Hourly Power Positions by Trade ID.",
+            "schema": {
+              "type": "integer"
+            },
+            "example": "1001"
+          },
+          {
+            "name": "FlowDateFrom",
+            "in": "query",
+            "description": "For pulling Range of Real Time Hourly Power Positions. Will default to the current date + 30 days if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "FlowDateTo",
+            "in": "query",
+            "description": "For pulling Range of Real Time Hourly Power Positions. Will default to the current date + 30 days if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is PdThTradeId,FlowDate",
+            "schema": {
+              "type": "string"
+            },
+            "example": "PdThTradeId,FlowDate"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RtHourlyPositionsDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RtHourlyPositionsDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RtHourlyPositionsDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/SettlementPublicationIndexes/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Settlement Publication Indexes",
+        "description": "Used to pull Settlement Publication Indexes.",
+        "parameters": [
+          {
+            "name": "SettlementPublication",
+            "in": "query",
+            "description": "For pulling settlement publication indexes for a specific settlement publication",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Inside FERC"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is SettlementPublication,ShortName",
+            "schema": {
+              "type": "string"
+            },
+            "example": "SettlementPublication,ShortName"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementPublicationIndexesVDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementPublicationIndexesVDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementPublicationIndexesVDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/SettlementPublicationIndexPrices/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Settlement Publication Index Prices",
+        "description": "Used to pull Settlement Publication Index Prices.",
+        "parameters": [
+          {
+            "name": "SettlementPublication",
+            "in": "query",
+            "description": "For pulling settlements for a specefic publication",
+            "schema": {
+              "type": "string"
+            },
+            "example": "ERCOT DA LMP"
+          },
+          {
+            "name": "SettlementPublicationIndex",
+            "in": "query",
+            "description": "For pulling settlements for a specific publication index",
+            "schema": {
+              "type": "string"
+            },
+            "example": "LZ_AEN"
+          },
+          {
+            "name": "Frequency",
+            "in": "query",
+            "description": "For pulling settlements for a specific frequency",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Hourly"
+          },
+          {
+            "name": "LocalTimeFrom",
+            "in": "query",
+            "description": "For pulling settlements for a specific time",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03/10/2025 12:00:00 AM"
+          },
+          {
+            "name": "LocalTimeTo",
+            "in": "query",
+            "description": "For pulling settlements for a specific time",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03/10/2025 12:00:00 AM"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is SettlementPublicationIndex,Frequency,LocalTime",
+            "schema": {
+              "type": "string"
+            },
+            "example": "SettlementPublicationIndex,Frequency,LocalTime"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementPublicationIndexPricesVDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementPublicationIndexPricesVDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementPublicationIndexPricesVDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/TradeBlotterView/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Trade Blotter",
+        "description": "Used to pull Trade Blotter",
+        "parameters": [
+          {
+            "name": "TradeDateFrom",
+            "in": "query",
+            "description": "For pulling Range of Real Time Hourly Power Positions. Will default to the current month  if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "TradeDateTo",
+            "in": "query",
+            "description": "For pulling Range of Real Time Hourly Power Positions. Will default to the current month  if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is TradeDate",
+            "schema": {
+              "type": "string"
+            },
+            "example": "TradeDate"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeBlotterDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeBlotterDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeBlotterDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/VarResults/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Delta Gamma VaR Results",
+        "description": "Used to pull Delta Gamma VaR Results",
+        "parameters": [
+          {
+            "name": "VarDate",
+            "in": "query",
+            "description": "For pulling Delta Gamma VaR for a specific system date. Will default to the prior system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is VarDate",
+            "schema": {
+              "type": "string"
+            },
+            "example": "VarDate"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DgVarResultsDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DgVarResultsDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DgVarResultsDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/risk/Volatilities/Get": {
+      "get": {
+        "tags": [
+          "Risk Service"
+        ],
+        "summary": "Gets Product Spec Volatilities",
+        "description": "Used to pull Product Spec Volatilities.",
+        "parameters": [
+          {
+            "name": "SystemDate",
+            "in": "query",
+            "description": "For pulling volatilities for a specific system date. Will default to the current system date if left blank",
+            "schema": {
+              "type": "string"
+            },
+            "example": "03-10-2025"
+          },
+          {
+            "name": "ProductSpec",
+            "in": "query",
+            "description": "For pulling volatilities for a specific product spec",
+            "schema": {
+              "type": "string"
+            },
+            "example": "HB_HOUSTON_2x16_PHYS"
+          },
+          {
+            "name": "InstrumentType",
+            "in": "query",
+            "description": "For pulling volatilities for a specific instrument type",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Power Option"
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "description": "Current Page to pull",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "description": "Size of each page to pull. if left blank will default to 10,000",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 100
+          },
+          {
+            "name": "SortFields",
+            "in": "query",
+            "description": "Specify the columns to sort by as a comma-separated list. Each column is sorted in ascending order by default. To sort a column in descending order, prefix its name with a - symbol. Default Sort is InstrumentType,StartTradeMonth",
+            "schema": {
+              "type": "string"
+            },
+            "example": "InstrumentType,StartTradeMonth"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSpecVolatilitiesVDtoApiRequestResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSpecVolatilitiesVDtoApiRequestResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSpecVolatilitiesVDtoApiRequestResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Integration/api/Health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArmErcotSettlePriceVDto": {
+        "type": "object",
+        "properties": {
+          "settlementPublication": {
+            "type": "string",
+            "nullable": true
+          },
+          "settlementPublicationIndex": {
+            "type": "string",
+            "nullable": true
+          },
+          "frequency": {
+            "type": "string",
+            "nullable": true
+          },
+          "dayType": {
+            "type": "string",
+            "nullable": true
+          },
+          "hourType": {
+            "type": "string",
+            "nullable": true
+          },
+          "flowDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settlePrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ArmErcotSettlePriceVDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArmErcotSettlePriceVDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CurveScalarsViewDto": {
+        "type": "object",
+        "properties": {
+          "systemDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "curveScalarType": {
+            "type": "string",
+            "nullable": true
+          },
+          "curveScalarDef": {
+            "type": "string",
+            "nullable": true
+          },
+          "he1": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe1": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he3": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe3": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he4": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe4": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he5": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe5": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he6": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe6": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he7": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe7": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he8": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe8": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he9": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe9": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he10": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe10": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he11": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe11": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he12": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe12": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he13": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe13": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he14": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe14": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he15": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe15": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he16": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe16": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he17": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe17": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he18": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe18": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he19": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe19": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he20": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe20": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he21": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe21": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he22": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe22": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he23": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe23": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "he24": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorHe24": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CurveScalarsViewDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CurveScalarsViewDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DataSourceMappingsDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "dataSourceMappingId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dtDataSourceTypeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "externalValue": {
+            "type": "string",
+            "nullable": true
+          },
+          "externalValueType": {
+            "type": "string",
+            "nullable": true
+          },
+          "internalValue": {
+            "type": "string",
+            "nullable": true
+          },
+          "internalValueName": {
+            "type": "string",
+            "nullable": true
+          },
+          "internalValueType": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeFlag": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "readOnly": true
+          },
+          "dataSourceTypes": {
+            "$ref": "#/components/schemas/DataSourceTypesDto"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DataSourceMappingsDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataSourceMappingsDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DataSourceTypesDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "dataSourceTypeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dsDataSourceId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dataType": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeFlag": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "readOnly": true
+          },
+          "dataSourceMappings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataSourceMappingsDto"
+            },
+            "nullable": true
+          },
+          "dataSources": {
+            "$ref": "#/components/schemas/DataSourcesDto"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DataSourcesDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "dataSourceId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "source": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeFlag": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "readOnly": true
+          },
+          "dataSourceTypes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataSourceTypesDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DgVarResultsDto": {
+        "type": "object",
+        "properties": {
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "varDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "varBucket": {
+            "type": "string",
+            "nullable": true
+          },
+          "legalEntity": {
+            "type": "string",
+            "nullable": true
+          },
+          "confidenceLevelId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "confidenceLevel": {
+            "type": "string",
+            "nullable": true
+          },
+          "holdingPeriod": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeBook": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "productGroup": {
+            "type": "string",
+            "nullable": true
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "deltaVar": {
+            "type": "number",
+            "format": "double"
+          },
+          "gammaVar": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalVar": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DgVarResultsDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DgVarResultsDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DoddFrankAttributesDto": {
+        "type": "object",
+        "properties": {
+          "executionDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "eventDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "uti": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "HistoricalVolatilitesDto": {
+        "type": "object",
+        "properties": {
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "systemDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "specId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "riskType": {
+            "type": "string",
+            "nullable": true
+          },
+          "productGroup": {
+            "type": "string",
+            "nullable": true
+          },
+          "productRegion": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "histVol": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "HistoricalVolatilitesDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoricalVolatilitesDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PnlExplainDetailsDto": {
+        "type": "object",
+        "properties": {
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "curDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "priorDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tradeStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeBook": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "riskType": {
+            "type": "string",
+            "nullable": true
+          },
+          "instrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "instrumentSubType": {
+            "type": "string",
+            "nullable": true
+          },
+          "direction": {
+            "type": "string",
+            "nullable": true
+          },
+          "putCallFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "strikePrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "expirationDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "premium": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorQuantity": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentQuantity": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "profitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorDlvyPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentDlvyPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorOptionValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentOptionValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "newDeals": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "amendedDeals": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "canceledDeals": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "curveShift": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "deltaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "deltaRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorInterestRate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentInterestRate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "rhoAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "rhoRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorDays": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "currentDays": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "thetaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "thetaRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "gammaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorVol": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentVol": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "vegaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "vegaRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorCorrelation": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentCorrelation": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "etaRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "etaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "secondOrder": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentDelta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentGamma": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentVega": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentTheta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentRho": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currentEta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorDelta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorGamma": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorVega": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorTheta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorRho": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorEta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intialTradeDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "inceptionDeltaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionDeltaRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionRhoAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionRhoRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionThetaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionThetaRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionVegaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionVegaRevalue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionGammaAttribution": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionDelta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionGamma": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionVega": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionTheta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionRho": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionEta": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionQuantity": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionDays": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "inceptionInterestRate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionDlvyPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionOptionValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionVolatility": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "contractPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "ile": {
+            "type": "string",
+            "nullable": true
+          },
+          "trader": {
+            "type": "string",
+            "nullable": true
+          },
+          "whatIfFlag": {
+            "type": "boolean"
+          },
+          "strategy": {
+            "type": "string",
+            "nullable": true
+          },
+          "inceptionProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "inceptionSecondOrder": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "detailId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "priorYearMtm": {
+            "type": "number",
+            "format": "double"
+          },
+          "ytdTotalValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorM1RealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "currentM1RealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "m1RealizedProfitLossChange": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorCashMonthRealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "currentCashMonthRealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "cashMonthRealizedProfitLossChange": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorYtdRealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "currentYtdRealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "ytdRealizedProfitLossChange": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorMtdRealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "currentMtdRealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "mtdRealizedProfitLossChange": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorRealizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "currentRealizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "realizedQuantityChange": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorUnrealizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "currentUnrealizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unrealizedQuantityChange": {
+            "type": "number",
+            "format": "double"
+          },
+          "mtmRolloff": {
+            "type": "number",
+            "format": "double"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PnlExplainDetailsDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PnlExplainDetailsDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PositionDetailsDto": {
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "detailId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "clearingAccount": {
+            "type": "string",
+            "nullable": true
+          },
+          "daRtFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "parentTradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "intercompanyTradeFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "whatIfFlag": {
+            "type": "boolean"
+          },
+          "cIleId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ileLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeTenor": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tradeTerm": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tradeLeadTime": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "extTradeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "priorProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorDiscountedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorDiscountedSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorRealizedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorSysRealizedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorRealizedCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "profitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "sysProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "discountedProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "discountedSysProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "realizedProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "sysRealizedProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currencyProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "realizedCurrencyProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorIntrinsicProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorIntrinsicSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorIntrinsicDiscountedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorIntrinsicDiscountedSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorIntrinsicCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicDiscountedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicDiscountedSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicSysProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicDiscountedProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicDiscountedSysProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "intrinsicCurrencyProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "contractPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "finPhysFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "settlementIndex": {
+            "type": "string",
+            "nullable": true
+          },
+          "conversionFactor": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ileShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cCounterpartyId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cpartyLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeDateMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "cpartyShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tradeMonthAsDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "systemDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tradeDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "apuTraderId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "trader": {
+            "type": "string",
+            "nullable": true
+          },
+          "ccContactId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cprtyContact": {
+            "type": "string",
+            "nullable": true
+          },
+          "direction": {
+            "type": "string",
+            "nullable": true
+          },
+          "instrumentSubType": {
+            "type": "string",
+            "nullable": true
+          },
+          "itInstrumentTypeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "instrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "parentInstrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "priceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "crtContractId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "contractName": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbTradeBookId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeBook": {
+            "type": "string",
+            "nullable": true
+          },
+          "sStrategyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "strategy": {
+            "type": "string",
+            "nullable": true
+          },
+          "tsTradeSourceId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeSource": {
+            "type": "string",
+            "nullable": true
+          },
+          "productCategoryId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productCategory": {
+            "type": "string",
+            "nullable": true
+          },
+          "productGroupId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productGroup": {
+            "type": "string",
+            "nullable": true
+          },
+          "productRegionId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productRegion": {
+            "type": "string",
+            "nullable": true
+          },
+          "specId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "productCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "intrinsicValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "extrinsicValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "units": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "unrealizedUnits": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "realizedUnits": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "productId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productName": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradedProductId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tradedProduct": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradedAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "tradeQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "actualQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "realizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "unrealizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "schQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "vuVolumetricUnitId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "volumetricUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "realizedAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "sysRealizedAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "sysAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "unrealizedAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "sysUnrealizedAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "psCurrencySpecId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true
+          },
+          "priceStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "mktPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "fxRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "unitConvFactor": {
+            "type": "number",
+            "format": "double"
+          },
+          "interestRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "psIntRateSpecId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "discountFactor": {
+            "type": "number",
+            "format": "double"
+          },
+          "profitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "sysProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "discountedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "discountedSysProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "realizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "sysRealizedProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "currencyProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "realizedCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double"
+          },
+          "optionPremium": {
+            "type": "number",
+            "format": "double"
+          },
+          "paymentDueDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estDaysToPayment": {
+            "type": "number",
+            "format": "double"
+          },
+          "isConfirmed": {
+            "type": "boolean"
+          },
+          "isInvoiced": {
+            "type": "boolean"
+          },
+          "isScheduled": {
+            "type": "boolean"
+          },
+          "isLocked": {
+            "type": "boolean"
+          },
+          "tbAttribute1": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute2": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute3": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute4": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute5": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute6": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute7": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute8": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute9": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbAttribute10": {
+            "type": "string",
+            "nullable": true
+          },
+          "cclCreditLineId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "strikeType": {
+            "type": "string",
+            "nullable": true
+          },
+          "settleType": {
+            "type": "string",
+            "nullable": true
+          },
+          "putCallFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "premiumPaid": {
+            "type": "string",
+            "nullable": true
+          },
+          "opmOptionModel": {
+            "type": "string",
+            "nullable": true
+          },
+          "expirationDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "volatility": {
+            "type": "number",
+            "format": "double"
+          },
+          "correlation": {
+            "type": "number",
+            "format": "double"
+          },
+          "optionValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "strikePrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "deltaVolume": {
+            "type": "number",
+            "format": "double"
+          },
+          "delta": {
+            "type": "number",
+            "format": "double"
+          },
+          "gamma": {
+            "type": "number",
+            "format": "double"
+          },
+          "vega": {
+            "type": "number",
+            "format": "double"
+          },
+          "theta": {
+            "type": "number",
+            "format": "double"
+          },
+          "rho": {
+            "type": "number",
+            "format": "double"
+          },
+          "eta": {
+            "type": "number",
+            "format": "double"
+          },
+          "gasEquivalent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "impliedHeatRate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "mwhPosition": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PositionDetailsDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PositionDetailsDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PositionSummaryViewDto": {
+        "type": "object",
+        "properties": {
+          "systemDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeMonthAsDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tradeStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "intercompanyTradeFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "daRtFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "whatIfFlag": {
+            "type": "boolean"
+          },
+          "cIleId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "ileLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "ileShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cCounterpartyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "finPhysFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "settlementIndex": {
+            "type": "string",
+            "nullable": true
+          },
+          "cpartyLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cpartyShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "apuTraderId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "trader": {
+            "type": "string",
+            "nullable": true
+          },
+          "direction": {
+            "type": "string",
+            "nullable": true
+          },
+          "itInstrumentTypeId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "instrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "parentInstrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "instrumentSubType": {
+            "type": "string",
+            "nullable": true
+          },
+          "crtContractId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "contractName": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbTradeBookId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tradeBook": {
+            "type": "string",
+            "nullable": true
+          },
+          "sStrategyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "clearingAccount": {
+            "type": "string",
+            "nullable": true
+          },
+          "strategy": {
+            "type": "string",
+            "nullable": true
+          },
+          "tsTradeSourceId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tradeSource": {
+            "type": "string",
+            "nullable": true
+          },
+          "productCategoryId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "productCategory": {
+            "type": "string",
+            "nullable": true
+          },
+          "productId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "productName": {
+            "type": "string",
+            "nullable": true
+          },
+          "productGroupId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "productGroup": {
+            "type": "string",
+            "nullable": true
+          },
+          "productRegionId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "productRegion": {
+            "type": "string",
+            "nullable": true
+          },
+          "specId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "productCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "totalIntrinsicValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalExtrinsicValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "tradeDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tradeDateMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "putCallFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "strikePrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "mktPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "tradeTenor": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "extTradeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeTerm": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "priorProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorDiscountedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorDiscountedSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorRealizedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorSysRealizedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorRealizedCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "profitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "sysProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "discountedProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "discountedSysProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "realizedProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "sysRealizedProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "currencyProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "realizedCurrencyProfitLossDayChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorInstrinsicProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorInstrinsicSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorInstrinsicDiscountedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorInstrinsicDiscountedSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "priorInstrinsicCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicDiscountedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicDiscountedSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicSysProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicDiscountedProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicDiscountedSysProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "instrinsicCurrencyProfitLossChange": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalUnits": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalUnrealizedUnits": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalRealizedUnits": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "tradedProduct": {
+            "type": "string",
+            "nullable": true
+          },
+          "vuVolumetricUnitId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "volumetricUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "psCurrencySpecId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true
+          },
+          "totalTradeQuantity": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalActualQuantity": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalRealizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalUnrealizedQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalSchQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "deltaAdjQuantity": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalRealizedAmount": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalSysRealizedAmount": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalAmount": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalSysAmount": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalUnrealizedAmount": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalSysUnrealizedAmount": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalDiscountedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalDiscountedSysProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalRealizedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalSysRealizedProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "totalRealizedCurrencyProfitLoss": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "contractPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "gasEquivalent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "impliedHeatRate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "mwhPosition": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PositionSummaryViewDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PositionSummaryViewDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductSpecCurvesVDto": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "modifiedByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "systemDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "prsSpecId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "riskType": {
+            "type": "string",
+            "nullable": true
+          },
+          "productGroup": {
+            "type": "string",
+            "nullable": true
+          },
+          "productRegion": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "startFlowDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endFlowDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "localStartFlowDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "localEndFlowDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "localStartFlowHour": {
+            "type": "string",
+            "nullable": true
+          },
+          "localEndFlowHour": {
+            "type": "string",
+            "nullable": true
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "dlvyPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "priorDlvyPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "dailyPriceReturn": {
+            "type": "number",
+            "format": "double"
+          },
+          "dailyDlvyPriceReturn": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedFlag": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductSpecCurvesVDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductSpecCurvesVDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductSpecVolatilitiesVDto": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "modifiedByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "systemDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "instrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "startTradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "endTradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "putCallFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "strikeType": {
+            "type": "string",
+            "nullable": true
+          },
+          "strikePrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "volatility": {
+            "type": "number",
+            "format": "double"
+          },
+          "atmFlag": {
+            "type": "boolean"
+          },
+          "updatedFlag": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductSpecVolatilitiesVDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductSpecVolatilitiesVDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RecordStates": {
+        "enum": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "type": "integer",
+        "format": "int32"
+      },
+      "RtHourlyPositionsDto": {
+        "type": "object",
+        "properties": {
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "pdThTradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "realizedFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "detailId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeMonth": {
+            "type": "string",
+            "nullable": true
+          },
+          "flowDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "flowDateOnly": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "hour": {
+            "type": "string",
+            "nullable": true
+          },
+          "dayType": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "intercompanyTradeFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "whatIfFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "cCounterpartyId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cIleId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ileShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "ileLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "direction": {
+            "type": "string",
+            "nullable": true
+          },
+          "itInstrumentTypeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "instrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "priceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbTradeBookId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeBook": {
+            "type": "string",
+            "nullable": true
+          },
+          "sStrategyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "tsTradeSourceId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeSource": {
+            "type": "string",
+            "nullable": true
+          },
+          "areaName": {
+            "type": "string",
+            "nullable": true
+          },
+          "prsSpecId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "prodProductID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productSpec": {
+            "type": "string",
+            "nullable": true
+          },
+          "product": {
+            "type": "string",
+            "nullable": true
+          },
+          "tradeDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actualQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "vuVolumetricUnitId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "volumetricUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "psCurrencySpecId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true
+          },
+          "parentInstrumentTypeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "parentInstrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "powerLocationId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "locationName": {
+            "type": "string",
+            "nullable": true
+          },
+          "instrumentSubTypeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "instrumentSubType": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RtHourlyPositionsDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RtHourlyPositionsDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettlementPublicationIndexPricesVDto": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "modifiedByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "settlementPublicationIndexPriceId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "settlementPublisherId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "spSettlementPublicationId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "spiSettlementPublicationIndexId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "spifSettlementPublicationIndexFrequencyId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "settlementPublication": {
+            "type": "string",
+            "nullable": true
+          },
+          "settlementPublicationIndex": {
+            "type": "string",
+            "nullable": true
+          },
+          "frequency": {
+            "type": "string",
+            "nullable": true
+          },
+          "localTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "localFlowHour": {
+            "type": "string",
+            "nullable": true
+          },
+          "beginningUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "utcFlowHour": {
+            "type": "string",
+            "nullable": true
+          },
+          "systemEnergyPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "settlePrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "congestionPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "marginalLossPrice": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettlementPublicationIndexPricesVDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementPublicationIndexPricesVDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettlementPublicationIndexesVDto": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "modifiedByUser": {
+            "type": "string",
+            "nullable": true
+          },
+          "settlementPublicationIndexId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "settlementPublication": {
+            "type": "string",
+            "nullable": true
+          },
+          "shortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "formulaBasedFlag": {
+            "type": "boolean"
+          },
+          "formula": {
+            "type": "string",
+            "nullable": true
+          },
+          "currencyProdProductId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "volumetricUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "timeZoneName": {
+            "type": "string",
+            "nullable": true
+          },
+          "prodProductId": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettlementPublicationIndexesVDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementPublicationIndexesVDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SignificantNewTradeViolationsDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "violationId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "violationType": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewedFlag": {
+            "type": "boolean"
+          },
+          "reviewComments": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewedBy": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "reviewedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TradeAnomaliesDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "anomalyId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "anomalyType": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewedFlag": {
+            "type": "boolean"
+          },
+          "reviewComments": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewedBy": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "reviewedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TradeAttributeCategoriesDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "tradeAttributeCategoryId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeAttributeCategory": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeFlag": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TradeAttributeValuesDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "tradeAttributeValueId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "thTradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "taTradeAttributeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeAttributeValue": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "readOnly": true
+          },
+          "tradeAttribute": {
+            "$ref": "#/components/schemas/TradeAttributesDto"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TradeAttributesDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "tradeAttributeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeAttribute": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "tacTradeAttributeCategoryId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "frontEndDataType": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeFlag": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "readOnly": true
+          },
+          "tradeAttributeCategory": {
+            "$ref": "#/components/schemas/TradeAttributeCategoriesDto"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TradeBlotterDto": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originalModifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recordState": {
+            "$ref": "#/components/schemas/RecordStates"
+          },
+          "guid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "entityName": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          },
+          "tradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "parentTradeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "intercompanyTradeFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "whatIfFlag": {
+            "type": "boolean"
+          },
+          "extTradeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "clearingAccount": {
+            "type": "string",
+            "nullable": true
+          },
+          "cIleId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ileLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "ileShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cCounterpartyId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cpartyLegalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cpartyShortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tradeDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "apuTraderId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "trader": {
+            "type": "string",
+            "nullable": true
+          },
+          "ccContactId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cprtyContact": {
+            "type": "string",
+            "nullable": true
+          },
+          "direction": {
+            "type": "string",
+            "nullable": true
+          },
+          "itInstrumentTypeId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "instrumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "comments": {
+            "type": "string",
+            "nullable": true
+          },
+          "internalNotes": {
+            "type": "string",
+            "nullable": true
+          },
+          "instrumentSubType": {
+            "type": "string",
+            "nullable": true
+          },
+          "finPhysFlag": {
+            "type": "string",
+            "nullable": true
+          },
+          "crtContractId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "contractName": {
+            "type": "string",
+            "nullable": true
+          },
+          "tbTradeBookId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeBook": {
+            "type": "string",
+            "nullable": true
+          },
+          "sStrategyId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "strategy": {
+            "type": "string",
+            "nullable": true
+          },
+          "tsTradeSourceId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeSource": {
+            "type": "string",
+            "nullable": true
+          },
+          "icon": {
+            "type": "string",
+            "nullable": true
+          },
+          "serviceLevel": {
+            "type": "string",
+            "nullable": true
+          },
+          "powerTradeType": {
+            "type": "string",
+            "nullable": true
+          },
+          "energySource": {
+            "type": "string",
+            "nullable": true
+          },
+          "isRenewableSource": {
+            "type": "boolean"
+          },
+          "receivedFlag": {
+            "type": "boolean"
+          },
+          "powerMarketArea": {
+            "type": "string",
+            "nullable": true
+          },
+          "product": {
+            "type": "string",
+            "nullable": true
+          },
+          "pricing": {
+            "type": "string",
+            "nullable": true
+          },
+          "ttlActualQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "ttlAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "floatingPrice": {
+            "type": "string",
+            "nullable": true
+          },
+          "productCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "ttlPnl": {
+            "type": "number",
+            "format": "double"
+          },
+          "percOfMkt": {
+            "type": "number",
+            "format": "double"
+          },
+          "oneMonthQuantity": {
+            "type": "number",
+            "format": "double"
+          },
+          "tradeTenor": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeTerm": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tradeLeadTime": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "waPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "mktPrice": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "quantity": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "significantNewTradeAlert": {
+            "type": "boolean"
+          },
+          "significantNewTradeViolations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignificantNewTradeViolationsDto"
+            },
+            "nullable": true
+          },
+          "tradeAnomalyAlert": {
+            "type": "boolean"
+          },
+          "tradeAnomalyAlerts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TradeAnomaliesDto"
+            },
+            "nullable": true
+          },
+          "positionDetails": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PositionDetailsDto"
+            },
+            "nullable": true
+          },
+          "tradeAttributeValues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TradeAttributeValuesDto"
+            },
+            "nullable": true
+          },
+          "doddFrankAttributes": {
+            "$ref": "#/components/schemas/DoddFrankAttributesDto"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TradeBlotterDtoApiRequestResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "recordsReturned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRecords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TradeBlotterDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "description": "JWT Authorization header using the Bearer scheme. \\r\\n\\r\\n \r\n                      Enter 'Bearer' [space] and then your token in the text input below.\r\n                      \\r\\n\\r\\nExample: 'X-Api-Key 12345abcdef'",
+        "name": "X-Api-Key",
+        "in": "header"
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKey": []
+    }
+  ]
+}
