@@ -89,6 +89,16 @@ dotnet test DataLoaderPlatform.sln -c Release
 For SQL changes, parse-check scripts with ScriptDom before reporting done.
 Green build/test does not validate SQL syntax.
 
+```powershell
+.\scripts\Test-SqlParses.ps1                  # every .sql in sql/
+.\scripts\Test-SqlParses.ps1 -Path sql\NUCORE # one loader
+```
+
+It also enforces the `USE <DatabaseName>` rule below. ScriptDom comes from the NuGet
+package cache; if it is missing, `dotnet restore` any project referencing
+`Microsoft.SqlServer.TransactSql.ScriptDom` once. All 114 `.sql` files in the repo parse
+as of 2026-10-16.
+
 **Every `.sql` file must declare its target database** with `USE <DatabaseName>;`
 followed by `GO`, before any statement touching a database object. No exceptions
 — loader scripts, `sql/Core/`, hotfixes, migrations, one-off scripts. The name is
@@ -213,8 +223,170 @@ Avoid large inline dumps of code, SQL, or logs.
 ## Build-only loaders
 
 IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, EOX, CME,
-Genscape, NGX, Marex, OilX are build-only unless explicitly deployed and run.
+Genscape, NGX, Marex, OilX, EIA, NUCORE are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
+
+NUCORE (ARM's own risk system via `NUCORE.IntegrationService`, 5 endpoints, **`dbo` schema**,
+DB **`NUCORE`**) is the only loader reading an *internal* ARM API, and the only one whose
+target schema is `dbo` rather than `arm`. Its read path is live-verified end to end (225,677
+rows across all five endpoints, zero dropped); its SQL has **never been deployed** and no
+`NUCORE` database exists. Its 436 columns across 5 tables are **GENERATED** — never hand-edit
+`NucoreColumns.Generated.cs` or `sql/NUCORE/*.sql`; re-run `scripts\Generate-NucoreSchema.ps1`,
+which reads the vendor's **own OpenAPI document** (`docs/apis/NUCORE.openapi.json`, discovered
+via `/swagger/index.js` — it is NOT at any `/swagger/v1/swagger.json` path) plus an observed
+full-day profile. Five behaviours are silent if you get them wrong, and two of them mean the
+originally-specified URLs were wrong. **`PnlExplain` ignores `systemDate`; its parameter is
+`CurDate`** — asked the wrong way it answers HTTP 200 with the LATEST run for every date
+(2026-10-14, 2025-10-15 and 2024-01-10 all returned curDate 2026-10-15, 11,376 rows; the
+correct `CurDate` returns 11,364). **`PositionDetails` has NO date parameter at all** — the
+spec offers only `TradeMonthFrom`/`TradeMonthTo`/`TradeStatus`/`Page`/`PageSize`/`SortFields`,
+so one unfiltered call returns the ENTIRE history (2,468,453 rows / 392 system dates /
+~10 GB) and `pageSize=500000` answers **HTTP 504**; it is partitioned by trade month (a
+**lossless** split — the 2025–2031 yearly census sums to exactly 2,468,453) and made
+incremental by paging `SortFields=-systemDate` down to a per-trade-month watermark read from
+the target table. **Omitting a date parameter returns 200 with the latest day**, not an error,
+which is why every row's echoed date is asserted against the requested one — the single most
+important check in the loader. **A garbage date answers HTTP 500, not 400**, so 500 is
+deterministic here and is deliberately excluded from the retry predicate (only 408/429/502/503/504
+retry), while weekends/holidays/future dates answer 200 with zero rows as legitimate empty
+reads. And **`id` is always 0 and `guid` always all-zeros** on every row of every endpoint, so
+neither is ever a key.
+
+⚠ **Two faults from the first real run, fixed 2026-10-18 — THREE of the five tables have no
+usable key, and paging was silently lossy.** (1) **`PositionDetails` died on
+`Violation of PRIMARY KEY constraint 'PK_PositionDetails'`.** Its key had been "verified
+unique" over 100,000 rows that were the first page of a **trade-ordered** response covering
+only **130 distinct trades** — a sample, not a population. Over five COMPLETE trade months
+(443,477 rows) that key has **45,151 duplicates**, and nothing rescues it: `+specId` → 2,189,
+`+priceType,settlementIndex` → 129, `+productId` → still 129, and the survivors are NOT exact
+duplicates (one group is 17 distinct settlement rows at 17 contract prices, differing only in
+measures, so de-duplicating would destroy real realized P&L). `PnlExplain`'s key fails the
+same way on 2025-10-15 (19 byte-identical copies of one row). Both now REPLACE instead of
+merge — `PnlExplain` per `(CurDate)`, `PositionDetails` per `(TradeMonth, SystemDate)` —
+joining `PositionSummary`, which never had a key. Only **`VarResults` and `Volatilities`
+still merge**, re-verified over 7 and 5 COMPLETE days. ⚠ A uniqueness check on this vendor is
+meaningless unless it is over a complete population, compares values **as SQL will** (`7.5`
+and `7.50` are one DECIMAL), and is repeated across several periods.
+⚠ A replace depends on **a scope never being split across two write calls** — the second
+call's DELETE would remove the first's rows, silently. A `ReplaceByDate` unit is therefore
+written as ONE batch and a `ReplaceByScope` unit flushes only on a `SystemDate` boundary;
+`NucoreSourceReader` throws if a scope repeats.
+(2) **Paging without `SortFields` is NOT stable, and half of it is invisible.** One
+`Volatilities` day's pages 1 and 2 at `pageSize=20000` shared **111 rows** unsorted and **0**
+sorted — meaning ~111 rows were never returned at all. The loader sent `SortFields` only for
+`PositionDetails`, so the loaded `Volatilities` was short by **~2.6% per day** (144,107 stored
+vs 147,908 available) across all 64 days, with nothing failing. **Every request now carries
+`SortFields`**, and the reader reconciles rows read against the envelope's own `totalRecords`
+so a residual shortfall fails the unit. Only multi-page units were exposed: `VarResults`
+(9,378/day) and `PositionSummary` (13,555/day) are single-page and verified complete.
+Migration: `sql/NUCORE/hotfixes/2026-10-18_RemoveUntrustworthyKeys.sql`.
+
+See `docs/apis/NUCORE.md` and `docs/design/NUCORE.md`.
+
+EIA (U.S. Energy Information Administration API v2, 95 series × 154 frequency axes, `arm`
+schema, DB **`EIAv2`**) is the only loader whose **scope lives in the database rather than
+in config** — `arm.Series` / `arm.SeriesFrequency` / `arm.SeriesDataType` say what to
+request, read through stored procs so no query is compiled into the binary — and the only
+one that lands 95 structurally different datasets in **one generic table**,
+`arm.SeriesData`, as canonical JSON plus two hashes. Its read path is live-verified end to
+end (10,002 rows across all 8 frequencies); its SQL has **never been deployed**.
+🔒 **`dbo.SeriesData` in the SAME database is the live incumbent with ~94M rows and an
+identical column list**, so every statement in `sql/EIA/*` is `arm.`-qualified and a test
+asserts that `999` drops nothing else; the three `arm` catalog tables are INPUT and are
+neither created by `001` nor dropped by `999`. Six behaviours are silent if you get them
+wrong. **`FacetKey`/`DataHash` are NOT a free choice** — they are the non-randomised .NET
+*Framework* `String.GetHashCode` over the canonical JSON, recovered from the incumbent and
+verified 20,000/20,000; .NET 8 randomises `GetHashCode` per process, so calling it would
+re-key every row every run and append ~90M rows instead of updating. A **`local-hourly`
+`start`/`end` without a two-digit `±HH` zone suffix answers HTTP 500**, not 400 — it looks
+transient and gets retried forever (`Z` and `-0400` also 500; a raw `+` decodes to a space
+and 500s, which is why bounds render `-00`). An **`offset` past the end returns 200 with
+ZERO rows while still carrying the `"incomplete return"` warning**, so that warning is not
+a "there is more" signal and the stop condition must be an empty page. **404 has an EMPTY
+body** and means the catalog has drifted from the API. **`response.total` is a string and
+`warnings` sits at the ROOT**, outside `response`. And the vendor **changed its JSON value
+types from numbers to strings between 2022 and 2024**, which forked the incumbent into
+duplicate rows under two FacetKeys (`international` 1949: API 49 rows, `dbo` 98) — the
+loader normalises numeric strings so a future flip re-keys nothing, which is also what the
+request specifies.
+
+⚠ **Two faults from the first full run, fixed 2026-10-16 — both pointed at the wrong
+thing.** (1) **`HttpClient.Timeout` bounds a RETRIED operation, not one attempt.** A Polly
+policy from `AddPolicyHandler` runs *inside* it, so `HttpTimeoutSeconds=120` with
+`RetryCount=4` gave all five attempts 120s between them; against `electricity/rto/*`,
+whose gateway 504s at ~60s, attempt 2 blew the budget and the error surfaced as a CLIENT
+timeout, hiding the vendor's 504. The budget now lives in the policy per attempt
+(`retry.WrapAsync(timeout)`) with `client.Timeout = InfiniteTimeSpan`, and
+`TimeoutRejectedException` is in the retry predicate. ⚠ The budgets are coupled —
+`(RetryCount+1) × HttpTimeoutSeconds` + backoff must stay under
+`WorkUnitTimeoutSeconds`; a test asserts it, and that test caught `EiaSettings` inheriting
+the base 300s default while appsettings shipped 3600. (2) **EIA's `offset` paging hits a CLIFF.**
+A controlled run (idle API, no cached URLs, 136 cold requests) found offsets of 0 / 15,000
+/ 100,000 all failing **0%** with no latency penalty between them, and offset 400,000
+failing **100% (4/4 HTTP 503)** — so the old `daily: 365` window (704,880 rows, 141 pages,
+offset 700,000) could never finish. `WindowSteps` are now sized from measured density to
+~25,000 rows/window (`daily: 12`, `hourly: 48`, `annual: 5`, …), capping offset at 20,000,
+with `WindowStepsBySeries` for outliers (`international` annual is 55,711 rows/YEAR) and
+`MaxRowsPerWindow` as an automatic backstop that **splits a too-big range in half and
+recurses** rather than paging deeper.
+⚠ **Do NOT throttle this loader to fix 503s.** The same run ruled out every other
+variable: concurrency 1/2/4 over 72 requests → 0 failures (and c=4 is ~4× the throughput
+of c=1), `sort` on/off over 36 → 0, cheap-vs-heavy endpoint at concurrency 8 over 24 → 0.
+⚠ **api-umbrella caches successful responses** (cold ≈7–13s, same URL again ≈0.2s), which
+invalidated an earlier version of this very finding — benchmark with unique URLs and check
+`X-Cache`. Latency also wanders 7.5–14.4s run to run with zero failures, so a slow cell is
+not a failing one.
+⚠ **That burst experiment does NOT clear the loader for sustained load.** A real
+multi-hour backfill degraded ~20× (321 → 13 units per 30 min, avg unit 22s → 250s) with
+**zero failures** — errors shifting from 503 to mostly 504/502 — so the only symptom was a
+log full of retries. The backfill is resumable at zero cost (settled units skip before any
+request), so the response to degradation is **stop and resume off-peak**, not grind.
+⚠ **Window sizing is not a free knob once data exists** — it is baked into settled resume
+keys. `daily: 12` and `hourly: 48` are FROZEN (9.7M and 24.1M rows settled under them).
+The sparse frequencies were widened 2026-10-16 (`monthly` 6→60, `annual` 5→25,
+`quarterly` 12→40, cutting ~4,550 of 12,755 units) because sizing each frequency for its
+DENSEST member made 4,398 monthly units across 49 tiny series; that is safe only because
+`MaxRowsPerWindow` subdivision now handles the dense outliers.
+⚠⚠ **MOST OF THE 2026-10-16 PERFORMANCE FINDINGS WERE MEASURED DURING AN EIA OUTAGE AND
+ARE RETRACTED.** `electricity/rto/*` spent hours returning 502/503/504; once it recovered,
+**56 consecutive requests succeeded across every shape** at 2–9s medians. Retracted: the
+"offset cliff" (400,000 and 700,000 now answer in 6–9s), "1-hour windows are more
+reliable" (7/8 vs 6/8 — noise), and "faceting reduces backend cost" (48 interleaved
+requests, all six shapes 100% at 2.1–2.5s — **faceting is NOT implemented**). Unproven:
+"sustained load degrades throughput 20×". Still valid: the per-attempt timeout bug (a code
+defect), api-umbrella caching, and the facet cross-product combinatorics (structural).
+**Before attributing anything to request shape, prove the endpoint is healthy** — a
+handful of plain requests costs seconds. Interleave test cells rather than running blocks,
+and use unique URLs so the cache cannot flatter the result.
+**The incremental run** re-attempts failed units, re-fetches every HOT window (fresh
+`;run=<UTC date>` token), and skips everything settled before any request — measured
+**186 hot units ≈ 1.4h/day**. ⚠ Widening the sparse windows (§4.1) made the hot tail as
+wide as the window: the FINAL tile of every axis ends in the future and never settles, so
+each annual series was re-reading **25 years daily** for the current year.
+`NarrowHotWindowReads` (default on) starts a hot read at
+`max(WindowStart, today − SettledAfterDays)`. ⚠ The key is built from `WindowStart`, NEVER
+`ReadStart`, so narrowing changes no identity and re-downloads nothing. It narrows only a
+window that has **completed at least once before** (`EiaLoadHistory`, one read of
+`core.LoadLog` per run, empty-on-failure so it disables itself rather than guessing) —
+narrowing a never-fully-read window would skip its older half today, again tomorrow under
+a fresh token, and it would settle having never loaded it.
+⚠ `WindowSteps` and `MaxBackfillDaysByFrequency` are COUPLED — 1-hour tiles over the full
+2019-onward hourly axis would be 70,080 units — and a test fails if a window is narrowed
+past ~5,000 implied units without a matching cap. `MaxBackfillDaysByFrequency` ships
+EMPTY: it ABANDONS history rather than deferring it, and a 7-day hourly cap briefly added
+on 2026-10-16 (and reverted the same day) would have discarded ten months. When used, it
+filters the FIXED tiling grid and never moves its origin — moving it would shift every
+settled key daily.
+`Loaders:EIA:ExcludedFrequencies` ships excluding **`local-hourly`** — same instants as
+`hourly`, relabelled to each respondent's local offset, 27.7M rows / ~29% of the backfill
+(operator decision 2026-10-16). It is an operational lever; the architectural one is
+`arm.SeriesFrequency.Enabled` + a predicate in the proc, which needs the column populated
+(NULL on all 371 rows).
+Note also `arm.SeriesFrequency.Enabled` and
+`arm.SeriesDataType.Enabled` are **NULL on every row**, so adding an `Enabled = 1` filter
+to those procs would load nothing, and `arm.SeriesDataType`'s audit column is
+**`ModifedAtUtc`** (sic), not the `ConduitLastUpdate` the `dbo` twin uses.
+See `docs/apis/EIA.md` and `docs/design/EIA.md`.
 
 **CWG is only HALF build-only** — it is not in `Platform:EnabledLoaders`, so it never runs on a
 schedule, but its **pre-reshape SQL is deployed and carries ~1.91M manually-loaded rows**. Treat

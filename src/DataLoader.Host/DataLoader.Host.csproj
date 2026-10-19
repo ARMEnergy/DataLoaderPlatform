@@ -40,6 +40,8 @@
     <ProjectReference Include="..\DataLoader.NGX\DataLoader.NGX.csproj" />
     <ProjectReference Include="..\DataLoader.Marex\DataLoader.Marex.csproj" />
     <ProjectReference Include="..\DataLoader.OilX\DataLoader.OilX.csproj" />
+    <ProjectReference Include="..\DataLoader.EIA\DataLoader.EIA.csproj" />
+    <ProjectReference Include="..\DataLoader.NUCORE\DataLoader.NUCORE.csproj" />
   </ItemGroup>
 
   <ItemGroup>
