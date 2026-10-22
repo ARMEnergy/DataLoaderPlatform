@@ -383,6 +383,18 @@ public sealed class IirOfflineEventRow : IIirFactRow
     private static readonly string[] PlantOwner = { "plantOwner", "owner" };
     private static readonly string[] PlantOperator = { "plantOperator", "operator" };
 
+    /// <summary>
+    /// The product/capacity group is a NESTED OBJECT on <c>/offlineevents/detail</c> — live-verified
+    /// 2026-10-21: <c>offlineCapacity { productId, productDesc, unitCapacity, capacityOffline, uom }</c>.
+    /// It had been reconstructed as five FLAT scalars (the <c>dbo.OfflineEvent</c> column names,
+    /// lowerCamelCased), which matched nothing and left all five columns NULL on 423,389 rows.
+    /// ⚠ The offline measure is <c>capacityOffline</c>, NOT <c>capacity</c>; <c>productId</c> arrives
+    /// as a zero-padded STRING (<c>"001466"</c>), which <see cref="IirParse.Int(JsonElement?)"/> parses.
+    /// Mirrors the nested-first + flat-fallback shape already used for <c>arm.Unit</c>'s
+    /// <c>unitCapacity</c> object, so a future flattening still binds.
+    /// </summary>
+    private static readonly string[] OfflineCapacityObj = { "offlineCapacity" };
+
     public static IirOfflineEventRow? From(JsonElement el, IirWorkUnit unit)
     {
         var eventId = IirParse.Int(el, "eventId");
@@ -401,7 +413,10 @@ public sealed class IirOfflineEventRow : IIirFactRow
             UnitStatusDesc = IirParse.Str(el, "unitStatusDesc"),
             IndustryCode = IirParse.Str(el, "industryCode"),
             IndustryCodeDesc = IirParse.Str(el, "industryCodeDesc"),
-            PlantId = IirParse.Int(el, "plantId"),
+            // ⚠ /offlineevents/detail names the plant FK `associatedPlantId`; `plantId` (which
+            // /units/detail does return, and which populates arm.Unit 9,500/9,500) is absent here,
+            // so the flat `plantId` is kept only as a fallback. Live-verified 2026-10-21.
+            PlantId = IirParse.Int(el, "associatedPlantId", "plantId"),
             PlantName = IirParse.Str(el, "plantName"),
             PlantParentName = IirParse.Str(el, "plantParentName")
                               ?? IirParse.Str(IirParse.Nested(el, PlantParent, "companyName", "name")),
@@ -434,11 +449,18 @@ public sealed class IirOfflineEventRow : IIirFactRow
             UnitClassification = IirParse.Str(el, "unitClassification"),
             Derate = IirParse.Float(el, "derate"),
             IsDerated = IirParse.Flag(el, "isDerated"),
-            ProductId = IirParse.Int(el, "productId"),
-            ProductDescription = IirParse.Str(el, "productDescription", "productDesc"),
-            UnitCapacity = IirParse.Float(el, "unitCapacity") ?? IirParse.Float(IirParse.Nested(el, new[] { "unitCapacity" }, "capacity")),
-            OfflineCapacity = IirParse.Float(el, "offlineCapacity"),
-            OfflineCapacityUOM = IirParse.Str(el, "offlineCapacityUom", "offlineCapacityUOM"),
+            // ---- the nested `offlineCapacity` object (see OfflineCapacityObj) ----------------------
+            ProductId = IirParse.Int(IirParse.Nested(el, OfflineCapacityObj, "productId"))
+                        ?? IirParse.Int(el, "productId"),
+            ProductDescription = IirParse.Str(IirParse.Nested(el, OfflineCapacityObj, "productDesc", "productDescription"))
+                                 ?? IirParse.Str(el, "productDescription", "productDesc"),
+            UnitCapacity = IirParse.Float(IirParse.Nested(el, OfflineCapacityObj, "unitCapacity"))
+                           ?? IirParse.Float(el, "unitCapacity")
+                           ?? IirParse.Float(IirParse.Nested(el, new[] { "unitCapacity" }, "capacity")),
+            OfflineCapacity = IirParse.Float(IirParse.Nested(el, OfflineCapacityObj, "capacityOffline", "offlineCapacity", "capacity"))
+                              ?? IirParse.Float(el, "offlineCapacity"),
+            OfflineCapacityUOM = IirParse.Str(IirParse.Nested(el, OfflineCapacityObj, "uom", "capacityUom", "offlineCapacityUom"))
+                                 ?? IirParse.Str(el, "offlineCapacityUom", "offlineCapacityUOM"),
             EventStartDate = IirParse.DateStripZ(el, "eventStartDate"),
             EventEndDate = IirParse.DateStripZ(el, "eventEndDate"),
             EventDuration = IirParse.Int(el, "eventDuration"),

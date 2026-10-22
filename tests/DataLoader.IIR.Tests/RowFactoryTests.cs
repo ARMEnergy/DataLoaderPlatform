@@ -244,4 +244,87 @@ public class RowFactoryTests
     [Fact]
     public void OfflineEvent_MissingEventId_DropsRow() =>
         Assert.Null(IirOfflineEventRow.From(E("""{ "unitId": 1 }"""), Unit()));
+
+    // ---------------------------------------------------------------- live /offlineevents/detail
+    // VERBATIM excerpt of a real response (eventId 172196, captured 2026-10-21). The reconstructed
+    // schema modelled the product/capacity group as five FLAT scalars and the plant FK as `plantId`;
+    // the vendor actually nests the group under `offlineCapacity` and names the FK
+    // `associatedPlantId`, so all six columns were NULL on 423,389 production rows while every run
+    // reported success. OfflineEventJson above encodes the RECONSTRUCTION, which is why it never
+    // caught this — these fixtures encode the OBSERVED payload.
+    private const string OfflineEventLiveJson = """
+    {
+      "eventId": 172196,
+      "eventKind": "T",
+      "eventType": "Planned",
+      "eventStatusDesc": "Cancelled",
+      "unitId": 1002401,
+      "associatedPlantId": 1000066,
+      "unitName": "SRU/Claus Unit  434",
+      "derate": 100,
+      "isDerated": 0,
+      "offlineCapacity": {
+        "productId": "001466",
+        "productDesc": "Sulfur",
+        "unitCapacity": 175.0,
+        "capacityOffline": 175.0,
+        "uom": "tons/d"
+      },
+      "eventStartDate": "2022-09-16T05:00:00Z[UTC]",
+      "eventDuration": 43
+    }
+    """;
+
+    [Fact]
+    public void OfflineEvent_ReadsNestedOfflineCapacityObject()
+    {
+        var r = IirOfflineEventRow.From(E(OfflineEventLiveJson), Unit())!;
+
+        // All five live inside `offlineCapacity`, not at the top level.
+        Assert.Equal(1466, r.ProductId);                 // "001466" — zero-padded STRING in the payload
+        Assert.Equal("Sulfur", r.ProductDescription);    // `productDesc`, not `productDescription`
+        Assert.Equal(175d, r.UnitCapacity);
+        Assert.Equal(175d, r.OfflineCapacity);           // `capacityOffline`, NOT `capacity`
+        Assert.Equal("tons/d", r.OfflineCapacityUOM);    // `uom`
+    }
+
+    [Fact]
+    public void OfflineEvent_ReadsAssociatedPlantId()
+    {
+        // /units/detail returns `plantId`; /offlineevents/detail returns `associatedPlantId`.
+        var r = IirOfflineEventRow.From(E(OfflineEventLiveJson), Unit())!;
+        Assert.Equal(1000066, r.PlantId);
+    }
+
+    [Fact]
+    public void OfflineEvent_NestedCapacityWins_OverFlatFallback()
+    {
+        // The flat spellings are retained as fallbacks; the nested object must take precedence so a
+        // vendor that one day returns both cannot silently reinstate the wrong value.
+        const string both = """
+        {
+          "eventId": 1,
+          "offlineCapacity": { "capacityOffline": 42.0, "uom": "BBL/d", "productId": "000007" },
+          "offlineCapacityUom": "WRONG"
+        }
+        """;
+        var r = IirOfflineEventRow.From(E(both), Unit())!;
+        Assert.Equal(42d, r.OfflineCapacity);
+        Assert.Equal("BBL/d", r.OfflineCapacityUOM);
+        Assert.Equal(7, r.ProductId);
+    }
+
+    [Fact]
+    public void OfflineEvent_FlatCapacityStillBinds_IfVendorEverFlattens()
+    {
+        // Tolerant-parse rule: a future flattening must still map rather than silently NULL.
+        const string flat = """
+        { "eventId": 1, "plantId": 55, "unitCapacity": 900, "offlineCapacity": 300, "offlineCapacityUom": "T/d" }
+        """;
+        var r = IirOfflineEventRow.From(E(flat), Unit())!;
+        Assert.Equal(55, r.PlantId);
+        Assert.Equal(900d, r.UnitCapacity);
+        Assert.Equal(300d, r.OfflineCapacity);
+        Assert.Equal("T/d", r.OfflineCapacityUOM);
+    }
 }

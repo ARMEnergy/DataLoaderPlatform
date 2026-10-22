@@ -2,6 +2,34 @@
 
 This file provides guidance to Claude Code when working in this repository.
 
+## 🔒 NEVER WRITE TO `ARMH-OPSDB01` UNLESS SPECIFICALLY ASKED
+
+`ARMH-OPSDB01` is production. **Read it freely; never change it.** This is a standing
+rule, not a per-task preference, and it outranks any instruction implied by a task —
+"fix it", "apply it", "deploy it", "make it live" are NOT specific requests to write.
+A specific request names the write: *"update `Loader\appsettings.json` on prod"*,
+*"run `Publish-ToProd.ps1`"*, *"execute that migration against `CWG`"*. Approval for
+one write is not approval for the next one.
+
+**Writing** includes all of:
+- any file under `\\armh-opsdb01\...`, the admin shares (`c$`, `e$`, `f$`, `g$`), or
+  `C:\ETL_Tools\DataLoaderPlatform\**` — including *backups and `.bak` copies*, which
+  are still writes to production
+- `scripts\Publish-ToProd.ps1`, `-p:DeployToProd=true`, `/publish-to-prod`
+- any SQL that is not a `SELECT`: `INSERT`/`UPDATE`/`DELETE`/`MERGE`, any DDL, and
+  **`EXEC` of a proc that mutates** (a stored-procedure call is easy to mistake for a
+  read — `core.usp_RunAdditionalProcesses` and every `Mako.DLP.merge_*` write data)
+- scheduled tasks, services, registry, and env vars on that host
+
+**Reading is expected and encouraged** — `SELECT`s, `sys.*` catalog queries,
+`sys.sql_modules` definitions, listing/reading files on the share and under
+`C:\ETL_Tools\DataLoaderPlatform\`, and the `Log\<Loader>.log` files. Most production
+questions are answerable entirely from those; see the investigation that produced the
+`AdditionalProcessesTimeoutSeconds` finding.
+
+When a task genuinely needs a write, **stop and hand the exact command to the user**
+rather than running it, and say plainly what it would change.
+
 ## Build and Run
 
 ```bash
@@ -177,28 +205,54 @@ Also reachable two other ways, both delegating to that script:
 Four deliberate fail-closed gates, all checked before anything is moved or copied:
 no write access to the share; red tests; `appsettings.json` differing from production's
 (pass `-KeepProdSettings` or `-OverwriteSettings`); a locked file during the archive.
-Deploying is outward-facing — never run it unless the user asks.
 
-**Share status — re-verified 2026-10-06** (this supersedes the 2026-09-28 note that said the
-share was read-only and empty; all of that is now false). `\\armh-opsdb01\DataLoaderPlatform`
-is reachable, **writable** by `arm\yaroslav.chekhuta` (the script's probe write+delete
-succeeds), and **populated**: 107 top-level files + 11 culture/runtime folders, with
-`appsettings.json` present. Deployed binaries date from 2026-09-22 to 2026-09-28
-(`DataLoader.Host.exe` 2026-09-28 18:15, `appsettings.json` 2026-09-24). There is no `Old\`
-folder yet, so nothing has ever been archived *by this script* — the current contents got
-there some other way, and the first real run will create the first archive. Whether the
-daily jobs run from this share is still **unverified** (no logs are written under it).
+🔒 Deploying is a WRITE to `ARMH-OPSDB01` — see the standing rule at the top of this
+file. Never run this script, or edit anything under `C:\ETL_Tools\DataLoaderPlatform\`,
+unless the user specifically asked for that write. Hand over the command instead.
 
-⚠ **The config gate will stop a plain deploy today.** The repo's `appsettings.json` differs
-from production's in 18 keys, so `Publish-ToProd.ps1` exits 1 (surfaced as `MSB3073` when
-invoked through `-p:DeployToProd=true`) before moving anything. The repo is a strict
-**superset** — nothing in production would be lost: 16 keys exist only in the repo
-(all 14 `Loaders:OilX:*`, plus `Platform:RunAdditionalProcesses` and
-`Platform:AdditionalProcessesTimeoutSeconds` — production's config predates OilX), and only
-`Loaders:CWG:EnabledEndpoints` / `Loaders:CWG:Geographies` differ in value (the 2026-10-05
-CWG reshape). Pass **`-KeepProdSettings`** to deploy binaries and leave production's config
-alone — the right choice while CWG and OilX are still build-only and neither is in
-`Platform:EnabledLoaders` on either side.
+⚠⚠ **PUBLISHING TO THE SHARE IS NOT DEPLOYING — verified 2026-10-20.** This answers the
+"whether the daily jobs run from this share is still unverified" question that stood here
+before: **they do not.** `\\armh-opsdb01\DataLoaderPlatform` maps to
+`C:\ETL_Tools\DataLoaderPlatform\Src` (confirmed via `Win32_Share`), which is only the
+publish **drop**. The real layout on `ARMH-OPSDB01`:
+
+```
+C:\ETL_Tools\DataLoaderPlatform\
+    <Loader>.cmd      one launcher per loader (Platts.cmd, CWG.cmd, …)
+    Loader\           WHERE THE JOBS ACTUALLY RUN  <- the appsettings.json in force
+    Src\              = the \\armh-opsdb01\DataLoaderPlatform share (publish drop)
+    Log\<Loader>.log  per-loader stdout, appended forever, nothing rotates it
+```
+
+So `Publish-ToProd.ps1` updates `Src\` and **changes nothing about what runs** until someone
+copies `Src` → `Loader`. The two can and do sit at different versions. Both keep their own
+`Old\<timestamp>\` archives (5 on `Src`, more on `Loader`); only `Loader\Old\` reflects what
+actually ran, and it is how the 2026-10-12 timeout revert was proved.
+
+Scheduled tasks live under **`\DLP\`** in Task Scheduler on `ARMH-OPSDB01` (the older
+`\CDT\<Name> Loader` tasks are **Disabled**), each running
+`cmd.exe /C "%DataLoaderPlatform%\<Loader>.cmd"` where `%DataLoaderPlatform%` is a machine
+env var = `C:\ETL_Tools\DataLoaderPlatform`. Each `.cmd` does `cd /d "%~dp0Loader"` then
+`DataLoader.Host.exe "<LoaderName>" >> "%~dp0Log\<LoaderName>.log" 2>&1`. There is **no SQL
+Agent job** — `msdb` has none. Each run passes ONE loader as argv, so a run row can name a
+single loader regardless of `Platform:EnabledLoaders`. Logging is console-only
+(`Program.cs`), so `Log\<Loader>.log` is the ONLY place stack traces exist.
+
+**Config drift — re-measured 2026-10-20** (this supersedes the earlier "differs in 18 keys"
+note, which described the state before production's config was refreshed on 2026-10-16; the
+claim that `Platform:RunAdditionalProcesses` and `Platform:AdditionalProcessesTimeoutSeconds`
+exist only in the repo is **false** — production has both). The repo's `appsettings.json` and
+production's running `Loader\appsettings.json` are now **identical except for
+`Platform:AdditionalProcessesTimeoutSeconds`** (repo 1800, prod still 600 — see below), and
+`Src\appsettings.json` is byte-identical to `Loader\`'s. The config gate will still stop a
+plain deploy over that one key; `-OverwriteSettings` is now the correct flag, not
+`-KeepProdSettings`, because keeping prod's copy is what reintroduces the bug.
+
+⚠ **A full `Publish-ToProd.ps1` run today also ships binaries, not just config** — the working
+tree carries the EIA and NUCORE host wiring. Changing config alone means editing the key in
+`Loader\appsettings.json` (and `Src\`'s copy); `Platform:*` settings are read at startup, so
+the next scheduled run picks it up with no restart or redeploy. 🔒 That is a production write
+— prepare the command and hand it to the user; do not run it unless specifically asked.
 
 ## Workflows
 

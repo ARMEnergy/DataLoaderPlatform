@@ -17,6 +17,35 @@ GMI (Global Market Intelligence) database (the same data behind PECWeb). This fi
 
 ## Gate status: **PARTIALLY VERIFIED — spec-derived, three field schemas RECONSTRUCTED** ⚠
 
+> ### ✅ 2026-10-21 addendum — `/offlineevents/detail` read live; §7 partially corrected
+> A one-shot live capture (HTTP 200, 6 `eventId`s) settled the §7 ⚠ items that were silently
+> costing data. **Six `arm.OfflineEvent` columns were NULL on 100% of 423,389 production rows**
+> because the reconstruction guessed flat scalars:
+> - **`offlineCapacity` is a nested OBJECT**, not a measure:
+>   `offlineCapacity { productId, productDesc, unitCapacity, capacityOffline, uom }` — note
+>   **`capacityOffline`**, not `capacity`, and `productId` as a zero-padded **string**.
+>   That one object carries `ProductId`, `ProductDescription`, `UnitCapacity`, `OfflineCapacity`
+>   and `OfflineCapacityUOM`.
+> - **The plant FK is `associatedPlantId`**, not `plantId` (which `/units/detail` *does* return —
+>   `arm.Unit.PlantId` is 9,500/9,500). ⚠ `dbo.OfflineEvent.PlantId` is *also* 0% populated, so
+>   this one is a gap shared with the incumbent, not a regression.
+>
+> **§10 item 1 (token delivery channel) is RESOLVED:** the JWT is returned in the **`AUTHORIZATION`
+> response header**; the body is only `{"message":"Token Created successfully."}`.
+> ⚠ A PowerShell `Invoke-WebRequest` POST to `/token` answers **HTTP 500** where
+> `System.Net.Http.HttpClient` with the identical URL answers 200 — a client transport quirk, not a
+> credential fault. Do not read that 500 as a bad password.
+>
+> **21 observed fields have no column** and are currently dropped (§8.2 is incomplete): `nercRegion`,
+> `isoRtoRegion`, `controlAreaId`/`controlAreaName`, `nercSubRegionId`/`nercSubRegionName`,
+> `unitStartupDate`/`unitShutdownDate`, `estTivUsd`, `qcDate`, `offlineEventKey`, `plantPhone`,
+> `unitTypeGroup`, `electricalConnectionName`, `associatedEntityType`/`associatedEntityStartDate`/
+> `associatedEntityEndDate`/`associatedEntityPrevStartDate`/`associatedEntityPrevEndDate`,
+> `sectors[]`, `derivedEventStatusDesc`.
+> ⚠ The remaining ⚠ rows in §5/§6 (`/plants`, `/units`) are **still unverified** — only
+> `/offlineevents/detail` was read. `arm.Unit`'s own `unitCapacity` nesting is confirmed good by
+> 7,711/9,500 population, but `arm.Plant` has not been audited.
+
 Read this before trusting the field tables. The provenance splits cleanly in two:
 
 | Item | Status |
@@ -461,7 +490,7 @@ Every summary/detail response is an object:
 | `UnitStatusDesc` | `unitStatusDesc` | `VARCHAR(8000)` | Yes | |
 | `IndustryCode` | `industryCode` | `VARCHAR(8000)` | Yes | |
 | `IndustryCodeDesc` | `industryCodeDesc` | `VARCHAR(8000)` | Yes | |
-| `PlantId` | `plantId` | `INT` | Yes | FK → `arm.Plant`. |
+| `PlantId` | **`associatedPlantId`** ✅ | `INT` | Yes | FK → `arm.Plant`. ⚠ **NOT `plantId`** on this endpoint (contrast §6, where `/units/detail` does return `plantId`). Live-verified 2026-10-21. |
 | `PlantName` | `plantName` | `VARCHAR(8000)` | Yes | |
 | `PlantParentName` | `plantParentName` / `plantParent.companyName` ⚠ | `VARCHAR(8000)` | Yes | |
 | `PlantOwnerName` | `plantOwnerName` ⚠ | `VARCHAR(8000)` | Yes | |
@@ -489,14 +518,14 @@ Every summary/detail response is an object:
 | `WorldRegionName` | `worldRegionName` | `VARCHAR(8000)` | Yes | |
 | `PecZone` | `pecZone` | `VARCHAR(8000)` | Yes | |
 | `PrimarySicId` | `primarySicId` ⚠ | `VARCHAR(8000)` | Yes | |
-| `UnitClassification` | `unitClassification` ⚠ | `VARCHAR(8000)` | Yes | |
+| `UnitClassification` | `unitClassification` ⚠ | `VARCHAR(8000)` | Yes | ⚠ **absent from the observed `detail` payload** (arm 26 / dbo 13 rows of ~420k) — the incumbent has the same gap. |
 | `Derate` | `derate` ⚠ | `FLOAT` | Yes | partial-derate amount. |
 | `IsDerated` | `isDerated` ⚠ | `INT` | Yes | flag 0/1. |
-| `ProductId` | `productId` ⚠ | `INT` | Yes | |
-| `ProductDescription` | `productDescription` / `productDesc` ⚠ | `VARCHAR(8000)` | Yes | |
-| `UnitCapacity` | `unitCapacity` ⚠ | `FLOAT` | Yes | ⚠ here a **scalar** (contrast §6 where `unitCapacity` is an object) — confirm. |
-| `OfflineCapacity` | `offlineCapacity` ⚠ | `FLOAT` | Yes | |
-| `OfflineCapacityUOM` | `offlineCapacityUom` / `offlineCapacityUOM` ⚠ | `VARCHAR(8000)` | Yes | |
+| `ProductId` | **`offlineCapacity.productId`** ✅ | `INT` | Yes | ⚠ arrives as a zero-padded **STRING** (`"001466"`); `IirParse.Int` parses it. |
+| `ProductDescription` | **`offlineCapacity.productDesc`** ✅ | `VARCHAR(8000)` | Yes | |
+| `UnitCapacity` | **`offlineCapacity.unitCapacity`** ✅ | `FLOAT` | Yes | nested, NOT a top-level scalar. |
+| `OfflineCapacity` | **`offlineCapacity.capacityOffline`** ✅ | `FLOAT` | Yes | ⚠ the measure is **`capacityOffline`**, not `capacity`. |
+| `OfflineCapacityUOM` | **`offlineCapacity.uom`** ✅ | `VARCHAR(8000)` | Yes | ⚠ vendor spells it `tons/d` where the incumbent `dbo` stores `T/d` (`BBL/d` agrees) — arm will not match dbo without a lookup. |
 | `EventStartDate` | `eventStartDate` ⚠ | `DATETIME2(0)` | Yes | `…Z[UTC]`. |
 | `EventEndDate` | `eventEndDate` ⚠ | `DATETIME2(0)` | Yes | `…Z[UTC]`. |
 | `EventDuration` | `eventDuration` ⚠ | `INT` | Yes | days (unit ⚠). |
