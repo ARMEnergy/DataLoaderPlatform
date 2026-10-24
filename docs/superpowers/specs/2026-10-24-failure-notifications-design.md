@@ -146,9 +146,11 @@ a load's outcome. The watchdog *uses* it, because "the watchdog could not reach
 the relay" is the one case where a human needs the non-zero exit code to notice
 (§5). Without this return value those two requirements contradict each other.
 
-Transport: `System.Net.Mail.SmtpClient`. It is adequate for a plain internal
-relay and adds no dependency. `INotificationSender` exists so moving to MailKit
-is a one-class change if TLS or OAuth is ever needed.
+Transport: `System.Net.Mail.SmtpClient` with `EnableSsl = true` (STARTTLS) and
+no credentials. It handles the chosen endpoint (§7.1) and adds no dependency.
+`INotificationSender` exists so that moving to MailKit — which would become
+necessary only if the transport ever needs OAuth, something `SmtpClient` cannot
+do — is a one-class change.
 
 ## 4. Where it fires
 
@@ -180,10 +182,11 @@ Change: widen the `try` to cover everything after `BuildConfiguration()`, and
 construct the bootstrap notifier **directly from `IConfiguration`**, without DI,
 so the one failure class that breaks DI can still send mail.
 
-**Accepted limitation:** the bootstrap path cannot resolve `SEE_DB`, because
-that needs the database and DI. If the relay requires authentication,
-bootstrap-failure emails will not send. An anonymous internal relay removes the
-problem entirely — see §10.
+This path cannot resolve `SEE_DB`, because that needs the database and DI.
+**That is not a limitation here:** the relay is anonymous (§7.1), so the
+bootstrap notifier needs no secret and works even when DI and the database are
+both unavailable. If the transport ever moves to an authenticated endpoint,
+this gap reopens and must be re-examined.
 
 ### 4.3 Never-closed detection
 
@@ -277,16 +280,14 @@ Added to `src/DataLoader.Host/appsettings.json` under `Platform`:
 
 ```jsonc
 "Notifications": {
-  // Ships false. Flipped to true in the same change that fills in SmtpHost
-  // and To, once §10 lands. See §10.
+  // Ships false. Flipped to true once §10 confirms ARMH-OPSDB01 can egress
+  // on 25 and that Reject Direct Send is off.
   "Enabled": false,
-  "SmtpHost": "<supplied by operator — see §10>",
+  "SmtpHost": "armenergy-com.mail.protection.outlook.com",
   "SmtpPort": 25,
-  "UseSsl": false,
-  "SmtpUsername": "",
-  "SmtpPassword": "",          // "SEE_DB" if the relay requires auth
-  "From": "dataloader@armenergy.com",
-  "To": [ "<distribution list>" ],
+  "UseSsl": true,              // STARTTLS — required, see §7.1
+  "From": "ARMHOPSDB01_SVC@armenergy.com",
+  "To": [ "<internal @armenergy.com recipients — see §7.1>" ],
   "SubjectPrefix": "[DataLoader]",
   "TimeoutSeconds": 30
 },
@@ -326,13 +327,59 @@ their schedules are settled.
 **Recipients:** one `To` list serves both the in-process emails and the watchdog
 digest.
 
-**Secrets:** per the standing rule, no password in config. If the relay needs
-auth, `SmtpPassword` is `SEE_DB`, resolved via
-`ISeeDbParamStore.GetParam("Platform", "SmtpPassword")`. Note
-`SeeDbSettingsResolver<T>` is constrained to `LoaderSettingsBase` and keyed by
-loader id, so `PlatformSettings` cannot use it as-is; a small
-`PlatformSecretResolver` calls the store directly. This is only built if §10
-confirms the relay requires authentication.
+### 7.1 The relay is Exchange Online direct send — verified 2026-10-24
+
+An `EHLO` probe of `armenergy-com.mail.protection.outlook.com:25` returned:
+
+```
+250-SIZE 157286400   250-PIPELINING   250-DSN      250-ENHANCEDSTATUSCODES
+250-STARTTLS         250-8BITMIME     250-BINARYMIME
+250-CHUNKING         250 SMTPUTF8
+```
+
+**No `AUTH` verb is advertised.** This host is Exchange Online's inbound **MX
+connector**, used for *direct send*, not a submission endpoint. Four
+consequences, all load-bearing:
+
+1. **There is no password to store.** The supplied
+   `ARMHOPSDB01_SVC@armenergy.com` credential cannot be used against this
+   endpoint, and `SmtpPassword` / `SmtpUsername` are therefore **absent from
+   the config** rather than set to `SEE_DB`. Dead config that looks like a
+   working secret is worse than no config. The mailbox still matters as the
+   `From` identity — it just never authenticates.
+2. **`UseSsl: true` is mandatory.** `STARTTLS` is advertised and Microsoft
+   requires TLS 1.2 on this path. In `System.Net.Mail` on port 25,
+   `EnableSsl = true` means STARTTLS, not implicit TLS.
+3. **Recipients must be internal.** Direct send only accepts recipients in the
+   tenant's own accepted domains. Any address outside `@armenergy.com` is
+   relay-denied. If an external recipient is ever needed, IT must create an
+   Exchange **inbound connector** trusting the server's public IP — a
+   different setup, not a config change.
+4. **`SmtpPassword` is gone, so the §4.2 bootstrap gap is closed.** The
+   notifier needs no secret, so it works before DI and with the database down.
+
+**Two things the probe could NOT establish**, because it ran from a developer
+workstation (the server greeted `Hello [108.44.45.57]`, not ARMH-OPSDB01):
+
+- whether **ARMH-OPSDB01 can egress on port 25** and is SPF-authorised for
+  `armenergy.com`;
+- whether the tenant has Microsoft's **"Reject Direct Send"** setting enabled
+  (rolled out in Exchange Online during 2025), which blocks precisely this
+  pattern.
+
+Both are §10 prerequisites. If either blocks it, the fallback is
+`smtp.office365.com:587` with SMTP AUTH — which would reintroduce the secret,
+reopen the §4.2 bootstrap gap, and likely force a move from
+`System.Net.Mail` to MailKit, since Microsoft is retiring basic auth for SMTP
+client submission in favour of OAuth and `SmtpClient` cannot do OAuth.
+
+**Secrets, for the record:** `core.Param` is keyed `(LoaderName, ParamName)`
+with a `Value` column, and all 36 existing rows belong to loaders. A
+platform-level secret would be the first non-loader entry, resolved by a small
+`PlatformSecretResolver` calling `ISeeDbParamStore` directly —
+`SeeDbSettingsResolver<T>` cannot serve it, being constrained to
+`LoaderSettingsBase` and keyed by loader id. **None of this is built**, because
+the chosen endpoint takes no credential.
 
 **Config gate:** `Publish-ToProd.ps1` fails closed when the repo's
 `appsettings.json` differs from production's. These new keys guarantee a
@@ -352,6 +399,14 @@ Added to the existing `tests/DataLoader.Core.Tests` project, alongside
 - Respects `TimeoutSeconds` — a sender that hangs does not hang the caller
 - `Enabled: false` resolves `NullNotificationSender` and sends nothing
 - Subject contains loader id, host and unit counts; body contains the log path
+- `NotifyAsync` returns `Sent` / `Disabled` / `NothingToReport` / `Failed`
+  correctly in each case (§3.1 — the watchdog's exit code depends on it)
+
+**Transport configuration** (§7.1 regression guards)
+- `SmtpNotificationSender` sets `EnableSsl = true` and leaves `Credentials`
+  null — an authenticated send against this endpoint would fail
+- A config supplying `SmtpUsername`/`SmtpPassword` is rejected at bind time
+  with a message naming §7.1, rather than silently attempting AUTH
 
 **Redaction**
 - An `ErrorMessage` carrying the AGSI shape (the literal `API key:` followed by
@@ -399,9 +454,12 @@ dotnet test DataLoaderPlatform.sln -c Release
 
 | Item | Owner | Blocking? |
 |---|---|---|
-| SMTP relay host and port; whether anonymous internal relay is allowed | user / IT | **Yes** — feature ships `Enabled: false` until supplied |
-| `From` address and the recipient distribution list | user | **Yes** |
-| `core.Param` row for `SmtpPassword` | IT | Only if the relay requires auth |
+| ~~SMTP relay host and port~~ — **supplied 2026-10-24**: `armenergy-com.mail.protection.outlook.com:25`, anonymous + STARTTLS, verified by `EHLO` probe (§7.1) | — | Done |
+| ~~`From` address~~ — **supplied**: `ARMHOPSDB01_SVC@armenergy.com` | — | Done |
+| **Recipient list** — must be internal `@armenergy.com` addresses (§7.1 point 3) | user | **Yes** |
+| Confirm **ARMH-OPSDB01 can egress on TCP 25** to that host, and is SPF-authorised | IT | **Yes** — probe ran from a workstation, not the server |
+| Confirm the tenant does **not** have **"Reject Direct Send"** enabled | IT | **Yes** — it blocks this exact pattern |
+| ~~`core.Param` row for `SmtpPassword`~~ — not needed; the endpoint takes no credential | — | N/A |
 | `Watchdog.cmd` on the server, in the **production** idiom (change directory to the sibling `Loader\` folder and append stdout to `Log\Watchdog.log`) — the 23 `.cmd` files in the repo root are *dev* launchers that point at `bin/Release` and `pause`, and are **not** what production runs | IT | Yes, for the watchdog half |
 | New hourly `\DLP\Watchdog` scheduled task | IT / change ticket | Yes, for the watchdog half |
 | Deploy: `Publish-ToProd.ps1 -OverwriteSettings`, then the `Src` to `Loader` copy | IT | Yes |
