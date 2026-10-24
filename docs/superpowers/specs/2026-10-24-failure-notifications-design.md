@@ -287,7 +287,10 @@ Added to `src/DataLoader.Host/appsettings.json` under `Platform`:
   "SmtpPort": 25,
   "UseSsl": true,              // STARTTLS — required, see §7.1
   "From": "ARMHOPSDB01_SVC@armenergy.com",
-  "To": [ "<internal @armenergy.com recipients — see §7.1>" ],
+  // Single recipient while this is proven out. EnergyAspects alone will
+  // generate traffic from day one (§1.2). Widen by editing config — internal
+  // @armenergy.com addresses only, see §7.1 point 3.
+  "To": [ "yaroslav.chekhuta@armenergy.com" ],
   "SubjectPrefix": "[DataLoader]",
   "TimeoutSeconds": 30
 },
@@ -456,7 +459,7 @@ dotnet test DataLoaderPlatform.sln -c Release
 |---|---|---|
 | ~~SMTP relay host and port~~ — **supplied 2026-10-24**: `armenergy-com.mail.protection.outlook.com:25`, anonymous + STARTTLS, verified by `EHLO` probe (§7.1) | — | Done |
 | ~~`From` address~~ — **supplied**: `ARMHOPSDB01_SVC@armenergy.com` | — | Done |
-| **Recipient list** — must be internal `@armenergy.com` addresses (§7.1 point 3) | user | **Yes** |
+| ~~Recipient list~~ — **supplied 2026-10-24**: `yaroslav.chekhuta@armenergy.com` only, while this is proven out | — | Done |
 | Confirm **ARMH-OPSDB01 can egress on TCP 25** to that host, and is SPF-authorised | IT | **Yes** — probe ran from a workstation, not the server |
 | Confirm the tenant does **not** have **"Reject Direct Send"** enabled | IT | **Yes** — it blocks this exact pattern |
 | ~~`core.Param` row for `SmtpPassword`~~ — not needed; the endpoint takes no credential | — | N/A |
