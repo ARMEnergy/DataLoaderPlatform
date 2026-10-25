@@ -3484,10 +3484,8 @@ inter-run gap. For a loader that does not run every day of the week, the mean st
 most gaps are same-day — a Friday→Monday gap is one data point among many same-day ones, so it
 never surfaces in an average. The very first weekend after go-live reported 5 loaders overdue
 (ICE, EOX, Argus, OPIS, CWG) that were working exactly as scheduled; a 6th (Platts) crossed its
-threshold minutes after that run finished. Separately, CWG should not have been in the list at
-all: CLAUDE.md already documented that CWG is not in `Platform:EnabledLoaders` and its ~1.91M
-rows came from manual runs, not a schedule — a loader with no schedule is always eventually
-"overdue" by construction, which is a structural fact, not a tuning problem.
+threshold minutes after that run finished. Separately, CWG was removed from the list on the belief
+that it has no schedule at all — **this belief was wrong; see the correction appended below.**
 
 **What was measured (read-only, `ARMH-OPSDB01`, 60 days of `core.LoaderRun_Summary`, `@@DATEFIRST`
 confirmed = 7 / US default), per loader still in `Platform:Watchdog:Loaders`:**
@@ -3508,9 +3506,9 @@ confirmed = 7 / US default), per loader still in `Platform:Watchdog:Loaders`:**
 **Result: 4 loaders are genuinely weekday-only (0/17 weekend dates) — Argus, EOX, NGX, OPIS.** ICE
 (1/17) and Platts (2/17) are classified the same way: their rare weekend hits are incidental, not
 a schedule. These 6 loaders got `"SkipWeekends": true` and a threshold sized off their worst
-**weekday** gap. CWG (1/17) was not reclassified — it was **removed from
-`Platform:Watchdog:Loaders` entirely**, per the reasoning above; raising its threshold instead
-would have hidden the fact that it has no schedule behind a number. Every other loader runs on a
+**weekday** gap. CWG (1/17) was **removed from `Platform:Watchdog:Loaders` entirely** on the
+reasoning above — reversed below once the "no schedule" premise turned out to be stale. Every
+other loader runs on a
 meaningful fraction of weekends (Criterion, EvolutionMarkets, IHSPointLogic, IIR, Marex,
 ModernCommodities, NGI, OilX: 6–8/17) or every single day of the 60-day window with zero exceptions
 (AGSI, EnergyAspects, StormVista, Vulcan: 17/17) and kept `SkipWeekends` at its default `false`.
@@ -3540,6 +3538,67 @@ loader is itself worth an email, not just a close call.
 
 Full before/after table, and the measurement commands used, are in the implementation report for
 this correction (commit after `39ab8e5`).
+
+### Addendum, 2026-10-24 (later the same session): the CWG removal above was wrong; NUCORE and EIA added
+
+The CWG removal recorded two paragraphs up was based on a stale claim. Direct, read-only inspection
+of `\DLP\` in Task Scheduler on `ARMH-OPSDB01` shows **CWG is Enabled with three daily triggers**
+(≈05:00, 07:00, 12:01) and ran successfully (476-535 units) through 10/23 — CLAUDE.md's "CWG... is
+not in `Platform:EnabledLoaders`, so nothing loads it on a schedule" is **outdated**: each
+`\DLP\<Loader>` task passes its loader name as `argv`, which is what actually runs, not
+`Platform:EnabledLoaders` (that setting only governs an argument-less invocation). CWG should never
+have been removed; it should have been re-measured. This note corrects the record rather than
+editing CLAUDE.md's own CWG/build-only paragraphs, which are a broader claim outside this feature's
+scope.
+
+**CWG's real day-of-week pattern, re-measured:** its Task Scheduler trigger's `DaysOfWeek` block
+lists Sunday through Friday — **it is scheduled to skip only Saturday**, not the whole weekend, a
+detail confirmed independently by the 60-day data: the one Saturday inside the current 3×/day
+schedule's history (10/17) has zero runs, while the Sunday immediately after it (10/18) has a full
+3-run day. `SkipWeekends` as implemented is a binary Saturday+Sunday exclusion and **cannot express
+a Sunday-inclusive, Saturday-only skip** — setting it `true` for CWG would zero out Sunday hours too
+and could mask a genuine Sunday failure. CWG therefore keeps `SkipWeekends: false`, with
+`MaxGapHours` sized off the schedule's own structural worst gap instead: Friday's last run (12:01)
+to Sunday's first (05:00) is 41h, confirmed by the one such transition in the current schedule's
+history (10/16 Fri 12:01 -> 10/18 Sun 05:00 = 40.98h) and independent of two much larger historical
+gaps (136.6h, 294.2h) that predate the 10/12 three-trigger rollout and are isolated past
+incidents/transition noise, not recurring cadence — excluded from the threshold by the same rule
+used for EnergyAspects/Vulcan. `round(41h x 1.3) = 53h`.
+
+**NUCORE** is a scheduled production loader, not build-only — CLAUDE.md's build-only list is stale
+for it (noted here for the record; not edited, per scope). Its `\DLP\NUCORE` task succeeded daily
+(`LastTaskResult = 0`) through four clean runs 10/21-10/24. Measured over 60 days (only ~9 days of
+actual run history: NUCORE only came online 10/16): 3 of its 3 available weekend dates inside that
+history have a run (10/17 Sat, 10/18 Sun, 10/24 Sat), consistent with its task's daily trigger
+carrying no day-of-week restriction — `SkipWeekends: false`. Its non-weekend gaps are a clean ~24h
+with one 39.5h singleton (same shape as EnergyAspects/Vulcan); the clean baseline is used, not the
+singleton: `round(24h x 1.3) = 31h`. Flagged as based on thin data (9 days) — worth re-measuring
+once more history accumulates.
+
+**EIA was investigated, not assumed.** `core.LoaderRun_Summary` has carried no EIA row since 10/18
+despite `\DLP\EIA`'s task showing `Enabled`, a daily trigger, and `LastRunTime` matching every
+night. A direct, read-only CIM query of the live task (`Get-ScheduledTaskInfo`) shows
+**`LastTaskResult = 1`** (failure) with `NumberOfMissedRuns = 0` — the trigger fires on schedule
+every night, but what it invokes fails. `\DLP\EIA` and `\DLP\NUCORE` carry the **identical**
+`RegistrationInfo/Date` of 2019-11-23 — these are not new task entries created for the new loaders;
+they are old task slots being reused, and NUCORE's reuse was completed (its `.cmd` was created in
+`C:\ETL_Tools\DataLoaderPlatform\`) while EIA's was not: **there is no `EIA.cmd` anywhere in that
+directory**, and **`Log\EIA.log` does not exist at all**, while every other loader's log (including
+`NUCORE.log`, freshly written) is present. The task's action is
+`cmd.exe /C "%DataLoaderPlatform%\EIA.cmd"`; with that file absent, `cmd.exe` fails before
+`DataLoader.Host.exe` ever starts, so no `core.LoaderRun` row — named or unnamed — is ever created.
+The 9 EIA rows that do exist (10/16-10/18) predate this and are the manual verification runs behind
+the EIA build status, not scheduled-task output.
+
+This is the "task fires, nothing registers" branch, and it is real: EIA has been silently failing
+every night for at least 6 days. Added to the watchdog accordingly — `SkipWeekends: false` (the
+task's trigger carries no day-of-week restriction) and `MaxGapHours: 31`, the same `round(24h x
+1.3)` used for every other single-daily-trigger loader, deliberately **not** derived from EIA's own
+run history (a 3-day manual-test burst is not a cadence). This config change will make EIA show
+immediately and correctly overdue the moment it ships — that is the incident being reported, not a
+threshold artifact. **The actual fix — creating `EIA.cmd` in `C:\ETL_Tools\DataLoaderPlatform\` to
+mirror the other 22 launchers — is a production write and an IT/deployment action outside this
+task's scope; it is handed over in the implementation report rather than performed here.**
 
 ---
 
