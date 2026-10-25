@@ -330,8 +330,66 @@ public class ErrorTextRedactorTests
         Assert.Equal(string.Empty, ErrorTextRedactor.Redact(""));
         Assert.Equal(string.Empty, ErrorTextRedactor.Truncate(null, 10));
     }
+
+    // Added after the Task 2 spec review's adversarial probes found that a
+    // bearer credential passes straight through: it is separated by a SPACE
+    // and carries no key= shape for the KeyValue pattern to catch. IIR and
+    // NUCORE both authenticate with JWT bearer tokens, so this is a live
+    // credential shape on this platform, not a hypothetical.
+
+    [Theory]
+    [InlineData("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc-_123")]
+    [InlineData("request failed with Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature attached")]
+    [InlineData("bearer abc123DEF456")]
+    public void Redacts_BearerTokens(string input)
+    {
+        var result = ErrorTextRedactor.Redact(input);
+
+        Assert.DoesNotContain("eyJhbGciOiJIUzI1NiJ9", result);
+        Assert.DoesNotContain("abc123DEF456", result);
+        Assert.Contains("***REDACTED***", result);
+    }
+
+    [Fact]
+    public void DoesNotRedactTheWordBearerOnItsOwn()
+    {
+        // Guard against over-redaction swallowing following prose. This is why
+        // the pattern cannot simply be `bearer\s+\S+`.
+        var input = "the bearer of this message is unknown";
+
+        Assert.Equal(input, ErrorTextRedactor.Redact(input));
+    }
 }
 ```
+
+### What Task 2 actually shipped, and why it took four passes
+
+The single `KeyValue` regex in the proposal above did not survive review. Each round was driven by a reviewer **executing** the patterns against adversarial input rather than reading them, and each found something reading would not have. The final shape is **four** compiled regexes, not two:
+
+| Regex | Rule |
+|---|---|
+| `UrlQuery` | Strip the query string off any URL (OilX puts `api_key` there) |
+| `SpecificKeyValue` | `client_secret`, `api[\s_-]?key`, `x-key`, `secret`, `password`, `passwd`, `pwd` — never ordinary prose, so **both** `name: value` and `name=value` count, with an optional `"` on each side so the pattern crosses JSON |
+| `GenericKeyValue` | `key`, `token`, `access[_-]?token`, `auth[_-]?token` — these ARE English words, so they count **only** in shapes prose cannot produce: `name=value`, or a quoted JSON field name `"name":` |
+| `BearerToken` | `bearer` + a run of ≥12 base64url chars containing at least one digit |
+
+**The governing principle, which is the thing to preserve if anyone edits this:** a keyword that is also an English word only counts as a credential in `name=value` or `"name":` form. A keyword that is never English counts in either form.
+
+Four findings forced that shape:
+
+1. 🔒 **Quoted-key JSON bypassed the redactor completely.** `{"api_key":"sk-live-abc"}` survived, because the pattern allowed only whitespace between keyword and separator while JSON puts a `"` there. Vendor error bodies are JSON, so this was the *normal* case, not an edge one.
+2. 🔒 **Bearer tokens were not redacted at all** — a bearer value is space-separated and carries no `key=` shape. IIR and NUCORE both authenticate with JWTs.
+3. **Bare `key`/`token` destroyed diagnostics.** .NET's own `Dictionary.Add` message is `...already been added. Key: 5`, which became `Key=***REDACTED***`. This platform has had duplicate-key incidents (NUCORE `PositionDetails`/`PnlExplain`), so that is the one value the alert needed to carry.
+4. **`access_token:` / `auth_token:` were made *worse* by the first fix.** They had been accidentally safe — `_` blocks the `\b` on bare `token` — until they were added to the "unambiguous" list, which gave them colon support and reproduced finding 3.
+
+**Deliberately NOT fixed, with reasons** — record these so nobody reopens a leak trying to be helpful:
+
+- **`password:` / `secret:` followed by prose gets mangled** (`Please reset your password: contact support`). `password: topsecret` and `password: contact support` are lexically identical; there is no discriminator. A spec'd test requires the first to redact, and leaking a password is far worse than mangling one sentence.
+- **A secret in a URL *path*** (not query string) survives. Stripping whole paths would make alerts unreadable.
+- **The AGSI quoted shape leaves a dangling `"`.** Cosmetic in a plain-text body.
+- **The test file duplicates the `***REDACTED***` literal** rather than reading the production constant. Intentional: a test that reads the constant cannot catch it changing to something useless.
+
+ReDoS was measured, not assumed: all patterns stay linear, a 1.1M-char adversarial blob running the full pipeline in ~23–97 ms.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
