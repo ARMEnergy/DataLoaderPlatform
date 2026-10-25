@@ -13,7 +13,14 @@ public class WatchdogRunnerTests
         public List<LoaderLastRun> LastRuns = new();
         public List<StuckRun> Stuck = new();
         public List<RecentFailure> Failures = new();
+
+        // GetLastRunsAsync is the primary signal: a failure here aborts the
+        // whole pass. GetStuckRunsAsync/GetRecentFailuresAsync are secondary
+        // and must degrade independently of it and of each other — see
+        // WatchdogRunner.RunAsync and WatchdogReport.Degraded.
         public Exception? ThrowThis;
+        public Exception? ThrowOnStuck;
+        public Exception? ThrowOnFailures;
 
         public Task<IReadOnlyList<LoaderLastRun>> GetLastRunsAsync(CancellationToken ct) =>
             ThrowThis is not null
@@ -22,10 +29,14 @@ public class WatchdogRunnerTests
 
         public Task<IReadOnlyList<StuckRun>> GetStuckRunsAsync(
             int h, int days, string? host, CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<StuckRun>>(Stuck);
+            ThrowOnStuck is not null
+                ? Task.FromException<IReadOnlyList<StuckRun>>(ThrowOnStuck)
+                : Task.FromResult<IReadOnlyList<StuckRun>>(Stuck);
 
         public Task<IReadOnlyList<RecentFailure>> GetRecentFailuresAsync(int h, DateTime n, CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<RecentFailure>>(Failures);
+            ThrowOnFailures is not null
+                ? Task.FromException<IReadOnlyList<RecentFailure>>(ThrowOnFailures)
+                : Task.FromResult<IReadOnlyList<RecentFailure>>(Failures);
     }
 
     private sealed class FakeNotifier : IFailureNotifier
@@ -40,8 +51,24 @@ public class WatchdogRunnerTests
         }
     }
 
+    /// <summary>
+    /// Violates IFailureNotifier's documented never-throw contract on purpose,
+    /// to prove WatchdogRunner defends itself rather than trusting the
+    /// interface's doc comment — matching PlatformHost.ReportRunOutcomeAsync's
+    /// identical defensive wrap around the same call.
+    /// </summary>
+    private sealed class ThrowingNotifier : IFailureNotifier
+    {
+        public Task<NotificationOutcome> NotifyAsync(INotificationPayload payload, CancellationToken ct) =>
+            throw new InvalidOperationException("notifier contract violated");
+    }
+
     private static WatchdogRunner Build(
-        FakeRepository repo, FakeNotifier notifier, params (string Loader, int Gap)[] loaders)
+        FakeRepository repo, FakeNotifier notifier, params (string Loader, int Gap)[] loaders) =>
+        Build(repo, (IFailureNotifier)notifier, loaders);
+
+    private static WatchdogRunner Build(
+        FakeRepository repo, IFailureNotifier notifier, params (string Loader, int Gap)[] loaders)
     {
         var settings = new WatchdogSettings();
         foreach (var (loader, gap) in loaders)
@@ -136,5 +163,96 @@ public class WatchdogRunnerTests
         var exit = await Build(repo, notifier, ("Platts", 26)).RunAsync(default);
 
         Assert.Equal(0, exit);
+    }
+
+    // ----------------------------------------------------- independent degrade
+
+    [Fact]
+    public async Task OverdueFindingSurvives_WhenTheStuckRunsCheckFails()
+    {
+        // One try wrapping all three repository calls used to throw the
+        // overdue finding away the moment ANY of them failed. A secondary
+        // query failing must not hide what the primary query already found.
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-100)) },
+            ThrowOnStuck = new InvalidOperationException("stuck query broke")
+        };
+        var notifier = new FakeNotifier();
+
+        var exit = await Build(repo, notifier, ("Platts", 26)).RunAsync(default);
+
+        Assert.Equal(0, exit);
+        var report = Assert.IsType<WatchdogReport>(Assert.Single(notifier.Payloads));
+        Assert.Single(report.Overdue);
+        var degraded = Assert.Single(report.Degraded);
+        Assert.Contains("stuck runs", degraded);
+        Assert.Contains("stuck query broke", degraded);
+    }
+
+    [Fact]
+    public async Task OverdueFindingSurvives_WhenTheRecentFailuresCheckFails()
+    {
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-100)) },
+            ThrowOnFailures = new InvalidOperationException("failures query broke")
+        };
+        var notifier = new FakeNotifier();
+
+        var exit = await Build(repo, notifier, ("Platts", 26)).RunAsync(default);
+
+        Assert.Equal(0, exit);
+        var report = Assert.IsType<WatchdogReport>(Assert.Single(notifier.Payloads));
+        Assert.Single(report.Overdue);
+        var degraded = Assert.Single(report.Degraded);
+        Assert.Contains("recent failures", degraded);
+        Assert.Contains("failures query broke", degraded);
+    }
+
+    [Fact]
+    public async Task ADegradedCheckAlone_StillNotifies_EvenWithNoOtherFinding()
+    {
+        // Degraded alone must trip ShouldNotify — a watchdog that can only
+        // half-see must say so, even when nothing else is wrong.
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) },
+            ThrowOnStuck = new InvalidOperationException("stuck query broke")
+        };
+        var notifier = new FakeNotifier();
+
+        var exit = await Build(repo, notifier, ("Platts", 26)).RunAsync(default);
+
+        Assert.Equal(0, exit);
+        var report = Assert.IsType<WatchdogReport>(Assert.Single(notifier.Payloads));
+        Assert.Empty(report.Overdue);
+        Assert.Single(report.Degraded);
+        Assert.True(report.ShouldNotify);
+    }
+
+    // --------------------------------------------- notifier contract violated
+
+    [Fact]
+    public async Task ExitsOne_NoEscape_WhenTheNotifierThrowsOnTheMainPath()
+    {
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-100)) }
+        };
+
+        var exit = await Build(repo, new ThrowingNotifier(), ("Platts", 26)).RunAsync(default);
+
+        Assert.Equal(1, exit);
+    }
+
+    [Fact]
+    public async Task ExitsOne_NoEscape_WhenTheNotifierThrowsOnTheDatabaseFailureCatchPath()
+    {
+        var repo = new FakeRepository { ThrowThis = new InvalidOperationException("db down") };
+
+        var exit = await Build(repo, new ThrowingNotifier(), ("Platts", 26)).RunAsync(default);
+
+        Assert.Equal(1, exit);
     }
 }

@@ -19,14 +19,16 @@ public class WatchdogEvaluatorTests
         WatchdogSettings settings,
         IEnumerable<LoaderLastRun>? lastRuns = null,
         IEnumerable<StuckRun>? stuck = null,
-        IEnumerable<RecentFailure>? failures = null)
+        IEnumerable<RecentFailure>? failures = null,
+        IEnumerable<string>? degraded = null)
         => WatchdogEvaluator.Evaluate(
             (lastRuns ?? Array.Empty<LoaderLastRun>()).ToList(),
             (stuck ?? Array.Empty<StuckRun>()).ToList(),
             (failures ?? Array.Empty<RecentFailure>()).ToList(),
             settings,
             "TestHost",
-            NowCentral);
+            NowCentral,
+            (degraded ?? Array.Empty<string>()).ToList());
 
     // ---------------------------------------------------------------- overdue
 
@@ -110,12 +112,14 @@ public class WatchdogEvaluatorTests
         var settings = Settings(("Criterion", 5));
 
         var correct = WatchdogEvaluator.Evaluate(
-            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", NowCentral);
+            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", NowCentral,
+            Array.Empty<string>());
         Assert.Empty(correct.Overdue);
 
         // Documents the failure mode: the same data against a UTC-shifted clock.
         var wrong = WatchdogEvaluator.Evaluate(
-            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", NowCentral.AddHours(5));
+            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", NowCentral.AddHours(5),
+            Array.Empty<string>());
         Assert.Single(wrong.Overdue);
     }
 
@@ -252,5 +256,58 @@ public class WatchdogEvaluatorTests
 
         Assert.Empty(report.Misconfigured);
         Assert.False(report.ShouldNotify);
+    }
+
+    [Fact]
+    public void ANullLoadersSectionIsTreatedAsEmpty_NotAThrow()
+    {
+        // "Loaders": null in config used to throw NullReferenceException out of
+        // this pure function; the caller's catch then mislabelled a config
+        // mistake as "Watchdog could not read run history". It must instead
+        // behave exactly like an empty Loaders section: nothing configured,
+        // nothing to report.
+        var settings = new WatchdogSettings { Loaders = null! };
+
+        var report = Evaluate(settings);
+
+        Assert.False(report.ShouldNotify);
+        Assert.Empty(report.Overdue);
+        Assert.Empty(report.Misconfigured);
+    }
+
+    // -------------------------------------------------------------- degraded
+
+    [Fact]
+    public void Degraded_TripsShouldNotify_EvenWithNothingElseWrong()
+    {
+        var report = Evaluate(
+            Settings(("Platts", 26)),
+            new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-1)) },
+            degraded: new[] { "stuck runs (InvalidOperationException: db down)" });
+
+        Assert.True(report.ShouldNotify);
+        Assert.Single(report.Degraded);
+    }
+
+    [Fact]
+    public void Subject_IncludesTheDegradedCount()
+    {
+        var report = Evaluate(new WatchdogSettings(),
+            degraded: new[] { "stuck runs (InvalidOperationException: db down)" });
+
+        Assert.Contains("1 check degraded", report.BuildMessage().Subject);
+    }
+
+    [Fact]
+    public void Body_ListsEveryDegradedCheckAndWhy()
+    {
+        var report = Evaluate(new WatchdogSettings(),
+            degraded: new[] { "stuck runs (InvalidOperationException: db down)" });
+
+        var body = report.BuildMessage().Body;
+
+        Assert.Contains("COULD NOT CHECK", body);
+        Assert.Contains("stuck runs", body);
+        Assert.Contains("db down", body);
     }
 }

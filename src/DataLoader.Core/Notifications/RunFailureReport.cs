@@ -114,10 +114,19 @@ public sealed class RunFailureReport : INotificationPayload
         var sb = new StringBuilder();
 
         sb.AppendLine($"Host:      {HostName}");
-        sb.AppendLine($"Run id:    {RunId}");
+        // Omitted when there is no real run to name — the watchdog's own
+        // DB-read-failure alert passes Guid.Empty because it is reporting a
+        // failed CHECK, not a run, and the all-zero guid would only confuse
+        // whoever reads it.
+        if (RunId != Guid.Empty)
+            sb.AppendLine($"Run id:    {RunId}");
         sb.AppendLine($"Started:   {StartedAtUtc:yyyy-MM-dd HH:mm:ss} UTC");
         sb.AppendLine($"Completed: {CompletedAtUtc:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine($"Duration:  {FormatDuration(CompletedAtUtc - StartedAtUtc)}");
+        // Omitted when the two are the same instant — that same watchdog alert
+        // stamps both fields from one clock read, since it is reporting the
+        // single moment it gave up, not a span with a duration.
+        if (CompletedAtUtc != StartedAtUtc)
+            sb.AppendLine($"Duration:  {FormatDuration(CompletedAtUtc - StartedAtUtc)}");
         sb.AppendLine();
 
         if (Exception is not null)

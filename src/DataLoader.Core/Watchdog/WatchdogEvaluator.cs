@@ -22,6 +22,11 @@ public static class WatchdogEvaluator
     /// <see cref="WatchdogReport"/> stays pure per
     /// <see cref="Notifications.INotificationPayload"/> — testable without a
     /// clock or a machine name.</para>
+    ///
+    /// <para><paramref name="degraded"/> is computed by the CALLER, not here —
+    /// deciding that a secondary query failed means catching an exception,
+    /// which does not belong in a function that has to stay pure. This method
+    /// only carries the list through onto the report.</para>
     /// </summary>
     public static WatchdogReport Evaluate(
         IReadOnlyList<LoaderLastRun> lastRuns,
@@ -29,7 +34,8 @@ public static class WatchdogEvaluator
         IReadOnlyList<RecentFailure> recentFailures,
         WatchdogSettings settings,
         string hostName,
-        DateTime nowCentral)
+        DateTime nowCentral,
+        IReadOnlyList<string> degraded)
     {
         var seen = lastRuns
             .GroupBy(r => r.LoaderName, StringComparer.OrdinalIgnoreCase)
@@ -42,7 +48,15 @@ public static class WatchdogEvaluator
         // never reported — build-only loaders run by hand once would otherwise
         // alert forever. The flip side: a configured loader missing from the
         // table has never run, which is itself overdue.
-        foreach (var (loaderName, loaderSettings) in settings.Loaders)
+        //
+        // `?? new()` defends the actual trigger of a past bug: "Loaders": null
+        // in config threw NullReferenceException here, and the caller's catch
+        // around the repository calls mislabelled it as "Watchdog could not
+        // read run history" — a config mistake wearing a database error's
+        // headline. WatchdogRunner no longer wraps this call in that catch at
+        // all; this guard is what keeps a null section from throwing in the
+        // first place.
+        foreach (var (loaderName, loaderSettings) in settings.Loaders ?? new())
         {
             // Checked first: a disabled loader was deliberately muted, so a
             // missing/zero threshold underneath it is not a misconfiguration —
@@ -80,7 +94,8 @@ public static class WatchdogEvaluator
             Overdue = overdue,
             Stuck = stuckRuns,
             RecentFailures = recentFailures,
-            Misconfigured = misconfigured
+            Misconfigured = misconfigured,
+            Degraded = degraded
         };
     }
 }

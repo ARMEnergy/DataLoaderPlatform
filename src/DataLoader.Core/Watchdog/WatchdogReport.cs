@@ -32,8 +32,18 @@ public sealed class WatchdogReport : INotificationPayload
     /// </summary>
     public IReadOnlyList<string> Misconfigured { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Signals this pass could not check, with the reason.
+    ///
+    /// <para>A watchdog that can only half-see must say so. Silently returning
+    /// "no stuck runs" when the stuck-run query threw would be a false
+    /// all-clear — the single most damaging thing this component can emit.</para>
+    /// </summary>
+    public IReadOnlyList<string> Degraded { get; init; } = Array.Empty<string>();
+
     public bool ShouldNotify =>
-        Overdue.Count > 0 || Stuck.Count > 0 || RecentFailures.Count > 0 || Misconfigured.Count > 0;
+        Overdue.Count > 0 || Stuck.Count > 0 || RecentFailures.Count > 0 ||
+        Misconfigured.Count > 0 || Degraded.Count > 0;
 
     /// <summary>
     /// Throws if nothing is worth reporting, matching
@@ -60,6 +70,7 @@ public sealed class WatchdogReport : INotificationPayload
         if (Stuck.Count > 0) parts.Add($"{Stuck.Count} run{(Stuck.Count == 1 ? "" : "s")} stuck");
         if (RecentFailures.Count > 0) parts.Add($"{RecentFailures.Count} recent failure{(RecentFailures.Count == 1 ? "" : "s")}");
         if (Misconfigured.Count > 0) parts.Add($"{Misconfigured.Count} loader{(Misconfigured.Count == 1 ? "" : "s")} misconfigured");
+        if (Degraded.Count > 0) parts.Add($"{Degraded.Count} check{(Degraded.Count == 1 ? "" : "s")} degraded");
         return $"WATCHDOG: {string.Join(", ", parts)}";
     }
 
@@ -109,6 +120,15 @@ public sealed class WatchdogReport : INotificationPayload
             foreach (var name in Misconfigured.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
                 sb.AppendLine($"  {name}: MaxGapHours is missing or <= 0 " +
                               $"(Platform:Watchdog:Loaders:{name}:MaxGapHours)");
+            sb.AppendLine();
+        }
+
+        if (Degraded.Count > 0)
+        {
+            sb.AppendLine("COULD NOT CHECK — this pass is incomplete; absence of a finding above is NOT evidence of health");
+            sb.AppendLine(new string('-', 60));
+            foreach (var d in Degraded.OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+                sb.AppendLine($"  {d}");
             sb.AppendLine();
         }
 

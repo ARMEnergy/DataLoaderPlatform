@@ -217,4 +217,57 @@ public class RunFailureReportTests
 
         Assert.Throws<InvalidOperationException>(() => report.BuildMessage());
     }
+
+    // ------------------------------------------------- non-run alerts (watchdog)
+
+    [Fact]
+    public void Body_OmitsRunId_WhenThereIsNoRealRunToName()
+    {
+        // The watchdog's own "could not read history" alert passes Guid.Empty
+        // because it is reporting a failed CHECK, not a run — the all-zero
+        // guid would only confuse whoever reads it.
+        var now = new DateTime(2026, 10, 24, 11, 0, 0, DateTimeKind.Utc);
+        var report = new RunFailureReport
+        {
+            HostName = "ARMH-OPSDB01",
+            RunId = Guid.Empty,
+            StartedAtUtc = now,
+            CompletedAtUtc = now,
+            Exception = new InvalidOperationException("db down")
+        };
+
+        var body = report.BuildMessage().Body;
+
+        Assert.DoesNotContain("Run id:", body);
+        Assert.DoesNotContain("00000000-0000-0000-0000-000000000000", body);
+    }
+
+    [Fact]
+    public void Body_OmitsDuration_WhenStartedAndCompletedAreTheSameInstant()
+    {
+        var now = new DateTime(2026, 10, 24, 11, 0, 0, DateTimeKind.Utc);
+        var report = new RunFailureReport
+        {
+            HostName = "ARMH-OPSDB01",
+            RunId = Guid.Empty,
+            StartedAtUtc = now,
+            CompletedAtUtc = now,
+            Exception = new InvalidOperationException("db down")
+        };
+
+        var body = report.BuildMessage().Body;
+
+        Assert.DoesNotContain("Duration:", body);
+    }
+
+    [Fact]
+    public void Body_StillShowsRunIdAndDuration_ForARealRun()
+    {
+        // Guards the guard: a normal in-process run report (non-empty RunId,
+        // a real elapsed span) must not lose these lines too.
+        var body = Report(new[] { Bad("Platts", "boom") }).BuildMessage().Body;
+
+        Assert.Contains("Run id:", body);
+        Assert.Contains("Duration:", body);
+    }
 }
