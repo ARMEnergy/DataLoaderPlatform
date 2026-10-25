@@ -86,4 +86,28 @@ public class ErrorTextRedactorTests
         Assert.Equal(string.Empty, ErrorTextRedactor.Redact(""));
         Assert.Equal(string.Empty, ErrorTextRedactor.Truncate(null, 10));
     }
+
+    [Theory]
+    [InlineData("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc-_123")]
+    [InlineData("request failed with Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature attached")]
+    [InlineData("bearer abc123DEF456")]
+    public void Redacts_BearerTokens(string input)
+    {
+        // IIR and NUCORE authenticate with JWT bearer tokens, and a bearer value
+        // carries no key= shape for the KeyValue pattern to catch.
+        var result = ErrorTextRedactor.Redact(input);
+
+        Assert.DoesNotContain("eyJhbGciOiJIUzI1NiJ9", result);
+        Assert.DoesNotContain("abc123DEF456", result);
+        Assert.Contains("***REDACTED***", result);
+    }
+
+    [Fact]
+    public void DoesNotRedactTheWordBearerOnItsOwn()
+    {
+        // Guard against over-redaction swallowing following prose.
+        var input = "the bearer of this message is unknown";
+
+        Assert.Equal(input, ErrorTextRedactor.Redact(input));
+    }
 }

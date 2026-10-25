@@ -5,18 +5,21 @@ namespace DataLoader.Core.Notifications;
 /// <summary>
 /// Removes secrets from vendor-supplied text before it can be emailed.
 ///
-/// <para>⚠ This is NOT belt-and-braces. Two vendors on this platform put
-/// credentials into text that reaches <c>LoaderRunResult.ErrorMessage</c>:
-/// AGSI echoes the caller's own <c>x-key</c> back inside the error body's
-/// <c>message</c> field, and OilX carries its <c>api_key</c> in the query
-/// string, so any URL inside an exception is sensitive.</para>
+/// <para>⚠ This is NOT belt-and-braces. Several vendors and loaders on this
+/// platform put credentials into text that reaches
+/// <c>LoaderRunResult.ErrorMessage</c>: AGSI echoes the caller's own
+/// <c>x-key</c> back inside the error body's <c>message</c> field, OilX
+/// carries its <c>api_key</c> in the query string so any URL inside an
+/// exception is sensitive, and IIR/NUCORE authenticate with JWT bearer
+/// tokens that can land in an HTTP exception's message or headers dump.</para>
 ///
 /// <para>Logs stay on the machine; email does not. Every piece of error text
 /// must pass through here before it enters a <see cref="NotificationMessage"/>.</para>
 ///
 /// <para>Deliberately conservative in the other direction too: over-redacting
 /// produces alerts nobody can act on, which is its own failure. Only known
-/// key-bearing tokens and URL query strings are touched.</para>
+/// key-bearing tokens, URL query strings, and bearer-token shapes are
+/// touched.</para>
 /// </summary>
 public static class ErrorTextRedactor
 {
@@ -44,6 +47,24 @@ public static class ErrorTextRedactor
         @"\b(client_secret|api[\s_-]?key|x-key|apikey|secret|password|passwd|pwd|token|key)\b\s*[:=]\s*""?([^\s""'&,;)\]]+)""?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>
+    /// Masks a JWT/opaque credential after the word "bearer". IIR and NUCORE
+    /// both authenticate with bearer tokens, and that shape has no
+    /// <c>name=value</c>/<c>name: value</c> form for <see cref="KeyValue"/>
+    /// to catch — it is just the literal word followed by the token.
+    ///
+    /// <para>"Bearer" alone is not enough of a signal: ordinary prose uses the
+    /// word too ("the bearer of this message"), and a plain
+    /// <c>bearer\s+\S+</c> pattern would swallow the next word in sentences
+    /// like that. A real token is additionally required to be at least 8
+    /// characters of base64url-ish content AND contain at least one digit,
+    /// dot, hyphen or underscore — which an ordinary lowercase dictionary
+    /// word never does — so "of", "the", "attached" etc. never match.</para>
+    /// </summary>
+    private static readonly Regex BearerToken = new(
+        @"\b(bearer)\s+(?=[A-Za-z0-9._-]*[0-9._-])[A-Za-z0-9._-]{8,}",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>Returns <paramref name="text"/> with secrets masked. Null becomes empty.</summary>
     public static string Redact(string? text)
     {
@@ -51,6 +72,7 @@ public static class ErrorTextRedactor
 
         var result = UrlQuery.Replace(text, "$1");
         result = KeyValue.Replace(result, m => $"{m.Groups[1].Value}={Mask}");
+        result = BearerToken.Replace(result, m => $"{m.Groups[1].Value} {Mask}");
         return result;
     }
 
