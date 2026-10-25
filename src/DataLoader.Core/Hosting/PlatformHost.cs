@@ -2,6 +2,7 @@ using System.Diagnostics;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Concurrency;
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Notifications;
 using DataLoader.Core.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,6 +27,7 @@ public sealed class PlatformHost
     private readonly ILoaderOverlapGuard _overlapGuard;
     private readonly IAdditionalProcessRunner _additionalProcesses;
     private readonly ILoadLogSweeper? _loadLogSweeper;
+    private readonly IFailureNotifier? _notifier;
     private readonly PlatformSettings _settings;
     private readonly ILogger<PlatformHost> _logger;
 
@@ -37,7 +39,8 @@ public sealed class PlatformHost
         IAdditionalProcessRunner additionalProcesses,
         IOptions<PlatformSettings> settings,
         ILogger<PlatformHost> logger,
-        ILoadLogSweeper? loadLogSweeper = null)
+        ILoadLogSweeper? loadLogSweeper = null,
+        IFailureNotifier? notifier = null)
     {
         _services = services;
         _modules = modules;
@@ -45,6 +48,7 @@ public sealed class PlatformHost
         _overlapGuard = overlapGuard;
         _additionalProcesses = additionalProcesses;
         _loadLogSweeper = loadLogSweeper;
+        _notifier = notifier;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -58,10 +62,14 @@ public sealed class PlatformHost
     /// <para>Best-effort and never fatal: housekeeping must not stop a run from loading data. Rows
     /// belonging to a still-running invocation are never touched — the proc only closes rows whose
     /// own run has finished or started outside the staleness window.</para>
+    ///
+    /// <para>Returns how many rows were closed. A non-zero count is itself reportable —
+    /// it means an earlier invocation was killed — so the caller forwards it into the
+    /// run's failure report rather than only logging it.</para>
     /// </summary>
-    private async Task SweepStaleLoadLogsAsync(Guid runId, CancellationToken cancellationToken)
+    private async Task<int> SweepStaleLoadLogsAsync(Guid runId, CancellationToken cancellationToken)
     {
-        if (!_settings.AbandonStaleLoadLogs || _loadLogSweeper is null) return;
+        if (!_settings.AbandonStaleLoadLogs || _loadLogSweeper is null) return 0;
 
         try
         {
@@ -70,10 +78,12 @@ public sealed class PlatformHost
                 _logger.LogWarning(
                     "Closed {Count} load-log row(s) left open by earlier runs — a unit opened its row " +
                     "but never closed it (see core.usp_AbandonStaleLoadLogs)", closed);
+            return closed;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to sweep stale load-log rows; continuing with the run");
+            return 0;
         }
     }
 
@@ -94,7 +104,7 @@ public sealed class PlatformHost
             runId, enabled.Count, string.Join(", ", enabled.Select(m => m.LoaderId)));
 
         await _runLog.BeginRunAsync(runId, cancellationToken).ConfigureAwait(false);
-        await SweepStaleLoadLogsAsync(runId, cancellationToken).ConfigureAwait(false);
+        var staleRowsClosed = await SweepStaleLoadLogsAsync(runId, cancellationToken).ConfigureAwait(false);
 
         var context = BuildContext(runId, startedAt, cancellationToken);
         var results = new List<LoaderRunResult>();
@@ -197,6 +207,7 @@ public sealed class PlatformHost
         }
 
         LogSummary(results, sw.Elapsed);
+        await NotifyAsync(runId, startedAt, results, staleRowsClosed).ConfigureAwait(false);
         return allSucceeded ? 0 : 1;
     }
 
@@ -234,6 +245,50 @@ public sealed class PlatformHost
                 r.WorkUnitsSucceeded, r.WorkUnitsTotal, r.WorkUnitsSkipped, r.WorkUnitsFailed, r.RecordsProcessed);
             if (!r.Success && !string.IsNullOrEmpty(r.ErrorMessage))
                 _logger.LogWarning("    error: {Error}", r.ErrorMessage);
+        }
+    }
+
+    /// <summary>
+    /// Emails the run's outcome when there is something to say.
+    ///
+    /// <para>Placed AFTER the finally that closes <c>core.LoaderRun</c>, not inside it:
+    /// that row should close as promptly as possible and SMTP is not prompt.</para>
+    ///
+    /// <para>Never reached on cancellation — <c>ParallelRunner</c> rethrows
+    /// <see cref="OperationCanceledException"/>, so a cancelled run leaves via the
+    /// finally. That is deliberate. An operator pressing Ctrl+C or ending the scheduled
+    /// task is not a failure; a KILLED process is, and nothing in-process can report
+    /// that, which is what the watchdog exists for.</para>
+    ///
+    /// <para>The try/catch is belt and braces. <c>FailureNotifier</c> already
+    /// swallows everything, but a run that loaded millions of rows must not be reported
+    /// as failed because a mail relay was down, so the host does not rely on another
+    /// component's politeness.</para>
+    /// </summary>
+    private async Task NotifyAsync(
+        Guid runId, DateTime startedAt, IReadOnlyList<LoaderRunResult> results, int staleRowsClosed)
+    {
+        if (_notifier is null) return;
+
+        try
+        {
+            var report = new RunFailureReport
+            {
+                HostName = Environment.MachineName,
+                RunId = runId,
+                StartedAtUtc = startedAt,
+                CompletedAtUtc = DateTime.UtcNow,
+                Results = results,
+                StaleRowsClosed = staleRowsClosed
+            };
+
+            // CancellationToken.None — an operator stopping the job should still
+            // learn why it was failing.
+            await _notifier.NotifyAsync(report, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failure notification threw; the run's own outcome is unchanged");
         }
     }
 }
