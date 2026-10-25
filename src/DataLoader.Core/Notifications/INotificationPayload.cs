@@ -20,9 +20,17 @@ public interface INotificationPayload
     bool ShouldNotify { get; }
 
     /// <summary>
-    /// Renders the message. Only called when <see cref="ShouldNotify"/> is
-    /// true. Implementations MUST pass any vendor-supplied text through
-    /// <see cref="ErrorTextRedactor"/> first — email leaves the machine.
+    /// Renders the message, WITHOUT the subject prefix. <c>FailureNotifier</c>
+    /// prepends that on the single shared send path, so no implementation can
+    /// forget it and ship an alert whose DEV and PROD copies read identically.
+    ///
+    /// <para>Only called when <see cref="ShouldNotify"/> is true.</para>
+    ///
+    /// <para>🔒 Implementations MUST pass any vendor-supplied text through
+    /// <c>ErrorTextRedactor</c> first — email leaves the machine, logs do not.
+    /// <c>FailureNotifier</c> redacts the finished message again as a backstop,
+    /// because a doc comment is not an enforcement mechanism and this platform
+    /// has already leaked one API key through a path that trusted its caller.</para>
     /// </summary>
-    NotificationMessage BuildMessage(string subjectPrefix);
+    NotificationMessage BuildMessage();
 }

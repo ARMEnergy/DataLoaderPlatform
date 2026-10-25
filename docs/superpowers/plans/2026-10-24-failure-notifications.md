@@ -157,11 +157,19 @@ public interface INotificationPayload
     bool ShouldNotify { get; }
 
     /// <summary>
-    /// Renders the message. Only called when <see cref="ShouldNotify"/> is
-    /// true. Implementations MUST pass any vendor-supplied text through
-    /// <see cref="ErrorTextRedactor"/> first — email leaves the machine.
+    /// Renders the message, WITHOUT the subject prefix. <c>FailureNotifier</c>
+    /// prepends that on the single shared send path, so no implementation can
+    /// forget it and ship an alert whose DEV and PROD copies read identically.
+    ///
+    /// <para>Only called when <see cref="ShouldNotify"/> is true.</para>
+    ///
+    /// <para>🔒 Implementations MUST pass any vendor-supplied text through
+    /// <c>ErrorTextRedactor</c> first — email leaves the machine, logs do not.
+    /// <c>FailureNotifier</c> redacts the finished message again as a backstop,
+    /// because a doc comment is not an enforcement mechanism and this platform
+    /// has already leaked one API key through a path that trusted its caller.</para>
     /// </summary>
-    NotificationMessage BuildMessage(string subjectPrefix);
+    NotificationMessage BuildMessage();
 }
 ```
 
@@ -759,25 +767,26 @@ public class RunFailureReportTests
     [Fact]
     public void Subject_SingleFailingLoader_NamesItAndItsUnitCounts()
     {
-        var subject = Report(new[] { Bad("Platts", "boom") }).BuildMessage("[DataLoader]").Subject;
+        var subject = Report(new[] { Bad("Platts", "boom") }).BuildMessage().Subject;
 
-        Assert.Equal("[DataLoader] FAILED: Platts on ARMH-OPSDB01 (2/14 units failed)", subject);
+        // No prefix here — FailureNotifier prepends it on the single send path.
+        Assert.Equal("FAILED: Platts on ARMH-OPSDB01 (2/14 units failed)", subject);
     }
 
     [Fact]
     public void Subject_SeveralFailingLoaders_CountsThem()
     {
         var subject = Report(new[] { Bad("Platts", "a"), Bad("Vulcan", "b"), Ok("CWG") })
-            .BuildMessage("[DataLoader]").Subject;
+            .BuildMessage().Subject;
 
-        Assert.Equal("[DataLoader] FAILED: 2 loaders on ARMH-OPSDB01", subject);
+        Assert.Equal("FAILED: 2 loaders on ARMH-OPSDB01", subject);
     }
 
     [Fact]
     public void Subject_UnhandledException_NamesTheExceptionType()
     {
         var subject = Report(exception: new InvalidOperationException("bang"))
-            .BuildMessage("[DataLoader]").Subject;
+            .BuildMessage().Subject;
 
         Assert.Contains("InvalidOperationException", subject);
         Assert.Contains("ARMH-OPSDB01", subject);
@@ -787,7 +796,7 @@ public class RunFailureReportTests
     public void Subject_OnlyStaleRows_IsAWarningNotAFailure()
     {
         var subject = Report(new[] { Ok("Platts") }, staleRowsClosed: 3)
-            .BuildMessage("[DataLoader]").Subject;
+            .BuildMessage().Subject;
 
         Assert.Contains("WARNING", subject);
         Assert.Contains("3", subject);
@@ -798,7 +807,7 @@ public class RunFailureReportTests
     [Fact]
     public void Body_ContainsRunIdHostPerLoaderDetailAndTheLogPath()
     {
-        var body = Report(new[] { Ok("Platts"), Bad("Vulcan", "boom") }).BuildMessage("[DataLoader]").Body;
+        var body = Report(new[] { Ok("Platts"), Bad("Vulcan", "boom") }).BuildMessage().Body;
 
         Assert.Contains("11111111-2222-3333-4444-555555555555", body);
         Assert.Contains("ARMH-OPSDB01", body);
@@ -815,7 +824,7 @@ public class RunFailureReportTests
         try { throw new InvalidOperationException("bang"); }
         catch (Exception ex) { captured = ex; }
 
-        var body = Report(exception: captured).BuildMessage("[DataLoader]").Body;
+        var body = Report(exception: captured).BuildMessage().Body;
 
         Assert.Contains("InvalidOperationException", body);
         Assert.Contains("bang", body);
@@ -827,7 +836,7 @@ public class RunFailureReportTests
         // The whole point of ErrorTextRedactor — proven at the boundary that
         // actually sends, not only in the redactor's own unit tests.
         var body = Report(new[] { Bad("AGSI", "access denied (API key: abc123XYZ)") })
-            .BuildMessage("[DataLoader]").Body;
+            .BuildMessage().Body;
 
         Assert.DoesNotContain("abc123XYZ", body);
         Assert.Contains("REDACTED", body);
@@ -837,7 +846,7 @@ public class RunFailureReportTests
     public void Body_TruncatesAPathologicallyLongErrorMessage()
     {
         var body = Report(new[] { Bad("Platts", new string('x', 50_000)) })
-            .BuildMessage("[DataLoader]").Body;
+            .BuildMessage().Body;
 
         Assert.True(body.Length < 10_000, $"body was {body.Length} chars");
         Assert.Contains("truncated", body);
@@ -909,31 +918,35 @@ public sealed class RunFailureReport : INotificationPayload
     public bool ShouldNotify =>
         Exception is not null || StaleRowsClosed > 0 || Results.Any(r => !r.Success);
 
-    public NotificationMessage BuildMessage(string subjectPrefix) =>
-        new(BuildSubject(subjectPrefix), BuildBody());
+    /// <summary>
+    /// No subject prefix here — <see cref="FailureNotifier"/> prepends it on the
+    /// single shared send path, so no payload can forget it and ship an alert
+    /// whose DEV and PROD copies read identically.
+    /// </summary>
+    public NotificationMessage BuildMessage() => new(BuildSubject(), BuildBody());
 
-    private string BuildSubject(string prefix)
+    private string BuildSubject()
     {
         if (Exception is not null)
         {
             var stage = string.IsNullOrWhiteSpace(FailedStage) ? "run" : FailedStage;
-            return $"{prefix} FAILED: {stage} on {HostName} — {Exception.GetType().Name}";
+            return $"FAILED: {stage} on {HostName} — {Exception.GetType().Name}";
         }
 
         var failures = Failures;
         if (failures.Count == 1)
         {
             var f = failures[0];
-            return $"{prefix} FAILED: {f.LoaderId} on {HostName} " +
+            return $"FAILED: {f.LoaderId} on {HostName} " +
                    $"({f.WorkUnitsFailed}/{f.WorkUnitsTotal} units failed)";
         }
         if (failures.Count > 1)
         {
-            return $"{prefix} FAILED: {failures.Count} loaders on {HostName}";
+            return $"FAILED: {failures.Count} loaders on {HostName}";
         }
 
         // Nothing failed now, so the only reason we are here is orphaned rows.
-        return $"{prefix} WARNING: {StaleRowsClosed} orphaned load-log row(s) on {HostName}";
+        return $"WARNING: {StaleRowsClosed} orphaned load-log row(s) on {HostName}";
     }
 
     private string BuildBody()
@@ -1045,8 +1058,8 @@ public class FailureNotifierTests
     private sealed class FakePayload : INotificationPayload
     {
         public bool ShouldNotify { get; init; }
-        public NotificationMessage BuildMessage(string subjectPrefix) =>
-            new($"{subjectPrefix} subject", "body");
+        public string Body { get; init; } = "body";
+        public NotificationMessage BuildMessage() => new("subject", Body);
     }
 
     private static FailureNotifier Build(FakeSender sender, bool enabled = true, int timeoutSeconds = 30) =>
@@ -1112,7 +1125,28 @@ public class FailureNotifierTests
 
         await notifier.NotifyAsync(new FakePayload { ShouldNotify = true }, default);
 
-        Assert.StartsWith("[CUSTOM]", sender.Sent[0].Subject);
+        // The payload returns a bare "subject"; prefixing is the notifier's job,
+        // so a payload cannot ship an alert with DEV and PROD reading alike.
+        Assert.Equal("[CUSTOM] subject", sender.Sent[0].Subject);
+    }
+
+    [Fact]
+    public async Task RedactsTheFinishedMessage_EvenWhenThePayloadForgot()
+    {
+        // Defence in depth. RunFailureReport does redact, but the contract is a
+        // doc comment, and this platform has already leaked an API key through a
+        // path that trusted its caller. A future payload must not be able to
+        // reintroduce that by forgetting.
+        var sender = new FakeSender();
+        var payload = new FakePayload
+        {
+            ShouldNotify = true,
+            Body = "access denied (API key: abc123XYZ)"
+        };
+
+        await Build(sender).NotifyAsync(payload, default);
+
+        Assert.DoesNotContain("abc123XYZ", sender.Sent[0].Body);
     }
 
     // ------------------------------------------------- it must NEVER propagate
@@ -1143,7 +1177,7 @@ public class FailureNotifierTests
     private sealed class ExplodingPayload : INotificationPayload
     {
         public bool ShouldNotify => true;
-        public NotificationMessage BuildMessage(string subjectPrefix) =>
+        public NotificationMessage BuildMessage() =>
             throw new InvalidOperationException("bad payload");
     }
 
@@ -1269,7 +1303,7 @@ public sealed class FailureNotifier : IFailureNotifier
                 return NotificationOutcome.Disabled;
             }
 
-            var message = payload.BuildMessage(_settings.SubjectPrefix);
+            var message = Finalise(payload.BuildMessage());
 
             // The run may already have been cancelled — CancellationToken.None
             // deliberately, so an operator stopping the job still gets told why.
@@ -1288,6 +1322,24 @@ public sealed class FailureNotifier : IFailureNotifier
             return NotificationOutcome.Failed;
         }
     }
+
+    /// <summary>
+    /// Applies the two things that must happen on EVERY message, whatever the
+    /// payload did.
+    ///
+    /// <para>The subject prefix lives here rather than in each payload so none
+    /// of them can omit it and produce an alert whose DEV and PROD copies read
+    /// identically.</para>
+    ///
+    /// <para>🔒 The redaction pass is defence in depth. Payloads are already
+    /// required to redact, but a doc comment is not an enforcement mechanism,
+    /// and this platform has already leaked an API key through a path that
+    /// trusted its caller. Redaction is idempotent, so redacting twice costs
+    /// nothing and a future payload cannot reintroduce the leak by forgetting.</para>
+    /// </summary>
+    private NotificationMessage Finalise(NotificationMessage message) =>
+        new($"{_settings.SubjectPrefix} {ErrorTextRedactor.Redact(message.Subject)}".Trim(),
+            ErrorTextRedactor.Redact(message.Body));
 }
 ```
 
@@ -1951,7 +2003,7 @@ public class WatchdogEvaluatorTests
             Settings(("Platts", 26), ("CWG", 26)),
             stuck: new[] { new StuckRun(Guid.NewGuid(), DateTime.UtcNow.AddHours(-20), "ARMH-OPSDB01") });
 
-        var subject = report.BuildMessage("[DataLoader]").Subject;
+        var subject = report.BuildMessage().Subject;
 
         Assert.Contains("WATCHDOG", subject);
         Assert.Contains("2 loaders overdue", subject);
@@ -1965,7 +2017,7 @@ public class WatchdogEvaluatorTests
             Settings(("Platts", 26)),
             new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-30)) });
 
-        var body = report.BuildMessage("[DataLoader]").Body;
+        var body = report.BuildMessage().Body;
 
         Assert.Contains("Platts", body);
         Assert.Contains("30", body);
@@ -2087,16 +2139,15 @@ public sealed class WatchdogReport : INotificationPayload
 
     public bool ShouldNotify => Overdue.Count > 0 || Stuck.Count > 0 || RecentFailures.Count > 0;
 
-    public NotificationMessage BuildMessage(string subjectPrefix) =>
-        new(BuildSubject(subjectPrefix), BuildBody());
+    public NotificationMessage BuildMessage() => new(BuildSubject(), BuildBody());
 
-    private string BuildSubject(string prefix)
+    private string BuildSubject()
     {
         var parts = new List<string>();
         if (Overdue.Count > 0) parts.Add($"{Overdue.Count} loader{(Overdue.Count == 1 ? "" : "s")} overdue");
         if (Stuck.Count > 0) parts.Add($"{Stuck.Count} run{(Stuck.Count == 1 ? "" : "s")} stuck");
         if (RecentFailures.Count > 0) parts.Add($"{RecentFailures.Count} recent failure{(RecentFailures.Count == 1 ? "" : "s")}");
-        return $"{prefix} WATCHDOG: {string.Join(", ", parts)}";
+        return $"WATCHDOG: {string.Join(", ", parts)}";
     }
 
     private string BuildBody()
@@ -3331,6 +3382,6 @@ Report: files changed, test totals as actually printed, what is verified versus 
 
 **Spec coverage.** §3 component layout → Tasks 1-5, 7-9. §4.1 `PlatformHost` call site → Task 6. §4.2 `Program.cs` restructure → Task 10 Step 5. §4.3 never-closed detection → Task 6 Steps 4-5. §5 watchdog → Tasks 7-9, flag in Task 10. §6 email content → Task 4. §6.1 redaction → Task 2, re-asserted at the boundary in Task 4. §7 config → Task 11. §7.1 no-credential transport → Task 3 (rejects keys), Task 5 (`Credentials = null`). §8 testing → every task's test steps; solution-wide run in Task 10 Step 7 and Task 11 Step 5. §10 prerequisites → Task 12. §11 build order → Tasks 1-11 in order.
 
-**Type consistency.** `INotificationPayload.BuildMessage(string subjectPrefix)` is used identically by `RunFailureReport` and `WatchdogReport`. `IFailureNotifier.NotifyAsync(INotificationPayload, CancellationToken)` returns `Task<NotificationOutcome>` at every call site — `PlatformHost` discards it, `WatchdogRunner` branches on it. `WatchdogEvaluator.Evaluate` takes the same five parameters in the tests (Task 7) and the runner (Task 9). `ErrorTextRedactor.Clean` is the method `RunFailureReport` calls, and it is defined in Task 2.
+**Type consistency.** `INotificationPayload.BuildMessage()` takes no argument and is used identically by `RunFailureReport` and `WatchdogReport`; `FailureNotifier.Finalise` is the single place the subject prefix and the backstop redaction are applied (amended after the Task 1 code-quality review — payloads were originally each given the prefix, which let any one of them drop it). `IFailureNotifier.NotifyAsync(INotificationPayload, CancellationToken)` returns `Task<NotificationOutcome>` at every call site — `PlatformHost` discards it, `WatchdogRunner` branches on it. `WatchdogEvaluator.Evaluate` takes the same five parameters in the tests (Task 7) and the runner (Task 9). `ErrorTextRedactor.Clean` is the method `RunFailureReport` calls, and it is defined in Task 2.
 
 **Known deviations from repo convention, each justified inline:** inline `SELECT`s instead of stored procedures (Task 8 — the design adds no SQL objects); a new test project for the host (Task 10 — `HostArguments` must be public because `DataLoader.Host` is an exe).
