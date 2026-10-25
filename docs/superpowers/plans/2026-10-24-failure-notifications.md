@@ -3189,11 +3189,34 @@ In `BuildServiceProvider`, add before the `foreach (var module in modules)` loop
         // Notifications. The settings object is registered as a singleton
         // instance rather than through IOptions, because the bootstrap path in
         // Main builds its own copy the same way and the two must not diverge.
+        //
+        // ⚠ A BAD NOTIFICATION CONFIG MUST NEVER STOP THE LOADERS. Validate()
+        // throws on a missing SmtpHost/From/To, and an uncaught throw here
+        // aborts BuildServiceProvider before host.RunAsync() is ever reached —
+        // so one typo in a side-channel feature would mean zero loaders ran.
+        // That is precisely the failure mode this whole component exists to
+        // prevent, so a broken config degrades to no notifications, loudly,
+        // rather than taking the ETL down with it.
         var notificationSettings = NotificationSettings.FromConfiguration(configuration);
-        notificationSettings.Validate();
+        var notificationsUsable = notificationSettings.Enabled;
+        if (notificationsUsable)
+        {
+            try
+            {
+                notificationSettings.Validate();
+            }
+            catch (Exception ex)
+            {
+                bootstrapLogger.LogError(
+                    ex, "Notification config is invalid — continuing with notifications DISABLED. " +
+                        "Loaders will run normally, but NOBODY WILL BE TOLD IF THEY FAIL.");
+                notificationsUsable = false;
+            }
+        }
+
         services.AddSingleton(notificationSettings);
 
-        if (notificationSettings.Enabled)
+        if (notificationsUsable)
             services.AddSingleton<INotificationSender, SmtpNotificationSender>();
         else
             services.AddSingleton<INotificationSender, NullNotificationSender>();
@@ -3205,6 +3228,34 @@ In `BuildServiceProvider`, add before the `foreach (var module in modules)` loop
         services.AddSingleton<IWatchdogRepository, SqlWatchdogRepository>();
         services.AddSingleton<WatchdogRunner>();
 ```
+
+⚠ `BuildServiceProvider` currently takes `(IConfiguration, IReadOnlyList<ILoaderModule>, IReadOnlyList<string>)` and has no logger. Add an `ILogger bootstrapLogger` parameter and pass the one `Main` already creates — the degrade path above is useless if it cannot say anything.
+
+**Test the degrade path** (in `tests/DataLoader.Host.Tests/`), because it is the one behaviour here that protects the loaders from the notifier:
+
+```csharp
+    [Fact]
+    public void AnInvalidNotificationConfig_DoesNotStopTheHostFromStarting()
+    {
+        // Enabled with no SmtpHost/From/To. This must degrade to no
+        // notifications, NOT abort BuildServiceProvider — a typo in a
+        // side-channel feature must never mean zero loaders ran.
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Platform:Notifications:Enabled"] = "true"
+            })
+            .Build();
+
+        var settings = NotificationSettings.FromConfiguration(config);
+
+        Assert.True(settings.Enabled);
+        Assert.Throws<InvalidOperationException>(() => settings.Validate());
+        // …and the host wiring must catch exactly that and carry on.
+    }
+```
+
+Assert the resulting provider resolves `INotificationSender` as `NullNotificationSender` and still resolves `PlatformHost`.
 
 - [ ] **Step 7: Build and run every test**
 
