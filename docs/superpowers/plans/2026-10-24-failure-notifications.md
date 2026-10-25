@@ -3322,6 +3322,18 @@ IConfiguration, which only works because the relay takes no credential."
 
 ---
 
+### ⚠ Known residuals found during Task 10 — deliberately NOT fixed
+
+**1. The bootstrap logger can still stop every loader.** `Program.Main` builds its `LoggerFactory` **before** the try block, and `LoggerFactory.Create(...)` evaluates `IOptionsMonitor<LoggerFilterOptions>.CurrentValue` eagerly in its constructor. A malformed `Logging:LogLevel:Default` therefore throws with no catch, no log and no notification — a config typo silently stops every scheduled loader, exactly the way a bad `Platform:Notifications` section used to before this work.
+
+Left alone because it is **pre-existing**, not introduced here, and widening scope into the logger bootstrap mid-feature is how a focused change becomes an unreviewable one. `BuildConfiguration()` has the same exposure via `AddJsonFile(optional: false)`, though that one is arguably honest: if `appsettings.json` will not parse, nothing downstream can work. The logger case is not honest, because a perfectly good notification config can be sitting right there unused.
+
+*Fix when someone picks it up:* wrap `LoggerFactory.Create` and fall back to a plain console logger, so a bad `Logging` section degrades the way a bad notification config now does.
+
+**2. Malformed `Platform:Watchdog:Loaders` binds to nothing.** `Loaders` written as a scalar string, or an entry whose `MaxGapHours` is non-numeric, binds **silently to an empty dictionary** rather than throwing. `WatchdogEvaluator`'s `MaxGapHours <= 0 → Misconfigured` guard cannot catch an entry that vanished instead of landing with a zero.
+
+*Partially mitigated in Task 10:* `WatchdogRunner` now reports a `Degraded` entry when `Loaders` is empty, because a watchdog monitoring zero loaders reports "all healthy" forever and is indistinguishable from a working platform. That catches the whole-section case but **not one bad entry among several good ones** — that entry simply disappears and nothing notices. A stricter fix would diff the raw configuration section against the bound result.
+
 ### Task 11: Configuration, launcher, documentation
 
 **Files:**
