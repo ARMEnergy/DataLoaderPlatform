@@ -72,6 +72,24 @@ public sealed class WatchdogRunner
         // WatchdogReport.Degraded.
         var degraded = new List<string>();
 
+        // A watchdog monitoring zero loaders reports "all healthy" forever,
+        // which is indistinguishable from a working platform — exactly the
+        // blindness this component exists to prevent, so it has to be able to
+        // report on itself. This also catches a config binding failure
+        // WatchdogEvaluator's own per-entry Misconfigured guard cannot see:
+        // "Platform:Watchdog:Loaders" as a scalar string, or an entry whose
+        // MaxGapHours is non-numeric, binds SILENTLY to an empty dictionary
+        // (no exception) — the entries never land for that guard to inspect,
+        // they just vanish.
+        if (_settings.Loaders is null || _settings.Loaders.Count == 0)
+        {
+            const string reason =
+                "no loaders are configured for monitoring (Platform:Watchdog:Loaders is empty or " +
+                "failed to bind) — this pass can detect nothing";
+            _logger.LogWarning(reason);
+            degraded.Add(reason);
+        }
+
         IReadOnlyList<StuckRun> stuck;
         try
         {

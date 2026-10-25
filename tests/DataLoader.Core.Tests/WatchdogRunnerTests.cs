@@ -231,6 +231,35 @@ public class WatchdogRunnerTests
         Assert.True(report.ShouldNotify);
     }
 
+    // -------------------------------------------------- zero loaders configured
+
+    [Fact]
+    public async Task DegradesAndNotifies_WhenNoLoadersAreConfiguredForMonitoring()
+    {
+        // A watchdog monitoring zero loaders reports "all healthy" forever,
+        // which is indistinguishable from a working platform — the exact
+        // blindness this component exists to prevent. This is also what a
+        // malformed Platform:Watchdog:Loaders section looks like from here: a
+        // scalar string, or an entry with a non-numeric MaxGapHours, binds
+        // SILENTLY to an empty dictionary, with nothing landing for
+        // WatchdogEvaluator's per-entry Misconfigured guard to ever see.
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) }
+        };
+        var notifier = new FakeNotifier();
+
+        // No loader tuples passed — settings.Loaders stays the empty dictionary
+        // it defaults to.
+        var exit = await Build(repo, notifier).RunAsync(default);
+
+        Assert.Equal(0, exit);
+        var report = Assert.IsType<WatchdogReport>(Assert.Single(notifier.Payloads));
+        Assert.True(report.ShouldNotify);
+        var degraded = Assert.Single(report.Degraded);
+        Assert.Contains("no loaders are configured", degraded, StringComparison.OrdinalIgnoreCase);
+    }
+
     // --------------------------------------------- notifier contract violated
 
     [Fact]

@@ -73,43 +73,55 @@ internal static class Program
                 return 1;
             }
 
-            await using var services = BuildServiceProvider(
+            // ⚠ NOT `await using`. Disposal used to happen inside this same try,
+            // which meant it ran AFTER a run had already produced its exit code —
+            // so a disposal failure (observed: a singleton whose DisposeAsync
+            // throws) landed in the catch below, got logged as a STARTUP failure,
+            // fired a false-alarm email, and overwrote a successful 0 with 1.
+            // Several loaders hold disposable network clients that can throw from
+            // Dispose after a dropped connection: Marex's SignalR hub, the
+            // FTP/SFTP clients in Argus/OPIS/CME. RunWithSafeDisposalAsync keeps
+            // disposal from ever reaching this catch, whatever the body returned.
+            var services = BuildServiceProvider(
                 configuration, modules, parsed.Loaders, bootstrapLogger);
 
-            using var cts = new CancellationTokenSource();
+            return await RunWithSafeDisposalAsync(services, async () =>
+            {
+                using var cts = new CancellationTokenSource();
 
-            if (parsed.WatchdogMode)
-            {
-                var watchdog = services.GetRequiredService<WatchdogRunner>();
-                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-                return await watchdog.RunAsync(cts.Token);
-            }
+                if (parsed.WatchdogMode)
+                {
+                    var watchdog = services.GetRequiredService<WatchdogRunner>();
+                    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+                    return await watchdog.RunAsync(cts.Token);
+                }
 
-            var host = services.GetRequiredService<PlatformHost>();
-            var logger = services.GetRequiredService<ILogger<PlatformHost>>();
+                var host = services.GetRequiredService<PlatformHost>();
+                var logger = services.GetRequiredService<ILogger<PlatformHost>>();
 
-            Console.CancelKeyPress += (_, e) =>
-            {
-                e.Cancel = true;
-                logger.LogWarning("Cancellation requested");
-                cts.Cancel();
-            };
+                Console.CancelKeyPress += (_, e) =>
+                {
+                    e.Cancel = true;
+                    logger.LogWarning("Cancellation requested");
+                    cts.Cancel();
+                };
 
-            try
-            {
-                return await host.RunAsync(cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                logger.LogWarning("Run cancelled");
-                return 2;
-            }
-            catch (Exception ex)
-            {
-                logger.LogCritical(ex, "Unhandled exception");
-                await NotifyBootstrapFailureAsync(configuration, bootstrapLogger, ex, "run");
-                return 1;
-            }
+                try
+                {
+                    return await host.RunAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.LogWarning("Run cancelled");
+                    return 2;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogCritical(ex, "Unhandled exception");
+                    await NotifyBootstrapFailureAsync(configuration, bootstrapLogger, ex, "run").ConfigureAwait(false);
+                    return 1;
+                }
+            }, bootstrapLogger).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -119,7 +131,7 @@ internal static class Program
         catch (Exception ex)
         {
             bootstrapLogger.LogCritical(ex, "Unhandled exception during startup");
-            await NotifyBootstrapFailureAsync(configuration, bootstrapLogger, ex, "startup");
+            await NotifyBootstrapFailureAsync(configuration, bootstrapLogger, ex, "startup").ConfigureAwait(false);
             return 1;
         }
     }
@@ -164,11 +176,54 @@ internal static class Program
                 FailedStage = stage
             };
 
-            await notifier.NotifyAsync(report, CancellationToken.None);
+            await notifier.NotifyAsync(report, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Could not send the startup-failure notification");
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="body"/> and disposes <paramref name="services"/>
+    /// afterwards, no matter how <paramref name="body"/> exits — but a disposal
+    /// failure must NEVER overwrite the result <paramref name="body"/> already
+    /// produced.
+    ///
+    /// <para>⚠ Before this existed, container disposal ran inside the SAME try
+    /// that reports startup failures. Disposal happens AFTER the body has
+    /// already produced its exit code, so a disposal exception there relabelled
+    /// a successful run as a STARTUP failure, fired a false-alarm email, and
+    /// flipped a correct 0 to 1 — the one outcome that would train people to
+    /// stop trusting these emails, which is worse than sending none. Several
+    /// loaders hold disposable network clients that can throw from Dispose
+    /// after a dropped connection: Marex's SignalR hub, the FTP/SFTP clients in
+    /// Argus/OPIS/CME.</para>
+    ///
+    /// <para>internal rather than private so <c>DataLoader.Host.Tests</c> (a
+    /// friend assembly via <c>InternalsVisibleTo</c>) can prove the invariant
+    /// directly against a real container built by <see cref="BuildServiceProvider"/>,
+    /// with a fake loader module registering a singleton whose disposal throws,
+    /// rather than re-deriving the same conclusion against a hand-rolled
+    /// try/finally that is not the code actually running in production.</para>
+    /// </summary>
+    internal static async Task<int> RunWithSafeDisposalAsync(
+        ServiceProvider services, Func<Task<int>> body, ILogger bootstrapLogger)
+    {
+        try
+        {
+            return await body().ConfigureAwait(false);
+        }
+        finally
+        {
+            try
+            {
+                await services.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                bootstrapLogger.LogError(ex, "Container disposal failed; the run's own outcome is unchanged");
+            }
         }
     }
 
