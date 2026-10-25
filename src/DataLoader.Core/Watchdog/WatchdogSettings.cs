@@ -74,4 +74,17 @@ public sealed class WatchdogLoaderSettings
 
     /// <summary>Set false to mute a loader without deleting its threshold.</summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Exclude Saturdays and Sundays when measuring how late a loader is.
+    ///
+    /// <para>⚠ Set this from measured behaviour, never assumed. Thresholds were
+    /// originally seeded from the MEAN inter-run gap, which for a weekday-only
+    /// feed stays low because most gaps are same-day — so the first weekend
+    /// after go-live reported five loaders overdue that were working exactly as
+    /// designed. Raising those thresholds to cover a Friday-to-Monday gap
+    /// instead would have meant a weekday loader dying on Monday morning going
+    /// unreported until Thursday.</para>
+    /// </summary>
+    public bool SkipWeekends { get; set; }
 }

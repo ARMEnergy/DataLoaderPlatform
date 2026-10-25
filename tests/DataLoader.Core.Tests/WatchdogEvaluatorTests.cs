@@ -123,6 +123,117 @@ public class WatchdogEvaluatorTests
         Assert.Single(wrong.Overdue);
     }
 
+    // ------------------------------------------------------------ SkipWeekends
+
+    [Fact]
+    public void SkipWeekends_GapEntirelyWithinOneWeekend_IsNotOverdue()
+    {
+        // Saturday 08:00 to Sunday 20:00 is a 36h wall-clock gap but touches no
+        // weekday hours at all — the weekday-only elapsed time is ~0.
+        var lastStart = new DateTime(2026, 10, 24, 8, 0, 0);  // Saturday
+        var now = new DateTime(2026, 10, 25, 20, 0, 0);       // Sunday
+        Assert.Equal(DayOfWeek.Saturday, lastStart.DayOfWeek);
+        Assert.Equal(DayOfWeek.Sunday, now.DayOfWeek);
+
+        var settings = new WatchdogSettings();
+        settings.Loaders["ICE"] = new WatchdogLoaderSettings { MaxGapHours = 6, SkipWeekends = true };
+
+        var report = WatchdogEvaluator.Evaluate(
+            new[] { new LoaderLastRun("ICE", lastStart) },
+            Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", now,
+            Array.Empty<string>());
+
+        // A 36h raw gap against a 6h threshold would fire without the
+        // weekend exclusion — this is the regression guard for that.
+        Assert.Empty(report.Overdue);
+    }
+
+    [Fact]
+    public void SkipWeekends_FridayEveningToMondayMorning_CountsOnlyTheWeekdayEdges()
+    {
+        // Friday 18:00 -> Monday 09:00 is 63h of wall clock (2 days 15h), but
+        // only Friday's last 6h and Monday's first 9h are weekdays: 15h.
+        var lastStart = new DateTime(2026, 10, 23, 18, 0, 0); // Friday
+        var now = new DateTime(2026, 10, 26, 9, 0, 0);        // Monday
+        Assert.Equal(DayOfWeek.Friday, lastStart.DayOfWeek);
+        Assert.Equal(DayOfWeek.Monday, now.DayOfWeek);
+
+        var skipSettings = new WatchdogSettings();
+        skipSettings.Loaders["ICE"] = new WatchdogLoaderSettings { MaxGapHours = 20, SkipWeekends = true };
+
+        var skipReport = WatchdogEvaluator.Evaluate(
+            new[] { new LoaderLastRun("ICE", lastStart) },
+            Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), skipSettings, "TestHost", now,
+            Array.Empty<string>());
+
+        Assert.Empty(skipReport.Overdue); // 15h counted <= 20h threshold
+
+        // Same data, SkipWeekends off: the raw 63h gap blows straight through
+        // the same 20h threshold. Proves the first assertion is the weekend
+        // exclusion at work, not a loose threshold.
+        var rawSettings = new WatchdogSettings();
+        rawSettings.Loaders["ICE"] = new WatchdogLoaderSettings { MaxGapHours = 20, SkipWeekends = false };
+
+        var rawReport = WatchdogEvaluator.Evaluate(
+            new[] { new LoaderLastRun("ICE", lastStart) },
+            Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), rawSettings, "TestHost", now,
+            Array.Empty<string>());
+
+        var overdue = Assert.Single(rawReport.Overdue);
+        Assert.Equal(63, overdue.HoursSinceLastRun, precision: 0);
+    }
+
+    [Fact]
+    public void SkipWeekends_GapSpanningSeveralWeeks_ExcludesEveryWeekendInBetween()
+    {
+        // Three Mondays apart (21 days = 504h wall clock) crosses 3 complete
+        // weekends (6 weekend days = 144h excluded), leaving 15 weekday days
+        // = 360h of counted elapsed time.
+        var lastStart = new DateTime(2026, 10, 5, 8, 0, 0);  // Monday
+        var now = new DateTime(2026, 10, 26, 8, 0, 0);       // Monday, 3 weeks later
+        Assert.Equal(DayOfWeek.Monday, lastStart.DayOfWeek);
+        Assert.Equal(DayOfWeek.Monday, now.DayOfWeek);
+        Assert.Equal(21, (now - lastStart).Days);
+
+        var settings = new WatchdogSettings();
+        settings.Loaders["Criterion"] = new WatchdogLoaderSettings { MaxGapHours = 359, SkipWeekends = true };
+
+        var report = WatchdogEvaluator.Evaluate(
+            new[] { new LoaderLastRun("Criterion", lastStart) },
+            Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", now,
+            Array.Empty<string>());
+
+        var overdue = Assert.Single(report.Overdue);
+        Assert.Equal(360, overdue.HoursSinceLastRun, precision: 0);
+
+        // One hour above the computed weekday-only gap: now quiet.
+        settings.Loaders["Criterion"].MaxGapHours = 361;
+        var quietReport = WatchdogEvaluator.Evaluate(
+            new[] { new LoaderLastRun("Criterion", lastStart) },
+            Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", now,
+            Array.Empty<string>());
+        Assert.Empty(quietReport.Overdue);
+    }
+
+    [Fact]
+    public void SkipWeekends_DefaultsToFalse_SoAnExistingEntryIsUnaffected()
+    {
+        // WatchdogLoaderSettings.SkipWeekends is never set here, exactly like
+        // every config entry before this feature existed — pins that the
+        // default path still compares the raw wall-clock gap.
+        var settings = new WatchdogSettings();
+        settings.Loaders["Platts"] = new WatchdogLoaderSettings { MaxGapHours = 26 };
+        Assert.False(settings.Loaders["Platts"].SkipWeekends);
+
+        var report = WatchdogEvaluator.Evaluate(
+            new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-30)) },
+            Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", NowCentral,
+            Array.Empty<string>());
+
+        var overdue = Assert.Single(report.Overdue);
+        Assert.Equal(30, overdue.HoursSinceLastRun, precision: 0);
+    }
+
     // ------------------------------------------------------------------ stuck
 
     [Fact]

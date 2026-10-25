@@ -79,7 +79,9 @@ public static class WatchdogEvaluator
                 continue;
             }
 
-            var hours = (nowCentral - lastStart).TotalHours;
+            var hours = loaderSettings.SkipWeekends
+                ? ElapsedHoursExcludingWeekends(lastStart, nowCentral)
+                : (nowCentral - lastStart).TotalHours;
 
             // Strictly greater-than: a loader on a 24h cadence with a 24h
             // threshold must not alert on ordinary scheduling jitter.
@@ -97,5 +99,41 @@ public static class WatchdogEvaluator
             Misconfigured = misconfigured,
             Degraded = degraded
         };
+    }
+
+    /// <summary>
+    /// Hours between <paramref name="from"/> and <paramref name="to"/>, with
+    /// every Saturday and Sunday calendar day counted as zero elapsed time.
+    ///
+    /// <para>Walks the gap one calendar day at a time rather than subtracting a
+    /// whole-weekend count, so a gap that only partially touches a weekend
+    /// (e.g. a run late Friday night) is handled the same way as one that
+    /// spans several — and so it never needs <c>DateTime.Now</c>: both
+    /// endpoints are supplied by the caller, keeping this pure and testable.</para>
+    ///
+    /// <para>⚠ This changes what <see cref="OverdueLoader.HoursSinceLastRun"/>
+    /// means for a <see cref="WatchdogLoaderSettings.SkipWeekends"/> loader: it
+    /// is the weekday-only elapsed time that was actually compared against
+    /// <c>MaxGapHours</c>, not the raw wall-clock gap — a Friday 18:00 run
+    /// checked on Monday 09:00 reports roughly 15h, not 63h.</para>
+    /// </summary>
+    private static double ElapsedHoursExcludingWeekends(DateTime from, DateTime to)
+    {
+        if (to <= from) return 0;
+
+        var hours = 0.0;
+        var cursor = from;
+        while (cursor < to)
+        {
+            var endOfDay = cursor.Date.AddDays(1);
+            var segmentEnd = endOfDay < to ? endOfDay : to;
+
+            if (cursor.DayOfWeek != DayOfWeek.Saturday && cursor.DayOfWeek != DayOfWeek.Sunday)
+                hours += (segmentEnd - cursor).TotalHours;
+
+            cursor = segmentEnd;
+        }
+
+        return hours;
     }
 }

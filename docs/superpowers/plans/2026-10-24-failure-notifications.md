@@ -3477,6 +3477,59 @@ development and would alert constantly."
 
 ---
 
+### Addendum, 2026-10-24: the Step 1 thresholds above were wrong, and CWG should never have been in the list
+
+The commit this task produced (`39ab8e5`) shipped `MaxGapHours` seeded from the **mean** 30-day
+inter-run gap. For a loader that does not run every day of the week, the mean stays low because
+most gaps are same-day — a Friday→Monday gap is one data point among many same-day ones, so it
+never surfaces in an average. The very first weekend after go-live reported 5 loaders overdue
+(ICE, EOX, Argus, OPIS, CWG) that were working exactly as scheduled; a 6th (Platts) crossed its
+threshold minutes after that run finished. Separately, CWG should not have been in the list at
+all: CLAUDE.md already documented that CWG is not in `Platform:EnabledLoaders` and its ~1.91M
+rows came from manual runs, not a schedule — a loader with no schedule is always eventually
+"overdue" by construction, which is a structural fact, not a tuning problem.
+
+**What was measured (read-only, `ARMH-OPSDB01`, 60 days of `core.LoaderRun_Summary`, `@@DATEFIRST`
+confirmed = 7 / US default), per loader still in `Platform:Watchdog:Loaders`:**
+
+- distinct weekend calendar dates (of 17 in the window) with at least one run — the signal for
+  whether a loader is genuinely weekday-only, not just its raw Saturday/Sunday run COUNT, which a
+  high-frequency loader inflates even on a handful of incidental weekend hits;
+- the worst gap between consecutive runs that does **not** cross a Saturday or Sunday (the
+  "normal"/weekday-sensitive gap);
+- the worst gap that **does** cross a weekend, examined as a full sorted list, not just the max —
+  several loaders (CME, Genscape, Marex, Argus, EOX, Criterion, ICE, NGX) had exactly ONE
+  weekend-spanning gap of several hundred hours (3–32 days) sitting among an otherwise clean,
+  tightly-clustered set of ordinary weekly values. Those are isolated past production outages, not
+  a recurring weekly pattern, and are never used to size a threshold — doing so would have set
+  some loaders' thresholds in the hundreds of hours, which defeats monitoring as completely as the
+  original mean-based mistake did in the other direction.
+
+**Result: 4 loaders are genuinely weekday-only (0/17 weekend dates) — Argus, EOX, NGX, OPIS.** ICE
+(1/17) and Platts (2/17) are classified the same way: their rare weekend hits are incidental, not
+a schedule. These 6 loaders got `"SkipWeekends": true` and a threshold sized off their worst
+**weekday** gap. CWG (1/17) was not reclassified — it was **removed from
+`Platform:Watchdog:Loaders` entirely**, per the reasoning above; raising its threshold instead
+would have hidden the fact that it has no schedule behind a number. Every other loader runs on a
+meaningful fraction of weekends (Criterion, EvolutionMarkets, IHSPointLogic, IIR, Marex,
+ModernCommodities, NGI, OilX: 6–8/17) or every single day of the 60-day window with zero exceptions
+(AGSI, EnergyAspects, StormVista, Vulcan: 17/17) and kept `SkipWeekends` at its default `false`.
+
+Every remaining threshold was set to `round(worst_gap × 1.3)` — 30% headroom, the midpoint of the
+requested 25–50% band, applied uniformly rather than tuned per loader, because a different
+percentage per loader would reintroduce exactly the kind of unstated per-loader judgment call that
+caused the mean-vs-max mistake in the first place. Two loaders' worst weekday gap was a visible
+singleton far above their otherwise-clean baseline (EnergyAspects 44.5h vs. a clean 24h everywhere
+else in 52 samples; Vulcan 44.8h vs. a clean 24h in 45 samples) — both went in as measured (58h
+each) rather than silently excluded, but are flagged for the coordinator: EnergyAspects has a
+documented history of partial-run instability (CLAUDE.md), so a 58h threshold on it roughly
+triples how long a genuinely stuck run can sit before anyone is told, which is worth a second look.
+
+Full before/after table, and the measurement commands used, are in the implementation report for
+this correction (commit after `39ab8e5`).
+
+---
+
 ### Task 12: Verify against production, then hand over the deploy
 
 🔒 **`ARMH-OPSDB01` is production. Everything in this task is a READ. Do not deploy.**
