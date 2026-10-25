@@ -628,6 +628,60 @@ repo: the same database's `dbo` schema holds the live incumbent dataset (~95M ro
 **identical names** (`dbo.CityForecast` vs `arm.CityForecast`), so every statement is explicitly
 `arm.`-qualified and must stay that way.
 
+## Failure notifications and the watchdog
+
+Two mechanisms, because neither covers every failure class alone. **In-process**
+(`DataLoader.Core/Notifications/`) emails at the end of a run when any loader
+failed, when the process throws, or when the load-log sweeper closed rows an
+EARLIER run left open. **The watchdog** (`DataLoader.Host.exe --watchdog`, its own
+hourly `\DLP\Watchdog` task) reports loaders that have not run inside their
+configured `MaxGapHours`, run rows still open after `StuckAfterHours`, recent
+`Success = 0` runs, misconfigured loaders, and anything it could not check.
+In-process code cannot report its own death; the watchdog cannot report the box
+being down. Both are configured under `Platform:Notifications` / `Platform:Watchdog`.
+
+Six things are silent if you get them wrong:
+
+- 🔒 **Email leaves the box; logs do not.** All vendor error text goes through
+  `ErrorTextRedactor` first — AGSI echoes your `x-key` back in its error body, OilX
+  puts `api_key` in the query string, and IIR/NUCORE use JWT bearer tokens. Its rule:
+  a keyword that is also an English word (`key`, `token`) counts as a credential only
+  in `name=value` or `"name":` form; one that is never English (`api_key`, `password`)
+  counts in either. `FailureNotifier` redacts the finished message again as a backstop.
+- ⚠ **`core.LoaderRun_Summary.StartTime` is CENTRAL, `core.LoaderRun.StartedAtUtc`
+  is UTC.** Production's `usp_CompleteLoaderRun` converts before storing. Mixing them
+  reports every loader ~5h overdue; `WatchdogEvaluator` takes `nowCentral` and a test
+  pins it.
+- ⚠ **The relay accepts NO credentials.** `armenergy-com.mail.protection.outlook.com`
+  is Exchange Online's inbound MX connector — an `EHLO` probe advertises STARTTLS and
+  no `AUTH` verb. `NotificationSettings` rejects `SmtpUsername`/`SmtpPassword` outright
+  so nobody "fixes" it later with a real password. Recipients must be internal
+  `@armenergy.com`; direct send relay-denies external addresses.
+- ⚠ **A bad notification config must never stop the loaders.** `BuildServiceProvider`
+  catches validation failure and degrades to `NullNotificationSender` with a loud log
+  line, because an uncaught throw there aborts before `host.RunAsync()` and would mean
+  zero loaders ran because of a typo in a side channel.
+- ⚠ **The watchdog exits 0 when it finds overdue loaders** — that is the job working.
+  It exits 1 only when it could not read history or could not deliver a finding,
+  because an undelivered alert looks exactly like all-clear. A failure in a secondary
+  query degrades that signal and reports it rather than discarding the whole pass.
+- ⚠ **A loader absent from `Platform:Watchdog:Loaders` is never reported**, so
+  build-only loaders run by hand once do not alert forever. The flip side: a
+  misconfigured entry (`MaxGapHours` missing or ≤ 0) IS reported, and an empty
+  `Loaders` section reports itself — a watchdog monitoring nothing otherwise looks
+  exactly like a healthy platform.
+
+`core.LoaderRun_Summary` is a **table** in production (written by prod's
+`usp_CompleteLoaderRun`), not a view, and prod's `core.LoaderRun` has a 6th column
+`LoaderRunId` the repo DDL does not create. The watchdog depends on both, and
+`sql/Core/` has drifted from them — a clean deploy to a fresh server would not
+produce a database it can read. Nothing sweeps `core.LoaderRun` either (the
+`AbandonStaleLoadLogs` sweeper closes `core.LoadLog` rows only), so orphaned run
+rows accumulate forever; the watchdog's stuck-run query is bounded by
+`StuckLookbackDays` and this host for that reason.
+
+See `docs/superpowers/specs/2026-10-24-failure-notifications-design.md`.
+
 ## Key files
 
 - `src/DataLoader.Core/Abstractions/`
