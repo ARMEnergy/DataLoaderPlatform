@@ -49,6 +49,15 @@ public sealed class NotificationSettings
     /// </summary>
     private static readonly string[] ForbiddenKeys = { "SmtpUsername", "SmtpPassword" };
 
+    /// <summary>
+    /// Binds the section and rejects the forbidden credential keys, but performs
+    /// NO other validation — the result can still be an enabled config missing a
+    /// host, a sender or every recipient. Callers MUST call <see cref="Validate"/>
+    /// themselves; <c>SmtpNotificationSender</c>'s constructor also calls it as a
+    /// backstop, but a caller that only binds and never constructs that sender
+    /// (the bootstrap notifier, a future caller) would otherwise ship an unusable
+    /// config that looks fine until the first send is attempted.
+    /// </summary>
     public static NotificationSettings FromConfiguration(IConfiguration configuration)
     {
         var section = configuration.GetSection(SectionName);
@@ -85,5 +94,13 @@ public sealed class NotificationSettings
             throw new InvalidOperationException($"'{SectionName}:From' is required when Enabled is true.");
         if (To.Count == 0)
             throw new InvalidOperationException($"'{SectionName}:To' must list at least one recipient when Enabled is true.");
+
+        // SmtpClient's constructor accepts 0 and 70000 without complaint — only a
+        // negative port throws — and FailureNotifier swallows every send exception
+        // by design, logging only "Failed to send failure notification" to a log
+        // file nobody reads. A typo'd port would otherwise never name itself.
+        if (SmtpPort is <= 0 or > 65535)
+            throw new InvalidOperationException(
+                $"'{SectionName}:SmtpPort' must be between 1 and 65535, was {SmtpPort}.");
     }
 }

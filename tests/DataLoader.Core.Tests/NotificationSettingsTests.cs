@@ -51,20 +51,25 @@ public class NotificationSettingsTests
     }
 
     [Theory]
-    [InlineData("SmtpUsername")]
-    [InlineData("SmtpPassword")]
-    public void FromConfiguration_RejectsCredentialKeys(string key)
+    [InlineData("SmtpUsername", "whatever")]
+    [InlineData("SmtpPassword", "whatever")]
+    [InlineData("SmtpUsername", "")]
+    [InlineData("SmtpPassword", "")]
+    public void FromConfiguration_RejectsCredentialKeys(string key, string value)
     {
         // The chosen endpoint advertises STARTTLS but no AUTH verb. A credential
         // here does nothing, and config that LOOKS like a working secret invites
-        // someone to put a real password in it later.
-        var config = Config(($"Platform:Notifications:{key}", "whatever"));
+        // someone to put a real password in it later. The set-but-EMPTY case is
+        // pinned too: a future refactor to GetValue<string>/IsNullOrEmpty could
+        // otherwise silently stop catching "SmtpPassword": "".
+        var config = Config(($"Platform:Notifications:{key}", value));
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => NotificationSettings.FromConfiguration(config));
 
         Assert.Contains(key, ex.Message);
-        Assert.DoesNotContain("whatever", ex.Message);   // never echo the value
+        if (!string.IsNullOrEmpty(value))
+            Assert.DoesNotContain(value, ex.Message);   // never echo the value
     }
 
     [Fact]
@@ -95,5 +100,24 @@ public class NotificationSettingsTests
         // Must stay inert until IT confirms egress; an incomplete disabled
         // config must not stop a loader from running.
         new NotificationSettings { Enabled = false }.Validate();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(70000)]
+    public void Validate_RejectsAnOutOfRangePort(int port)
+    {
+        // SmtpClient accepts 0 and 70000 without complaint, and FailureNotifier
+        // swallows the eventual send failure — so if this gate does not catch a
+        // typo'd port, nothing ever will.
+        var settings = new NotificationSettings
+        {
+            Enabled = true, SmtpHost = "relay", From = "a@armenergy.com",
+            To = { "b@armenergy.com" }, SmtpPort = port
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => settings.Validate());
+        Assert.Contains("SmtpPort", ex.Message);
     }
 }
