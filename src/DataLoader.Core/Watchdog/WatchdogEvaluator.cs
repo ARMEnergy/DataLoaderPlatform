@@ -16,12 +16,19 @@ public static class WatchdogEvaluator
     /// produced it, because <c>core.LoaderRun.StartedAtUtc</c> is UTC and the
     /// comparison belongs next to the column, not here where the clock is
     /// Central.</para>
+    ///
+    /// <para><paramref name="hostName"/> and <paramref name="nowCentral"/> are
+    /// stamped onto the report rather than read inside it, so
+    /// <see cref="WatchdogReport"/> stays pure per
+    /// <see cref="Notifications.INotificationPayload"/> — testable without a
+    /// clock or a machine name.</para>
     /// </summary>
     public static WatchdogReport Evaluate(
         IReadOnlyList<LoaderLastRun> lastRuns,
         IReadOnlyList<StuckRun> stuckRuns,
         IReadOnlyList<RecentFailure> recentFailures,
         WatchdogSettings settings,
+        string hostName,
         DateTime nowCentral)
     {
         var seen = lastRuns
@@ -29,6 +36,7 @@ public static class WatchdogEvaluator
             .ToDictionary(g => g.Key, g => g.Max(r => r.LastStartCentral), StringComparer.OrdinalIgnoreCase);
 
         var overdue = new List<OverdueLoader>();
+        var misconfigured = new List<string>();
 
         // Driven by CONFIG, not by the table. A loader nobody configured is
         // never reported — build-only loaders run by hand once would otherwise
@@ -36,8 +44,20 @@ public static class WatchdogEvaluator
         // table has never run, which is itself overdue.
         foreach (var (loaderName, loaderSettings) in settings.Loaders)
         {
+            // Checked first: a disabled loader was deliberately muted, so a
+            // missing/zero threshold underneath it is not a misconfiguration —
+            // it is simply irrelevant.
             if (!loaderSettings.Enabled) continue;
-            if (loaderSettings.MaxGapHours <= 0) continue;
+
+            if (loaderSettings.MaxGapHours <= 0)
+            {
+                // Reported, not skipped — MaxGapHours defaults to 0 while
+                // Enabled defaults to true, so a copy/paste slip like
+                // "Platts": {} would otherwise vanish from the one system
+                // whose job is noticing a loader has gone quiet.
+                misconfigured.Add(loaderName);
+                continue;
+            }
 
             if (!seen.TryGetValue(loaderName, out var lastStart))
             {
@@ -55,9 +75,12 @@ public static class WatchdogEvaluator
 
         return new WatchdogReport
         {
+            HostName = hostName,
+            GeneratedAtCentral = nowCentral,
             Overdue = overdue,
             Stuck = stuckRuns,
-            RecentFailures = recentFailures
+            RecentFailures = recentFailures,
+            Misconfigured = misconfigured
         };
     }
 }

@@ -9,13 +9,49 @@ namespace DataLoader.Core.Watchdog;
 /// </summary>
 public sealed class WatchdogReport : INotificationPayload
 {
+    /// <summary>Supplied by the caller, not read from the environment — see
+    /// <see cref="INotificationPayload"/>, whose members must stay pure so the
+    /// rendered alert is testable without a clock or a machine name.</summary>
+    public string HostName { get; init; } = string.Empty;
+
+    /// <summary>US Central, matching every other timestamp in this report.</summary>
+    public DateTime GeneratedAtCentral { get; init; }
+
     public IReadOnlyList<OverdueLoader> Overdue { get; init; } = Array.Empty<OverdueLoader>();
     public IReadOnlyList<StuckRun> Stuck { get; init; } = Array.Empty<StuckRun>();
     public IReadOnlyList<RecentFailure> RecentFailures { get; init; } = Array.Empty<RecentFailure>();
 
-    public bool ShouldNotify => Overdue.Count > 0 || Stuck.Count > 0 || RecentFailures.Count > 0;
+    /// <summary>
+    /// Loaders configured but unusable — <c>MaxGapHours</c> missing or ≤ 0.
+    ///
+    /// <para>Reported rather than skipped, because silently ignoring a
+    /// misconfigured loader is exactly the blindness this component exists to
+    /// prevent: the loader could stop running for a month and nothing would
+    /// say so. <c>MaxGapHours</c> defaults to 0 while <c>Enabled</c> defaults
+    /// to true, so an entry like <c>"Platts": {}</c> lands here.</para>
+    /// </summary>
+    public IReadOnlyList<string> Misconfigured { get; init; } = Array.Empty<string>();
 
-    public NotificationMessage BuildMessage() => new(BuildSubject(), BuildBody());
+    public bool ShouldNotify =>
+        Overdue.Count > 0 || Stuck.Count > 0 || RecentFailures.Count > 0 || Misconfigured.Count > 0;
+
+    /// <summary>
+    /// Throws if nothing is worth reporting, matching
+    /// <see cref="RunFailureReport.BuildMessage"/> — two types implementing one
+    /// interface should not disagree on this. <c>FailureNotifier</c> always
+    /// checks <see cref="ShouldNotify"/> first, so reaching here with it false
+    /// can only be a caller bug — failing loudly beats silently mailing a
+    /// nonsense empty "WATCHDOG: " alert.
+    /// </summary>
+    public NotificationMessage BuildMessage()
+    {
+        if (!ShouldNotify)
+            throw new InvalidOperationException(
+                "BuildMessage() was called on a report with nothing to report. " +
+                "Check ShouldNotify first, as FailureNotifier does.");
+
+        return new(BuildSubject(), BuildBody());
+    }
 
     private string BuildSubject()
     {
@@ -23,13 +59,14 @@ public sealed class WatchdogReport : INotificationPayload
         if (Overdue.Count > 0) parts.Add($"{Overdue.Count} loader{(Overdue.Count == 1 ? "" : "s")} overdue");
         if (Stuck.Count > 0) parts.Add($"{Stuck.Count} run{(Stuck.Count == 1 ? "" : "s")} stuck");
         if (RecentFailures.Count > 0) parts.Add($"{RecentFailures.Count} recent failure{(RecentFailures.Count == 1 ? "" : "s")}");
+        if (Misconfigured.Count > 0) parts.Add($"{Misconfigured.Count} loader{(Misconfigured.Count == 1 ? "" : "s")} misconfigured");
         return $"WATCHDOG: {string.Join(", ", parts)}";
     }
 
     private string BuildBody()
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Watchdog pass on {Environment.MachineName} at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+        sb.AppendLine($"Watchdog pass on {HostName} at {GeneratedAtCentral:yyyy-MM-dd HH:mm} Central");
         sb.AppendLine();
 
         if (Overdue.Count > 0)
@@ -62,6 +99,16 @@ public sealed class WatchdogReport : INotificationPayload
             foreach (var f in RecentFailures.OrderByDescending(f => f.StartTimeCentral))
                 sb.AppendLine($"  {f.LoaderName}: {f.StartTimeCentral:yyyy-MM-dd HH:mm} Central, " +
                               $"{f.UnitsFailed}/{f.UnitsTotal} units failed");
+            sb.AppendLine();
+        }
+
+        if (Misconfigured.Count > 0)
+        {
+            sb.AppendLine("MISCONFIGURED — threshold missing or invalid, neither healthy nor overdue");
+            sb.AppendLine(new string('-', 60));
+            foreach (var name in Misconfigured.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+                sb.AppendLine($"  {name}: MaxGapHours is missing or <= 0 " +
+                              $"(Platform:Watchdog:Loaders:{name}:MaxGapHours)");
             sb.AppendLine();
         }
 

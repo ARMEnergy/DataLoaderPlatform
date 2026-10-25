@@ -40,6 +40,12 @@ public sealed class WatchdogLoaderSettings
     /// <summary>
     /// Report the loader when this many hours have passed since its last run
     /// STARTED. Seeded from 30-day observed cadence; see the design spec §2.5.
+    ///
+    /// <para>Defaults to 0, which <see cref="WatchdogEvaluator"/> treats as
+    /// MISCONFIGURED rather than healthy — an entry left as
+    /// <c>"Platts": {}</c> must not silently vanish from watchdog coverage,
+    /// since that is precisely the blindness this component exists to catch.
+    /// See <see cref="WatchdogReport.Misconfigured"/>.</para>
     /// </summary>
     public int MaxGapHours { get; set; }
 

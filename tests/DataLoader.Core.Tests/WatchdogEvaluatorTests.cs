@@ -25,6 +25,7 @@ public class WatchdogEvaluatorTests
             (stuck ?? Array.Empty<StuckRun>()).ToList(),
             (failures ?? Array.Empty<RecentFailure>()).ToList(),
             settings,
+            "TestHost",
             NowCentral);
 
     // ---------------------------------------------------------------- overdue
@@ -109,12 +110,12 @@ public class WatchdogEvaluatorTests
         var settings = Settings(("Criterion", 5));
 
         var correct = WatchdogEvaluator.Evaluate(
-            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, NowCentral);
+            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", NowCentral);
         Assert.Empty(correct.Overdue);
 
         // Documents the failure mode: the same data against a UTC-shifted clock.
         var wrong = WatchdogEvaluator.Evaluate(
-            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, NowCentral.AddHours(5));
+            lastRun, Array.Empty<StuckRun>(), Array.Empty<RecentFailure>(), settings, "TestHost", NowCentral.AddHours(5));
         Assert.Single(wrong.Overdue);
     }
 
@@ -197,5 +198,59 @@ public class WatchdogEvaluatorTests
 
         Assert.Contains("Platts", body);
         Assert.Contains("30", body);
+    }
+
+    [Fact]
+    public void BuildMessage_Throws_WhenNothingToReport()
+    {
+        var report = new WatchdogReport();
+
+        Assert.Throws<InvalidOperationException>(() => report.BuildMessage());
+    }
+
+    [Fact]
+    public void ReportsOverdueStuckAndFailuresTogether()
+    {
+        // The realistic shape: production currently has 5 stuck rows and 43
+        // failures in 7 days, so a real pass will rarely contain just one kind.
+        var report = Evaluate(
+            Settings(("Platts", 26)),
+            new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-30)) },
+            stuck: new[] { new StuckRun(Guid.NewGuid(), DateTime.UtcNow.AddHours(-20), "ARMH-OPSDB01") },
+            failures: new[] { new RecentFailure("EnergyAspects", NowCentral.AddHours(-2), 3, 14) });
+
+        var message = report.BuildMessage();
+
+        Assert.Contains("1 loader overdue", message.Subject);
+        Assert.Contains("1 run stuck", message.Subject);
+        Assert.Contains("1 recent failure", message.Subject);
+        Assert.Contains("Platts", message.Body);
+        Assert.Contains("EnergyAspects", message.Body);
+    }
+
+    [Fact]
+    public void AMisconfiguredLoaderIsReported_NotSilentlySkipped()
+    {
+        var settings = new WatchdogSettings();
+        settings.Loaders["Platts"] = new WatchdogLoaderSettings();   // MaxGapHours left at 0
+
+        var report = Evaluate(settings);
+
+        Assert.Equal("Platts", Assert.Single(report.Misconfigured));
+        Assert.True(report.ShouldNotify);
+        Assert.Contains("Platts", report.BuildMessage().Body);
+    }
+
+    [Fact]
+    public void ADisabledLoaderWithNoThresholdIsNotMisconfigured()
+    {
+        // Deliberately muted, not broken.
+        var settings = new WatchdogSettings();
+        settings.Loaders["Platts"] = new WatchdogLoaderSettings { Enabled = false };
+
+        var report = Evaluate(settings);
+
+        Assert.Empty(report.Misconfigured);
+        Assert.False(report.ShouldNotify);
     }
 }
