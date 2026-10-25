@@ -26,12 +26,14 @@ public sealed class SqlWatchdogRepository : IWatchdogRepository
 
     public SqlWatchdogRepository(IOptions<PlatformSettings> settings) => _settings = settings.Value;
 
-    private async Task<SqlConnection> OpenAsync(CancellationToken cancellationToken)
-    {
-        var conn = new SqlConnection(_settings.LoadLogConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return conn;
-    }
+    // Each method binds `new SqlConnection(...)` to its own `await using`
+    // BEFORE awaiting OpenAsync, matching SqlLoadLogRepository.CreateConnection.
+    // An earlier shape here constructed-and-opened inside a helper that
+    // returned the (opened) connection; if Open threw, the helper never
+    // returned, so the caller's `await using var conn = await Helper(...)`
+    // never bound and the connection leaked. The database being briefly
+    // unreachable is exactly the moment the watchdog runs and exactly what it
+    // exists to notice, so this failure mode matters more here than elsewhere.
 
     private SqlCommand Command(SqlConnection conn, string sql)
     {
@@ -53,7 +55,8 @@ WHERE LoaderName IS NOT NULL AND LTRIM(RTRIM(LoaderName)) <> ''
   AND StartTime IS NOT NULL
 GROUP BY LoaderName;";
 
-        await using var conn = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = Command(conn, Sql);
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -80,7 +83,8 @@ WHERE CompletedAtUtc IS NULL
   AND (@HostName IS NULL OR HostName = @HostName)
 ORDER BY StartedAtUtc;";
 
-        await using var conn = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = Command(conn, Sql);
         cmd.Parameters.AddWithValue("@StuckAfterHours", Math.Max(1, stuckAfterHours));
         cmd.Parameters.AddWithValue("@LookbackDays", Math.Max(1, lookbackDays));
@@ -109,7 +113,8 @@ WHERE Success = 0
   AND StartTime >= DATEADD(hour, -@LookbackHours, @NowCentral)
 ORDER BY StartTime DESC;";
 
-        await using var conn = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = Command(conn, Sql);
         cmd.Parameters.AddWithValue("@LookbackHours", Math.Max(1, lookbackHours));
         cmd.Parameters.AddWithValue("@NowCentral", nowCentral);
