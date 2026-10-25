@@ -105,6 +105,15 @@ ORDER BY StartedAtUtc;";
     public async Task<IReadOnlyList<RecentFailure>> GetRecentFailuresAsync(
         int lookbackHours, DateTime nowCentral, CancellationToken cancellationToken)
     {
+        // ⚠ KNOWN LIMITATION: excluding a NULL LoaderName is correct for THIS
+        // cadence query (RecentFailure.LoaderName is required, and the name
+        // comes from a LEFT JOIN onto core.LoadLog — see GetLastRunsAsync above)
+        // but it means a run that failed BEFORE writing a single LoadLog row is
+        // invisible to this safety net. Production has 3 such rows. Not a real
+        // blind spot overall: PlatformHost's in-process notifier (the primary
+        // channel; this query is the backstop for when that email could not be
+        // delivered) attributes that same case correctly via LoaderId, which
+        // this proc's LEFT JOIN has no way to recover after the fact.
         const string Sql = @"
 SELECT LoaderName, StartTime, ISNULL(UnitsFail, 0), ISNULL(UnitsTotal, 0)
 FROM core.LoaderRun_Summary

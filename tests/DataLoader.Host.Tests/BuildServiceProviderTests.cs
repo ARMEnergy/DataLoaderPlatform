@@ -51,11 +51,64 @@ public class BuildServiceProviderTests
         var sender = services.GetRequiredService<INotificationSender>();
         Assert.IsType<NullNotificationSender>(sender);
 
+        // The registered settings object must stay TRUTHFUL about what the
+        // container can actually do — FailureNotifier reads Enabled directly
+        // (not the local notificationsUsable bool BuildServiceProvider used to
+        // decide the sender), so a stale `true` here is what produced the
+        // false NotificationOutcome.Sent covered by
+        // ADegradedContainerReportsDisabled_NotAFalseSent below.
+        Assert.False(services.GetRequiredService<NotificationSettings>().Enabled);
+
         // The entire point: a broken notification config must not have stopped
         // the rest of the container from standing up. If PlatformHost cannot be
         // resolved, the ETL cannot run.
         var host = services.GetRequiredService<PlatformHost>();
         Assert.NotNull(host);
+    }
+
+    /// <summary>
+    /// The composition bug neither per-task review could see on its own:
+    /// FailureNotifier was reviewed assuming its settings agree with its
+    /// sender, and BuildServiceProvider was reviewed for which sender type it
+    /// registers — but it kept registering the ORIGINAL NotificationSettings
+    /// instance, whose Enabled was still true, alongside the swapped-in
+    /// NullNotificationSender. FailureNotifier.NotifyAsync checks
+    /// _settings.Enabled, sees true, skips its own Disabled short-circuit,
+    /// calls the no-op sender (which cannot throw), and reports
+    /// NotificationOutcome.Sent for an alert that went nowhere.
+    ///
+    /// <para>PlatformHost ignores the outcome, so this was invisible there.
+    /// WatchdogRunner does not: <c>outcome == NotificationOutcome.Failed ? 1 : 0</c>
+    /// maps Sent to exit 0, reporting success for an alert it silently
+    /// discarded — the exact "an undelivered alert looks exactly like
+    /// all-clear" failure the watchdog's exit code exists to prevent.</para>
+    /// </summary>
+    [Fact]
+    public async Task ADegradedContainerReportsDisabled_NotAFalseSent()
+    {
+        var configuration = Config(("Platform:Notifications:Enabled", "true"));
+
+        using var services = Program.BuildServiceProvider(
+            configuration,
+            Array.Empty<ILoaderModule>(),
+            Array.Empty<string>(),
+            NullLogger.Instance);
+
+        var notifier = services.GetRequiredService<IFailureNotifier>();
+
+        var payload = new RunFailureReport
+        {
+            HostName = "test-host",
+            Results = new[]
+            {
+                LoaderRunResult.Failed("Platts", "simulated failure", TimeSpan.FromSeconds(1))
+            }
+        };
+        Assert.True(payload.ShouldNotify);   // sanity: this test must exercise a real alert, not a no-op
+
+        var outcome = await notifier.NotifyAsync(payload, default);
+
+        Assert.Equal(NotificationOutcome.Disabled, outcome);
     }
 
     /// <summary>
@@ -126,6 +179,7 @@ public class BuildServiceProviderTests
             NullLogger.Instance);
 
         Assert.IsType<NullNotificationSender>(services.GetRequiredService<INotificationSender>());
+        Assert.False(services.GetRequiredService<NotificationSettings>().Enabled);
         Assert.NotNull(services.GetRequiredService<PlatformHost>());
     }
 }

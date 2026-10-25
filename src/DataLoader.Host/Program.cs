@@ -308,6 +308,10 @@ internal static class Program
                 ex, "Notification config could not be bound — continuing with notifications DISABLED. " +
                     "Loaders will run normally, but NOBODY WILL BE TOLD IF THEY FAIL.");
             notificationSettings = new NotificationSettings();
+            // ⚠ Explicit, not redundant: a future edit to this catch that reuses
+            // the partially-bound settings instead of a fresh object must not
+            // silently reopen the bug below.
+            notificationSettings.Enabled = false;
             notificationsUsable = false;
         }
 
@@ -323,6 +327,19 @@ internal static class Program
                     ex, "Notification config is invalid — continuing with notifications DISABLED. " +
                         "Loaders will run normally, but NOBODY WILL BE TOLD IF THEY FAIL.");
                 notificationsUsable = false;
+                // ⚠ THE BUG THIS FIXES: notificationsUsable is a LOCAL bool, but
+                // FailureNotifier never sees it — only notificationSettings.Enabled,
+                // read fresh at send time. Without this line, Enabled stays true
+                // (the very reason this branch ran at all) while the sender below
+                // is swapped to NullNotificationSender. FailureNotifier then checks
+                // Enabled, sees true, skips its own Disabled short-circuit, calls
+                // the no-op sender (which cannot throw), and reports Sent for a
+                // message that went nowhere. PlatformHost ignores the outcome, but
+                // WatchdogRunner maps Sent to exit 0 — the exact "an undelivered
+                // alert looks exactly like all-clear" failure the watchdog's own
+                // exit code exists to prevent. The settings object must stay
+                // truthful about what the container can actually do.
+                notificationSettings.Enabled = false;
             }
         }
 

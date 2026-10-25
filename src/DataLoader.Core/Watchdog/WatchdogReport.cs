@@ -132,7 +132,12 @@ public sealed class WatchdogReport : INotificationPayload
             sb.AppendLine();
         }
 
-        sb.AppendLine(@"Full output: C:\ETL_Tools\DataLoaderPlatform\Log\<Loader>.log");
+        // Not `Log\<Loader>.log` — this pass is not about any one loader, and
+        // pointing there (as RunFailureReport does) would misdirect whoever
+        // reads the alert. It is its own scheduled task with its own log, at
+        // Log\Watchdog.log, once IT wires the \DLP\Watchdog task to redirect
+        // its console output there the same way every other `.cmd` launcher does.
+        sb.AppendLine(@"Full output: C:\ETL_Tools\DataLoaderPlatform\Log\Watchdog.log");
         return sb.ToString();
     }
 }
