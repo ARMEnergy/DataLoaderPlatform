@@ -39,29 +39,48 @@ public sealed class FailureNotifier : IFailureNotifier
             if (!payload.ShouldNotify) return NotificationOutcome.NothingToReport;
             if (!_settings.Enabled)
             {
-                _logger.LogInformation(
-                    "Notifications are disabled; not sending an alert that would otherwise go out");
+                SafeLog(() => _logger.LogInformation(
+                    "Notifications are disabled; not sending an alert that would otherwise go out"));
                 return NotificationOutcome.Disabled;
             }
 
             var message = Finalise(payload.BuildMessage());
 
-            // The run may already have been cancelled — CancellationToken.None
-            // deliberately, so an operator stopping the job still gets told why.
+            // cancellationToken (the method parameter) is deliberately never linked
+            // into this CTS or passed to the sender — see the ⚠ on
+            // IFailureNotifier.NotifyAsync. An operator cancelling a failing run
+            // should still receive the alert explaining why it was failing, so the
+            // send is bounded only by the notifier's own internal timeout below.
             using var timeout = new CancellationTokenSource(
                 TimeSpan.FromSeconds(Math.Max(1, _settings.TimeoutSeconds)));
 
             await _sender.SendAsync(message, timeout.Token).ConfigureAwait(false);
 
-            _logger.LogInformation("Sent failure notification: {Subject}", message.Subject);
+            SafeLog(() => _logger.LogInformation("Sent failure notification: {Subject}", message.Subject));
             return NotificationOutcome.Sent;
         }
         catch (Exception ex)
         {
             // Never rethrow. The run's own outcome is not this component's to change.
-            _logger.LogError(ex, "Failed to send failure notification");
+            SafeLog(() => _logger.LogError(ex, "Failed to send failure notification"));
             return NotificationOutcome.Failed;
         }
+    }
+
+    /// <summary>
+    /// Logging must not be able to break the never-throw guarantee, nor invert
+    /// the reported outcome. A provider that threw from the success log would
+    /// otherwise be caught below and reported as <c>Failed</c> for a message that
+    /// was actually delivered — and the watchdog sets its exit code from that
+    /// value. A provider that threw from the failure log would escape the method
+    /// entirely. Standard <c>Microsoft.Extensions.Logging</c> providers do not
+    /// throw, so this is a low-probability event, but the invariant is absolute
+    /// and the fix costs nothing.
+    /// </summary>
+    private static void SafeLog(Action log)
+    {
+        try { log(); }
+        catch { /* There is nothing useful left to do: the logger is the thing that failed. */ }
     }
 
     /// <summary>

@@ -120,4 +120,36 @@ public class NotificationSettingsTests
         var ex = Assert.Throws<InvalidOperationException>(() => settings.Validate());
         Assert.Contains("SmtpPort", ex.Message);
     }
+
+    [Fact]
+    public void Validate_RejectsAnUnparseableFrom()
+    {
+        // Otherwise this passes every check here, then throws FormatException on
+        // the FIRST REAL SEND — where FailureNotifier swallows it as Failed and
+        // writes one line to a log nobody reads. A feature that looks configured
+        // and is silently dead, discoverable only by an alert never arriving.
+        var settings = new NotificationSettings
+        {
+            Enabled = true, SmtpHost = "relay", From = "not-an-email-address-at-all ???",
+            To = { "b@armenergy.com" }
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => settings.Validate());
+        Assert.Contains("Platform:Notifications:From", ex.Message);
+        Assert.Contains("not-an-email-address-at-all ???", ex.Message);   // an address, not a secret
+    }
+
+    [Fact]
+    public void Validate_RejectsAnUnparseableRecipient()
+    {
+        var settings = new NotificationSettings
+        {
+            Enabled = true, SmtpHost = "relay", From = "a@armenergy.com",
+            To = { "b@armenergy.com", "not-an-email-address-at-all ???" }
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => settings.Validate());
+        Assert.Contains("Platform:Notifications:To[1]", ex.Message);
+        Assert.Contains("not-an-email-address-at-all ???", ex.Message);
+    }
 }

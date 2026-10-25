@@ -1,5 +1,6 @@
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Notifications;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -36,6 +37,20 @@ public class FailureNotifierTests
         public bool ShouldNotify => true;
         public NotificationMessage BuildMessage() =>
             throw new InvalidOperationException("bad payload");
+    }
+
+    /// <summary>
+    /// Standard Microsoft.Extensions.Logging providers do not throw, but the
+    /// never-throw guarantee has to hold even if one does — logging must not be
+    /// able to escape the method or invert the reported outcome.
+    /// </summary>
+    private sealed class ThrowingLogger : ILogger<FailureNotifier>
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            throw new InvalidOperationException("logger exploded");
     }
 
     private static FailureNotifier Build(FakeSender sender, bool enabled = true, int timeoutSeconds = 30) =>
@@ -83,6 +98,22 @@ public class FailureNotifierTests
             .NotifyAsync(new FakePayload { ShouldNotify = true }, default);
 
         Assert.Equal(NotificationOutcome.Disabled, outcome);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task Disabled_ButNothingToReport_ReturnsNothingToReport()
+    {
+        // ShouldNotify is checked before Enabled, not the other way round. Pinned
+        // because the order is what makes this correct: Disabled would leave a
+        // reader wondering whether there was ever anything to report at all,
+        // and that is never true when the payload itself says no.
+        var sender = new FakeSender();
+
+        var outcome = await Build(sender, enabled: false)
+            .NotifyAsync(new FakePayload { ShouldNotify = false }, default);
+
+        Assert.Equal(NotificationOutcome.NothingToReport, outcome);
         Assert.Empty(sender.Sent);
     }
 
@@ -164,11 +195,69 @@ public class FailureNotifierTests
         Assert.True(elapsed < TimeSpan.FromSeconds(5), $"took {elapsed.TotalSeconds:F1}s — the timeout did not apply");
     }
 
+    [Fact]
+    public async Task AThrowingLogger_DoesNotInvertASuccessfulSend()
+    {
+        // A provider that throws from the success-path log must not be caught by
+        // the surrounding try/catch and reported as Failed for a message that was
+        // actually delivered — the watchdog sets its exit code from that value.
+        var sender = new FakeSender();
+        var notifier = new FailureNotifier(
+            sender,
+            new NotificationSettings { Enabled = true, SmtpHost = "relay", From = "a@b.com", To = { "c@d.com" } },
+            new ThrowingLogger());
+
+        var outcome = await notifier.NotifyAsync(new FakePayload { ShouldNotify = true }, default);
+
+        Assert.Equal(NotificationOutcome.Sent, outcome);   // it WAS delivered
+        Assert.Single(sender.Sent);
+    }
+
+    [Fact]
+    public async Task AThrowingLogger_DoesNotEscapeTheCatchBlock()
+    {
+        // A provider that throws from the failure-path log must not escape the
+        // method entirely — that would break the one invariant this class exists
+        // to guarantee.
+        var sender = new FakeSender { ThrowThis = new InvalidOperationException("relay down") };
+        var notifier = new FailureNotifier(
+            sender,
+            new NotificationSettings { Enabled = true, SmtpHost = "relay", From = "a@b.com", To = { "c@d.com" } },
+            new ThrowingLogger());
+
+        var outcome = await notifier.NotifyAsync(new FakePayload { ShouldNotify = true }, default);
+
+        Assert.Equal(NotificationOutcome.Failed, outcome);
+    }
+
+    // ------------------------------------------------ the caller's own token
+
+    [Fact]
+    public async Task AnAlreadyCancelledCallerToken_StillSends()
+    {
+        // Deliberate: an operator cancelling a failing run must still learn why.
+        // The caller's token is never linked into the send — only the notifier's
+        // own internal timeout bounds it. See IFailureNotifier.NotifyAsync.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var sender = new FakeSender();
+
+        var outcome = await Build(sender).NotifyAsync(new FakePayload { ShouldNotify = true }, cts.Token);
+
+        Assert.Equal(NotificationOutcome.Sent, outcome);
+        Assert.Single(sender.Sent);
+    }
+
     // --------------------------------------------- end to end over a real report
 
     [Fact]
     public async Task SendsARealRunFailureReport_WithRedactionApplied()
     {
+        // This proves the end-to-end path with a real payload — it is NOT backstop
+        // coverage, since RunFailureReport redacts on its own and this test still
+        // passes if FailureNotifier's own redaction is removed.
+        // RedactsTheFinishedMessage_EvenWhenThePayloadForgot is the test that
+        // actually covers the backstop.
         var sender = new FakeSender();
         var report = new RunFailureReport
         {

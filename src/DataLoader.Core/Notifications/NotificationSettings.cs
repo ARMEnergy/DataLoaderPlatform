@@ -1,3 +1,4 @@
+using System.Net.Mail;
 using Microsoft.Extensions.Configuration;
 
 namespace DataLoader.Core.Notifications;
@@ -102,5 +103,28 @@ public sealed class NotificationSettings
         if (SmtpPort is <= 0 or > 65535)
             throw new InvalidOperationException(
                 $"'{SectionName}:SmtpPort' must be between 1 and 65535, was {SmtpPort}.");
+
+        // An unparseable address passes every check above, then throws
+        // FormatException on the FIRST REAL SEND — where FailureNotifier swallows
+        // it as Failed and writes one line to a log nobody reads. The result is a
+        // feature that looks configured and is silently dead, discoverable only
+        // by an alert never arriving. The address is not a secret, so naming the
+        // offending key and value is what makes the failure actionable.
+        ValidateAddress(From, $"{SectionName}:From");
+        for (var i = 0; i < To.Count; i++)
+            ValidateAddress(To[i], $"{SectionName}:To[{i}]");
+    }
+
+    private static void ValidateAddress(string value, string key)
+    {
+        try
+        {
+            _ = new MailAddress(value);
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
+        {
+            throw new InvalidOperationException(
+                $"'{key}' is not a valid email address: '{value}'.", ex);
+        }
     }
 }
