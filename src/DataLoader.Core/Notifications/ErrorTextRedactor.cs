@@ -37,32 +37,64 @@ public static class ErrorTextRedactor
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
-    /// Masks the value after a known key-bearing token. The separator covers
-    /// both <c>name=value</c> (query/connection-string style) and
-    /// <c>name: value</c> (the AGSI "API key: ..." prose shape). Longer
-    /// alternatives come first so <c>api_key</c> is not matched as bare
-    /// <c>key</c> with an <c>api_</c> prefix left dangling.
+    /// Masks the value after an UNAMBIGUOUS credential name — one that is
+    /// never ordinary English prose, so any shape it appears in is worth
+    /// redacting. Covers both bare <c>name=value</c>/<c>name: value</c> (the
+    /// AGSI "API key: ..." prose shape) AND the quoted JSON field shape
+    /// (<c>"name":"value"</c>), via an optional quote on either side of the
+    /// separator — vendor error bodies are JSON, and the quote between the
+    /// field name and the colon is exactly what an earlier version of this
+    /// pattern could not cross: <c>{"api_key":"..."}</c> passed through
+    /// completely untouched until this was added.
+    ///
+    /// <para>Spelling variants fold into one alternative
+    /// (<c>api[\s_-]?key</c> matches apikey/api_key/api-key/"API key")
+    /// instead of relying on alternation order to pick the right one — the
+    /// mechanism that actually resolves a conflict is leftmost-match at the
+    /// leftmost starting position plus the <c>\b</c> boundaries, not which
+    /// alternative happens to be listed first.</para>
     /// </summary>
-    private static readonly Regex KeyValue = new(
-        @"\b(client_secret|api[\s_-]?key|x-key|apikey|secret|password|passwd|pwd|token|key)\b\s*[:=]\s*""?([^\s""'&,;)\]]+)""?",
+    private static readonly Regex SpecificKeyValue = new(
+        @"\b(client_secret|api[\s_-]?key|x-key|access[_-]?token|auth[_-]?token|secret|password|passwd|pwd)\b""?\s*[:=]\s*""?(?:[^\s""'&,;)\]}]+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Masks bare <c>key</c>/<c>token</c> — but ONLY in the two shapes that
+    /// cannot be ordinary prose: <c>name=value</c> (query/connection-string
+    /// syntax) and <c>"name":"value"</c> (a quoted JSON field name). Both
+    /// words are everyday English, and this platform's own diagnostics use
+    /// them constantly without meaning "credential": .NET's own
+    /// <c>Dictionary.Add</c> duplicate-key exception reads "...has already
+    /// been added. Key: 5", and this platform has had real duplicate-key
+    /// incidents (NUCORE PositionDetails/PnlExplain — see CLAUDE.md) where
+    /// that trailing value is the one thing the alert needs to carry. A
+    /// free-form <c>key: value</c> or <c>token: value</c> prose colon is
+    /// therefore left alone; only the two unambiguous shapes above redact.
+    ///
+    /// <para>.NET allows the same named group across different alternation
+    /// branches, so <c>k</c> resolves to whichever branch actually matched.</para>
+    /// </summary>
+    private static readonly Regex GenericKeyValue = new(
+        @"(?:\b(?<k>key|token)\b\s*=\s*""?|""(?<k>key|token)""\s*:\s*""?)(?:[^\s""'&,;)\]}]+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
     /// Masks a JWT/opaque credential after the word "bearer". IIR and NUCORE
     /// both authenticate with bearer tokens, and that shape has no
-    /// <c>name=value</c>/<c>name: value</c> form for <see cref="KeyValue"/>
+    /// <c>name=value</c>/<c>name: value</c> form for the other two patterns
     /// to catch — it is just the literal word followed by the token.
     ///
-    /// <para>"Bearer" alone is not enough of a signal: ordinary prose uses the
-    /// word too ("the bearer of this message"), and a plain
-    /// <c>bearer\s+\S+</c> pattern would swallow the next word in sentences
-    /// like that. A real token is additionally required to be at least 8
-    /// characters of base64url-ish content AND contain at least one digit,
-    /// dot, hyphen or underscore — which an ordinary lowercase dictionary
-    /// word never does — so "of", "the", "attached" etc. never match.</para>
+    /// <para>"Bearer" alone is not enough of a signal: ordinary prose and
+    /// error text use it too — "Bearer auth-header is missing" and "Bearer
+    /// realm.example.com rejected the request" are both real text this must
+    /// NOT touch. A hyphen or dot is not sufficient evidence either, since
+    /// hyphenated words and hostnames both have them. The discriminator is a
+    /// run of at least 12 base64url-ish characters that contains at least
+    /// one DIGIT — real tokens are long and carry digits; English words and
+    /// hostnames generally do not.</para>
     /// </summary>
     private static readonly Regex BearerToken = new(
-        @"\b(bearer)\s+(?=[A-Za-z0-9._-]*[0-9._-])[A-Za-z0-9._-]{8,}",
+        @"\b(bearer)\s+(?=[A-Za-z0-9._~+/=\-]*[0-9])[A-Za-z0-9._~+/=\-]{12,}",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Returns <paramref name="text"/> with secrets masked. Null becomes empty.</summary>
@@ -71,20 +103,35 @@ public static class ErrorTextRedactor
         if (string.IsNullOrEmpty(text)) return string.Empty;
 
         var result = UrlQuery.Replace(text, "$1");
-        result = KeyValue.Replace(result, m => $"{m.Groups[1].Value}={Mask}");
+        result = SpecificKeyValue.Replace(result, m => $"{m.Groups[1].Value}={Mask}");
+        result = GenericKeyValue.Replace(result, m => $"{m.Groups["k"].Value}={Mask}");
         result = BearerToken.Replace(result, m => $"{m.Groups[1].Value} {Mask}");
         return result;
     }
 
     /// <summary>
     /// Caps length so one pathological exception cannot produce a
-    /// multi-megabyte email. Null becomes empty.
+    /// multi-megabyte email. Null or a non-positive <paramref name="maxLength"/>
+    /// becomes empty — there is no room for content, so there is nothing
+    /// useful left to say either.
+    ///
+    /// <para>⚠ This does NOT redact. It only shortens, so calling it alone on
+    /// vendor-supplied text still ships whatever secrets were in it — this is
+    /// why <see cref="Redact"/> always runs first inside <see cref="Clean"/>,
+    /// which is what almost every caller actually wants.</para>
     /// </summary>
     public static string Truncate(string? text, int maxLength)
     {
         if (string.IsNullOrEmpty(text)) return string.Empty;
+        if (maxLength <= 0) return string.Empty;
         if (text.Length <= maxLength) return text;
-        return text[..maxLength] + $"… [truncated, {text.Length} chars total]";
+
+        // Back off one char if the cut would split a surrogate pair in two,
+        // which would leave a lone (invalid) high surrogate at the end.
+        var cut = maxLength;
+        if (char.IsHighSurrogate(text[cut - 1])) cut--;
+
+        return text[..cut] + $"… [truncated, {text.Length} chars total]";
     }
 
     /// <summary>Redact then truncate — the combination every caller actually wants.</summary>

@@ -110,4 +110,47 @@ public class ErrorTextRedactorTests
 
         Assert.Equal(input, ErrorTextRedactor.Redact(input));
     }
+
+    [Theory]
+    [InlineData(@"{""error"":""unauthorized"",""api_key"":""sk-live-abc123XYZ""}", "sk-live-abc123XYZ")]
+    [InlineData(@"{""user"":""svc"",""password"":""hunter2""}", "hunter2")]
+    [InlineData(@"{""status"":401,""token"":""eyJhbGciOiJIUzI1NiJ9.payload.sig""}", "eyJhbGciOiJIUzI1NiJ9.payload.sig")]
+    [InlineData(@"{""client_secret"": ""shh-9f3a""}", "shh-9f3a")]
+    public void Redacts_SecretsInQuotedJsonFields(string input, string secret)
+    {
+        // Vendor error bodies are JSON. The quote between the field name and
+        // the colon is what the original pattern could not cross.
+        var result = ErrorTextRedactor.Redact(input);
+
+        Assert.DoesNotContain(secret, result);
+        Assert.Contains("***REDACTED***", result);
+    }
+
+    [Theory]
+    [InlineData("Bearer auth-header is missing")]
+    [InlineData("the Bearer self-signed certificate was rejected")]
+    [InlineData("Bearer realm.example.com rejected the request")]
+    public void DoesNotRedactProseAfterBearer(string input)
+    {
+        // Over-redaction is its own failure mode: an alert nobody can act on.
+        Assert.Equal(input, ErrorTextRedactor.Redact(input));
+    }
+
+    [Theory]
+    [InlineData("An item with the same key has already been added. Key: 5")]
+    [InlineData("Primary key: OrderId")]
+    [InlineData("Cancellation token: expired after 300s")]
+    public void DoesNotRedactDiagnosticProseUsingKeyOrToken(string input)
+    {
+        // The first of these is .NET's own Dictionary.Add exception text. This
+        // platform has had duplicate-key incidents; masking the duplicate value
+        // would destroy the one thing the alert needed to carry.
+        Assert.Equal(input, ErrorTextRedactor.Redact(input));
+    }
+
+    [Fact]
+    public void Truncate_NegativeMaxLength_DoesNotThrow()
+    {
+        Assert.Equal(string.Empty, ErrorTextRedactor.Truncate("anything", -1));
+    }
 }
