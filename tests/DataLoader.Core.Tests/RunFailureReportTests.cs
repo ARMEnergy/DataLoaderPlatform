@@ -159,7 +159,62 @@ public class RunFailureReportTests
         var body = Report(new[] { Bad("Platts", new string('x', 50_000)) })
             .BuildMessage().Body;
 
-        Assert.True(body.Length < 10_000, $"body was {body.Length} chars");
+        Assert.True(body.Length < 5_000, $"body was {body.Length} chars");
         Assert.Contains("truncated", body);
+    }
+
+    [Fact]
+    public void Body_DurationOverADay_ShowsTotalHoursNotAClockComponent()
+    {
+        var report = new RunFailureReport
+        {
+            HostName = "ARMH-OPSDB01",
+            RunId = Guid.NewGuid(),
+            StartedAtUtc = new DateTime(2026, 10, 23, 1, 0, 0, DateTimeKind.Utc),
+            CompletedAtUtc = new DateTime(2026, 10, 24, 11, 5, 0, DateTimeKind.Utc),
+            Results = new[] { LoaderRunResult.Failed("EIA", "boom", TimeSpan.Zero) }
+        };
+
+        // 34h05m. The `hh` format token would render this as "10:05:00".
+        Assert.Contains("34:05:00", report.BuildMessage().Body);
+    }
+
+    [Fact]
+    public void Body_NegativeDuration_IsSignedNotSilentlyPositive()
+    {
+        var report = new RunFailureReport
+        {
+            HostName = "ARMH-OPSDB01",
+            RunId = Guid.NewGuid(),
+            StartedAtUtc = new DateTime(2026, 10, 24, 11, 5, 0, DateTimeKind.Utc),
+            CompletedAtUtc = new DateTime(2026, 10, 24, 11, 0, 0, DateTimeKind.Utc),
+            Results = new[] { LoaderRunResult.Failed("Platts", "boom", TimeSpan.Zero) }
+        };
+
+        Assert.Contains("-00:05:00", report.BuildMessage().Body);
+    }
+
+    [Fact]
+    public void Body_SingleFailure_NamesTheActualLogFile()
+    {
+        var body = Report(new[] { Ok("Platts"), Bad("Vulcan", "boom") }).BuildMessage().Body;
+
+        Assert.Contains(@"Log\Vulcan.log", body);
+    }
+
+    [Fact]
+    public void Body_SeveralFailures_KeepsThePlaceholder()
+    {
+        var body = Report(new[] { Bad("Platts", "a"), Bad("Vulcan", "b") }).BuildMessage().Body;
+
+        Assert.Contains(@"Log\<Loader>.log", body);
+    }
+
+    [Fact]
+    public void BuildMessage_Throws_WhenNothingToReport()
+    {
+        var report = Report(new[] { Ok("Platts") });
+
+        Assert.Throws<InvalidOperationException>(() => report.BuildMessage());
     }
 }

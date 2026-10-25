@@ -41,10 +41,26 @@ public sealed class RunFailureReport : INotificationPayload
     public string? FailedStage { get; init; }
 
     private const int MaxErrorChars = 2000;
-    private const string LogPathHint = @"C:\ETL_Tools\DataLoaderPlatform\Log\<Loader>.log";
 
     private IReadOnlyList<LoaderRunResult> Failures =>
         Results.Where(r => !r.Success).ToList();
+
+    /// <summary>
+    /// Names the actual file when exactly one loader failed — the common shape,
+    /// since each scheduled task passes ONE loader as argv. With several
+    /// failures, or a failure outside any loader, no single log applies and the
+    /// placeholder is the honest answer.
+    /// </summary>
+    private string LogPathHint
+    {
+        get
+        {
+            var failures = Failures;
+            return Exception is null && failures.Count == 1
+                ? $@"C:\ETL_Tools\DataLoaderPlatform\Log\{failures[0].LoaderId}.log"
+                : @"C:\ETL_Tools\DataLoaderPlatform\Log\<Loader>.log";
+        }
+    }
 
     public bool ShouldNotify =>
         Exception is not null || StaleRowsClosed > 0 || Results.Any(r => !r.Success);
@@ -53,8 +69,21 @@ public sealed class RunFailureReport : INotificationPayload
     /// No subject prefix here — <see cref="FailureNotifier"/> prepends it on the
     /// single shared send path, so no payload can forget it and ship an alert
     /// whose DEV and PROD copies read identically.
+    ///
+    /// <para>Throws if nothing is worth reporting. <c>FailureNotifier</c> always
+    /// checks <see cref="ShouldNotify"/> first, so reaching here with it false
+    /// can only be a caller bug — failing loudly beats silently mailing a
+    /// nonsense "WARNING: 0 orphaned load-log row(s)" alert.</para>
     /// </summary>
-    public NotificationMessage BuildMessage() => new(BuildSubject(), BuildBody());
+    public NotificationMessage BuildMessage()
+    {
+        if (!ShouldNotify)
+            throw new InvalidOperationException(
+                "BuildMessage() was called on a report with nothing to report. " +
+                "Check ShouldNotify first, as FailureNotifier does.");
+
+        return new(BuildSubject(), BuildBody());
+    }
 
     private string BuildSubject()
     {
@@ -88,7 +117,7 @@ public sealed class RunFailureReport : INotificationPayload
         sb.AppendLine($"Run id:    {RunId}");
         sb.AppendLine($"Started:   {StartedAtUtc:yyyy-MM-dd HH:mm:ss} UTC");
         sb.AppendLine($"Completed: {CompletedAtUtc:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine($"Duration:  {CompletedAtUtc - StartedAtUtc:hh\\:mm\\:ss}");
+        sb.AppendLine($"Duration:  {FormatDuration(CompletedAtUtc - StartedAtUtc)}");
         sb.AppendLine();
 
         if (Exception is not null)
@@ -126,5 +155,20 @@ public sealed class RunFailureReport : INotificationPayload
 
         sb.AppendLine($"Full output: {LogPathHint}");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Renders TOTAL hours rather than a <c>hh</c> component, because <c>hh</c>
+    /// silently drops whole days: a 34-hour run formats as "10:05:00", which
+    /// reads as ten minutes past ten. Multi-hour runs are routine here, so that
+    /// is a live trap, and a wrong number with nothing marking it wrong is worse
+    /// than no number at all. A negative span (clock skew) is signed rather than
+    /// rendered as a normal short run.
+    /// </summary>
+    private static string FormatDuration(TimeSpan d)
+    {
+        var sign = d < TimeSpan.Zero ? "-" : string.Empty;
+        d = d.Duration();
+        return $"{sign}{(int)d.TotalHours:D2}:{d.Minutes:D2}:{d.Seconds:D2}";
     }
 }
