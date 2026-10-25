@@ -1,10 +1,13 @@
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Configuration;
 using DataLoader.Core.Hosting;
+using DataLoader.Core.Notifications;
 using DataLoader.Core.Persistence;
+using DataLoader.Core.Watchdog;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace DataLoader.Host;
@@ -19,6 +22,8 @@ namespace DataLoader.Host;
 ///   DataLoader.Host.exe LoaderId             → run just that loader (the
 ///                                              argument overrides config)
 ///   DataLoader.Host.exe LoaderA LoaderB ...  → run several specific loaders
+///   DataLoader.Host.exe --watchdog           → run the absence watchdog
+///                                              instead of any loader
 ///
 /// The argument form is the one a scheduler should use: one scheduled task
 /// per loader, each invoking this same .exe with a different loader id.
@@ -34,7 +39,6 @@ internal static class Program
     {
         var configuration = BuildConfiguration();
 
-        // Bootstrap logger — used only to log discovery itself.
         using var bootstrapLoggerFactory = LoggerFactory.Create(b =>
         {
             b.AddConsole();
@@ -42,89 +46,130 @@ internal static class Program
         });
         var bootstrapLogger = bootstrapLoggerFactory.CreateLogger("Bootstrap");
 
-        // Step 1 — find every loader module shipped with this host.
-        var modules = ModuleDiscovery.Discover(bootstrapLogger);
-        if (modules.Count == 0)
-        {
-            bootstrapLogger.LogError("No loader modules discovered — nothing to do");
-            return 1;
-        }
-        bootstrapLogger.LogInformation(
-            "Discovered {Count} loader modules: {Names}",
-            modules.Count, string.Join(", ", modules.Select(m => m.LoaderId)));
-
-        // Step 2 — if any command-line arguments were passed, treat them as
-        // explicit loader names that override Platform:EnabledLoaders.
-        // Validate them up front so a typo at the scheduler doesn't silently
-        // run nothing.
-        var requestedLoaders = ParseLoaderArguments(args, modules, bootstrapLogger);
-        if (requestedLoaders is null) return 1;   // bad argument — already logged
-
-        // Step 3 — build the DI container with every discovered module's
-        // registrations. Even loaders that won't run this invocation get
-        // their services registered, which is harmless — they just don't
-        // get resolved. This keeps the registration code simple and means
-        // we don't have to instantiate-then-throw-away modules.
-        await using var services = BuildServiceProvider(configuration, modules, requestedLoaders);
-
-        var host = services.GetRequiredService<PlatformHost>();
-        var logger = services.GetRequiredService<ILogger<PlatformHost>>();
-
-        using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) =>
-        {
-            e.Cancel = true;
-            logger.LogWarning("Cancellation requested");
-            cts.Cancel();
-        };
-
+        // ⚠ Everything below is inside the try, deliberately. BuildServiceProvider
+        // used to sit OUTSIDE it, so a DI or configuration failure threw straight
+        // out of Main with no catch and no notification at all — the one failure
+        // class that breaks DI was also the one nobody heard about.
+        //
+        // The bootstrap notifier is built straight from IConfiguration rather than
+        // resolved, for the same reason: it has to work when the container does not.
+        // It needs no secret, because the configured relay accepts none.
         try
         {
-            return await host.RunAsync(cts.Token);
+            var modules = ModuleDiscovery.Discover(bootstrapLogger);
+            if (modules.Count == 0)
+            {
+                bootstrapLogger.LogError("No loader modules discovered — nothing to do");
+                return 1;
+            }
+            bootstrapLogger.LogInformation(
+                "Discovered {Count} loader modules: {Names}",
+                modules.Count, string.Join(", ", modules.Select(m => m.LoaderId)));
+
+            var parsed = HostArguments.Parse(args, modules.Select(m => m.LoaderId).ToList());
+            if (!parsed.IsValid)
+            {
+                bootstrapLogger.LogError("{Error}", parsed.Error);
+                return 1;
+            }
+
+            await using var services = BuildServiceProvider(
+                configuration, modules, parsed.Loaders, bootstrapLogger);
+
+            using var cts = new CancellationTokenSource();
+
+            if (parsed.WatchdogMode)
+            {
+                var watchdog = services.GetRequiredService<WatchdogRunner>();
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+                return await watchdog.RunAsync(cts.Token);
+            }
+
+            var host = services.GetRequiredService<PlatformHost>();
+            var logger = services.GetRequiredService<ILogger<PlatformHost>>();
+
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;
+                logger.LogWarning("Cancellation requested");
+                cts.Cancel();
+            };
+
+            try
+            {
+                return await host.RunAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning("Run cancelled");
+                return 2;
+            }
+            catch (Exception ex)
+            {
+                logger.LogCritical(ex, "Unhandled exception");
+                await NotifyBootstrapFailureAsync(configuration, bootstrapLogger, ex, "run");
+                return 1;
+            }
         }
         catch (OperationCanceledException)
         {
-            logger.LogWarning("Run cancelled");
+            bootstrapLogger.LogWarning("Run cancelled during startup");
             return 2;
         }
         catch (Exception ex)
         {
-            logger.LogCritical(ex, "Unhandled exception");
+            bootstrapLogger.LogCritical(ex, "Unhandled exception during startup");
+            await NotifyBootstrapFailureAsync(configuration, bootstrapLogger, ex, "startup");
             return 1;
         }
     }
 
     /// <summary>
-    /// Parse the command-line arguments into a list of loader ids to run.
-    /// Returns:
-    ///   - empty list if no arguments were given (means "use config")
-    ///   - non-empty list if arguments were given and every one matched a known loader
-    ///   - null if an argument didn't match anything — caller should bail with exit code 1
+    /// Reports a failure that happened outside — or while building — the DI
+    /// container, so nothing can be resolved from it.
+    ///
+    /// <para>Builds its own notifier from <see cref="IConfiguration"/>. That is
+    /// only possible because the configured relay takes no credential: a
+    /// <c>SEE_DB</c> secret would need the database AND the container, neither
+    /// of which is available on this path.</para>
+    ///
+    /// <para>Best-effort and silent on failure — this is the last thing that
+    /// runs before a non-zero exit, and it must not replace the real error with
+    /// one of its own. That covers <see cref="NotificationSettings.FromConfiguration"/>
+    /// throwing too (it rejects stray <c>SmtpUsername</c>/<c>SmtpPassword</c> keys) —
+    /// there is no container here to fall back on, so the only choice on this path
+    /// is "try to tell someone" or "give up silently", and this catch makes it the
+    /// former without turning a config mistake into a second unhandled exception.</para>
     /// </summary>
-    private static IReadOnlyList<string>? ParseLoaderArguments(
-        string[] args, IReadOnlyList<ILoaderModule> modules, ILogger logger)
+    private static async Task NotifyBootstrapFailureAsync(
+        IConfiguration configuration, ILogger logger, Exception exception, string stage)
     {
-        if (args.Length == 0) return Array.Empty<string>();
-
-        // Match case-insensitively for scheduler-friendliness.
-        var known = modules.ToDictionary(m => m.LoaderId, StringComparer.OrdinalIgnoreCase);
-        var resolved = new List<string>();
-        bool ok = true;
-        foreach (var arg in args)
+        try
         {
-            if (known.TryGetValue(arg, out var module))
+            var settings = NotificationSettings.FromConfiguration(configuration);
+            if (!settings.Enabled) return;
+            settings.Validate();
+
+            INotificationSender sender = new SmtpNotificationSender(settings);
+            var notifier = new FailureNotifier(
+                sender, settings, NullLogger<FailureNotifier>.Instance);
+
+            var report = new RunFailureReport
             {
-                resolved.Add(module.LoaderId);   // canonical casing
-            }
-            else
-            {
-                logger.LogError(
-                    "Unknown loader '{Arg}'. Known: {Known}",
-                    arg, string.Join(", ", known.Keys));
-                ok = false;
-            }
+                HostName = Environment.MachineName,
+                RunId = Guid.Empty,
+                StartedAtUtc = DateTime.UtcNow,
+                CompletedAtUtc = DateTime.UtcNow,
+                Exception = exception,
+                FailedStage = stage
+            };
+
+            await notifier.NotifyAsync(report, CancellationToken.None);
         }
-        return ok ? resolved : null;
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not send the startup-failure notification");
+        }
     }
 
     private static IConfiguration BuildConfiguration() =>
@@ -135,10 +180,19 @@ internal static class Program
             .AddEnvironmentVariables(prefix: "DATALOADER_")
             .Build();
 
-    private static ServiceProvider BuildServiceProvider(
+    /// <summary>
+    /// internal rather than private: <c>DataLoader.Host.Tests</c> (a friend
+    /// assembly via <c>InternalsVisibleTo</c> in the csproj) resolves
+    /// <see cref="PlatformHost"/> and <see cref="INotificationSender"/> out of a
+    /// container built here to prove the notification degrade path in Step 1
+    /// below is a real DI outcome, not just a unit test of the settings object in
+    /// isolation. Nothing else about <c>Program</c> is exposed.
+    /// </summary>
+    internal static ServiceProvider BuildServiceProvider(
         IConfiguration configuration,
         IReadOnlyList<ILoaderModule> modules,
-        IReadOnlyList<string> explicitLoaders)
+        IReadOnlyList<string> explicitLoaders,
+        ILogger bootstrapLogger)
     {
         var services = new ServiceCollection();
 
@@ -172,6 +226,64 @@ internal static class Program
         services.AddSingleton<IAdditionalProcessRunner, SqlAdditionalProcessRunner>();
         services.AddSingleton<IReadOnlyList<ILoaderModule>>(modules);
         services.AddSingleton<PlatformHost>();
+
+        // Notifications. The settings object is registered as a singleton
+        // instance rather than through IOptions, because the bootstrap path in
+        // Main builds its own copy the same way and the two must not diverge.
+        //
+        // ⚠ A BAD NOTIFICATION CONFIG MUST NEVER STOP THE LOADERS. Both
+        // FromConfiguration (stray SmtpUsername/SmtpPassword keys) and
+        // Validate() (a missing SmtpHost/From/To, a bad port) can throw, and an
+        // uncaught throw here aborts BuildServiceProvider before
+        // host.RunAsync() is ever reached — so one typo in a side-channel
+        // feature would mean zero loaders ran. That is precisely the failure
+        // mode this whole component exists to prevent, so a broken config in
+        // EITHER place degrades to no notifications, loudly, rather than
+        // taking the ETL down with it.
+        NotificationSettings notificationSettings;
+        bool notificationsUsable;
+        try
+        {
+            notificationSettings = NotificationSettings.FromConfiguration(configuration);
+            notificationsUsable = notificationSettings.Enabled;
+        }
+        catch (Exception ex)
+        {
+            bootstrapLogger.LogError(
+                ex, "Notification config could not be bound — continuing with notifications DISABLED. " +
+                    "Loaders will run normally, but NOBODY WILL BE TOLD IF THEY FAIL.");
+            notificationSettings = new NotificationSettings();
+            notificationsUsable = false;
+        }
+
+        if (notificationsUsable)
+        {
+            try
+            {
+                notificationSettings.Validate();
+            }
+            catch (Exception ex)
+            {
+                bootstrapLogger.LogError(
+                    ex, "Notification config is invalid — continuing with notifications DISABLED. " +
+                        "Loaders will run normally, but NOBODY WILL BE TOLD IF THEY FAIL.");
+                notificationsUsable = false;
+            }
+        }
+
+        services.AddSingleton(notificationSettings);
+
+        if (notificationsUsable)
+            services.AddSingleton<INotificationSender, SmtpNotificationSender>();
+        else
+            services.AddSingleton<INotificationSender, NullNotificationSender>();
+
+        services.AddSingleton<IFailureNotifier, FailureNotifier>();
+
+        // Watchdog.
+        services.Configure<WatchdogSettings>(configuration.GetSection(WatchdogSettings.SectionName));
+        services.AddSingleton<IWatchdogRepository, SqlWatchdogRepository>();
+        services.AddSingleton<WatchdogRunner>();
 
         // Every discovered module gets to register its services. The host
         // only resolves the modules selected to run; the rest sit unused.

@@ -9,6 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Lets DataLoader.Host.Tests see internal types (Program.BuildServiceProvider) so
+         the notification degrade path can be tested as a real DI resolution rather than
+         reimplemented in the test project. This executable has no public API otherwise,
+         and the grant is scoped to this one named friend assembly — nothing else can see
+         internals through it. -->
+    <InternalsVisibleTo Include="DataLoader.Host.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
