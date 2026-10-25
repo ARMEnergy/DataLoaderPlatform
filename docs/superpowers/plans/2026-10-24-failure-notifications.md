@@ -2742,7 +2742,10 @@ public sealed class WatchdogRunner
                 .GetRecentFailuresAsync(_settings.ReportRecentFailureHours, nowCentral, cancellationToken)
                 .ConfigureAwait(false);
 
-            report = WatchdogEvaluator.Evaluate(lastRuns, stuck, failures, _settings, nowCentral);
+            // hostName is supplied rather than read inside the report, so
+            // BuildMessage() stays pure — see the Task 7 review.
+            report = WatchdogEvaluator.Evaluate(
+                lastRuns, stuck, failures, _settings, Environment.MachineName, nowCentral);
 
             _logger.LogInformation(
                 "Watchdog: {Overdue} overdue, {Stuck} stuck, {Failures} recent failures",
@@ -3491,6 +3494,6 @@ Report: files changed, test totals as actually printed, what is verified versus 
 
 **Spec coverage.** §3 component layout → Tasks 1-5, 7-9. §4.1 `PlatformHost` call site → Task 6. §4.2 `Program.cs` restructure → Task 10 Step 5. §4.3 never-closed detection → Task 6 Steps 4-5. §5 watchdog → Tasks 7-9, flag in Task 10. §6 email content → Task 4. §6.1 redaction → Task 2, re-asserted at the boundary in Task 4. §7 config → Task 11. §7.1 no-credential transport → Task 3 (rejects keys), Task 5 (`Credentials = null`). §8 testing → every task's test steps; solution-wide run in Task 10 Step 7 and Task 11 Step 5. §10 prerequisites → Task 12. §11 build order → Tasks 1-11 in order.
 
-**Type consistency.** `INotificationPayload.BuildMessage()` takes no argument and is used identically by `RunFailureReport` and `WatchdogReport`; `FailureNotifier.Finalise` is the single place the subject prefix and the backstop redaction are applied (amended after the Task 1 code-quality review — payloads were originally each given the prefix, which let any one of them drop it). `IFailureNotifier.NotifyAsync(INotificationPayload, CancellationToken)` returns `Task<NotificationOutcome>` at every call site — `PlatformHost` discards it, `WatchdogRunner` branches on it. `WatchdogEvaluator.Evaluate` takes the same five parameters in the tests (Task 7) and the runner (Task 9). `ErrorTextRedactor.Clean` is the method `RunFailureReport` calls, and it is defined in Task 2.
+**Type consistency.** `INotificationPayload.BuildMessage()` takes no argument and is used identically by `RunFailureReport` and `WatchdogReport`; `FailureNotifier.Finalise` is the single place the subject prefix and the backstop redaction are applied (amended after the Task 1 code-quality review — payloads were originally each given the prefix, which let any one of them drop it). `IFailureNotifier.NotifyAsync(INotificationPayload, CancellationToken)` returns `Task<NotificationOutcome>` at every call site — `PlatformHost` discards it, `WatchdogRunner` branches on it. `WatchdogEvaluator.Evaluate` takes the same **six** parameters in the tests (Task 7) and the runner (Task 9) — `lastRuns`, `stuckRuns`, `recentFailures`, `settings`, `hostName`, `nowCentral`. The `hostName` parameter was added after the Task 7 review: `WatchdogReport.BuildBody()` had been reading `Environment.MachineName` and `DateTime.UtcNow` directly, which broke the purity `INotificationPayload` promises and which its sibling `RunFailureReport` honours. `WatchdogReport` also gained a `Misconfigured` list, because a loader with `MaxGapHours <= 0` was being skipped silently — and `MaxGapHours` defaults to 0 while `Enabled` defaults to true, so `"Platts": {}` would have made a loader invisible to the one component whose job is noticing invisibility. `ErrorTextRedactor.Clean` is the method `RunFailureReport` calls, and it is defined in Task 2.
 
 **Known deviations from repo convention, each justified inline:** inline `SELECT`s instead of stored procedures (Task 8 — the design adds no SQL objects); a new test project for the host (Task 10 — `HostArguments` must be public because `DataLoader.Host` is an exe).
