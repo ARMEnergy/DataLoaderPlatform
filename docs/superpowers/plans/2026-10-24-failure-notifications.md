@@ -2519,6 +2519,21 @@ the clock its own table stores - Central for the summary, UTC for LoaderRun."
 
 ---
 
+### ⚠ Task 8 open fix — connection leak on `Open` failure
+
+Found by the Task 8 quality review, **confirmed with a minimal repro**, fix dispatched:
+
+`SqlWatchdogRepository.OpenAsync` constructs a `SqlConnection` and awaits `conn.OpenAsync` **inside** the helper. If `Open` throws, the helper never returns, so the caller's `await using var conn = await OpenAsync(ct)` never binds and the connection is **never disposed**. A single failed pass leaks up to 3 connections.
+
+This is the failure mode a watchdog is most likely to hit — DB momentarily unreachable, login failure, server restart — and it is a divergence from the established idiom in `SqlLoadLogRepository`, which binds before the throwing await:
+
+```csharp
+await using var conn = CreateConnection();          // bound to the using scope FIRST
+await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+```
+
+Also noted, not blocking: both tables carry **only their clustered PK** — no index supports any of the three predicates. Fine at today's scale (`core.LoaderRun` 2,302 rows, `core.LoaderRun_Summary` 1,986) where every query is a sub-millisecond full scan, but there is no purge strategy for either table.
+
 ### Task 9: `WatchdogRunner`
 
 **Files:**
