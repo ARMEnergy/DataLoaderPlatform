@@ -53,29 +53,46 @@ public static class ErrorTextRedactor
     /// mechanism that actually resolves a conflict is leftmost-match at the
     /// leftmost starting position plus the <c>\b</c> boundaries, not which
     /// alternative happens to be listed first.</para>
+    ///
+    /// <para>⚠ <c>password</c> and <c>secret</c> accept a bare colon on
+    /// purpose, and that is a KNOWN, DELIBERATE source of over-redaction:
+    /// "Please reset your password: contact support" mangles identically to
+    /// "password: topsecret" — the two are lexically the same shape, and no
+    /// regex can tell prose from a credential there. This is left as-is
+    /// because the asymmetry is decisive: one mangled sentence in an alert is
+    /// a minor annoyance, a leaked password is not, and a spec'd test
+    /// (<c>Password: topsecret</c>) requires the colon form to redact. Do NOT
+    /// "fix" this by requiring <c>=</c> or quotes for these two names — that
+    /// would silently reopen the exact leak this class exists to close.</para>
     /// </summary>
     private static readonly Regex SpecificKeyValue = new(
-        @"\b(client_secret|api[\s_-]?key|x-key|access[_-]?token|auth[_-]?token|secret|password|passwd|pwd)\b""?\s*[:=]\s*""?(?:[^\s""'&,;)\]}]+)",
+        @"\b(client_secret|api[\s_-]?key|x-key|secret|password|passwd|pwd)\b""?\s*[:=]\s*""?(?:[^\s""'&,;)\]}]+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
-    /// Masks bare <c>key</c>/<c>token</c> — but ONLY in the two shapes that
-    /// cannot be ordinary prose: <c>name=value</c> (query/connection-string
-    /// syntax) and <c>"name":"value"</c> (a quoted JSON field name). Both
-    /// words are everyday English, and this platform's own diagnostics use
-    /// them constantly without meaning "credential": .NET's own
+    /// Masks keywords that are ALSO ordinary English words — <c>key</c>,
+    /// <c>token</c>, and the underscore/hyphen compounds <c>access_token</c>
+    /// and <c>auth_token</c> — but ONLY in the two shapes that cannot be
+    /// prose: <c>name=value</c> (query/connection-string syntax) and
+    /// <c>"name":"value"</c> (a quoted JSON field name). A bare colon after
+    /// any of these is left alone, because this platform's own diagnostics
+    /// use that exact shape without meaning "credential": .NET's own
     /// <c>Dictionary.Add</c> duplicate-key exception reads "...has already
-    /// been added. Key: 5", and this platform has had real duplicate-key
-    /// incidents (NUCORE PositionDetails/PnlExplain — see CLAUDE.md) where
-    /// that trailing value is the one thing the alert needs to carry. A
-    /// free-form <c>key: value</c> or <c>token: value</c> prose colon is
-    /// therefore left alone; only the two unambiguous shapes above redact.
+    /// been added. Key: 5" (and this platform has had real duplicate-key
+    /// incidents — NUCORE PositionDetails/PnlExplain, see CLAUDE.md — where
+    /// that trailing value is the one thing the alert needs to carry), and
+    /// Marex's Auth0 integration produces plain prose like "access_token:
+    /// see documentation for details". <c>access_token</c>/<c>auth_token</c>
+    /// moved here from the unambiguous list above after exactly that
+    /// collision was found in review — they read as one word with an
+    /// underscore, not as "an access/auth qualifier on a bare token", so the
+    /// same free-colon-is-prose rule has to apply to them too.
     ///
     /// <para>.NET allows the same named group across different alternation
     /// branches, so <c>k</c> resolves to whichever branch actually matched.</para>
     /// </summary>
     private static readonly Regex GenericKeyValue = new(
-        @"(?:\b(?<k>key|token)\b\s*=\s*""?|""(?<k>key|token)""\s*:\s*""?)(?:[^\s""'&,;)\]}]+)",
+        @"(?:\b(?<k>access[_-]?token|auth[_-]?token|key|token)\b\s*=\s*""?|""(?<k>access[_-]?token|auth[_-]?token|key|token)""\s*:\s*""?)(?:[^\s""'&,;)\]}]+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>

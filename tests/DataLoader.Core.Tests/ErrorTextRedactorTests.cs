@@ -140,12 +140,32 @@ public class ErrorTextRedactorTests
     [InlineData("An item with the same key has already been added. Key: 5")]
     [InlineData("Primary key: OrderId")]
     [InlineData("Cancellation token: expired after 300s")]
+    [InlineData("auth_token: not provided in this request")]
+    [InlineData("access_token: see documentation for details")]
     public void DoesNotRedactDiagnosticProseUsingKeyOrToken(string input)
     {
         // The first of these is .NET's own Dictionary.Add exception text. This
         // platform has had duplicate-key incidents; masking the duplicate value
-        // would destroy the one thing the alert needed to carry.
+        // would destroy the one thing the alert needed to carry. auth_token and
+        // access_token are ordinary-word compounds too (Marex's Auth0
+        // integration deals in literal access_token fields), so a bare colon
+        // after them is prose, not a credential shape, exactly like key/token.
         Assert.Equal(input, ErrorTextRedactor.Redact(input));
+    }
+
+    [Theory]
+    [InlineData("access_token=abc123secret", "abc123secret")]
+    [InlineData(@"{""auth_token"":""xyz789secret""}", "xyz789secret")]
+    [InlineData(@"{""access_token"": ""tok-55-aa""}", "tok-55-aa")]
+    public void StillRedactsUnderscoreTokenNamesInCredentialShapes(string input, string secret)
+    {
+        // Moving access_token/auth_token out of the unambiguous list must not
+        // stop them from redacting in the two shapes that ARE unambiguous:
+        // name=value, and a quoted JSON field name.
+        var result = ErrorTextRedactor.Redact(input);
+
+        Assert.DoesNotContain(secret, result);
+        Assert.Contains("***REDACTED***", result);
     }
 
     [Fact]
