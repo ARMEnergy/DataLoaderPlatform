@@ -59,6 +59,12 @@ public class PlatformHostNotificationTests
             Task.FromResult<IAsyncDisposable?>(new FakeLock());
     }
 
+    private sealed class SkippingOverlapGuard : ILoaderOverlapGuard
+    {
+        public Task<IAsyncDisposable?> TryAcquireAsync(string loaderId, CancellationToken ct) =>
+            Task.FromResult<IAsyncDisposable?>(null);
+    }
+
     private sealed class FakeAdditionalProcesses : IAdditionalProcessRunner
     {
         public Task RunAsync(string loaderId, Guid runId, CancellationToken ct) => Task.CompletedTask;
@@ -127,9 +133,58 @@ public class PlatformHostNotificationTests
         var exit = await Build(new[] { FakeModule.Succeeding("Platts") }, notifier).RunAsync(default);
 
         Assert.Equal(0, exit);
-        // The host may still hand over a report; what matters is that it says
-        // there is nothing to send.
-        foreach (var p in notifier.Payloads) Assert.False(p.ShouldNotify);
+        // The host hands over a report UNCONDITIONALLY; deciding not to send is
+        // the notifier's job. Assert the handoff happened before asserting what
+        // it said, or this passes even if the call is deleted entirely.
+        var report = notifier.Single();
+        Assert.False(report.ShouldNotify);
+    }
+
+    [Fact]
+    public async Task NotifiesOncePerRun_NotOncePerLoader()
+    {
+        // A run with several loaders must produce ONE report carrying all of
+        // them, not one report each. Moving the notify call inside the
+        // per-module lambda would silently turn a 4-loader run into 4 emails.
+        var notifier = new CapturingNotifier();
+        var modules = new[]
+        {
+            FakeModule.Failing("Platts"),
+            FakeModule.Succeeding("Vulcan"),
+            FakeModule.Failing("CWG")
+        };
+
+        var exit = await Build(modules, notifier).RunAsync(default);
+
+        Assert.Equal(1, exit);
+        var report = notifier.Single();                 // exactly one payload
+        Assert.Equal(3, report.Results.Count);          // carrying every loader
+        Assert.Equal(2, report.Results.Count(r => !r.Success));
+    }
+
+    [Fact]
+    public async Task AnOverlapSkipIsNotReportedAsAFailure()
+    {
+        // The guard records Success = true with an explanatory message when
+        // another process already holds the loader's lock. That is routine,
+        // not news — and it happens on every schedule tick where a previous
+        // run is still going.
+        var notifier = new CapturingNotifier();
+        var host = new PlatformHost(
+            new ServiceCollection().BuildServiceProvider(),
+            new ILoaderModule[] { FakeModule.Succeeding("Platts") },
+            new FakeRunLog(),
+            new SkippingOverlapGuard(),
+            new FakeAdditionalProcesses(),
+            Options.Create(new PlatformSettings { MaxConcurrentLoaders = 1, AbandonStaleLoadLogs = true }),
+            NullLogger<PlatformHost>.Instance,
+            null,
+            notifier);
+
+        var exit = await host.RunAsync(default);
+
+        Assert.Equal(0, exit);
+        Assert.False(notifier.Single().ShouldNotify);
     }
 
     [Fact]

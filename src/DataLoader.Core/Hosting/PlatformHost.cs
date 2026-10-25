@@ -206,8 +206,9 @@ public sealed class PlatformHost
             await _runLog.CompleteRunAsync(runId, allSucceeded, CancellationToken.None).ConfigureAwait(false);
         }
 
-        LogSummary(results, sw.Elapsed);
-        await NotifyAsync(runId, startedAt, results, staleRowsClosed).ConfigureAwait(false);
+        var elapsed = sw.Elapsed;
+        LogSummary(results, elapsed);
+        await ReportRunOutcomeAsync(runId, startedAt, elapsed, results, staleRowsClosed).ConfigureAwait(false);
         return allSucceeded ? 0 : 1;
     }
 
@@ -265,8 +266,8 @@ public sealed class PlatformHost
     /// as failed because a mail relay was down, so the host does not rely on another
     /// component's politeness.</para>
     /// </summary>
-    private async Task NotifyAsync(
-        Guid runId, DateTime startedAt, IReadOnlyList<LoaderRunResult> results, int staleRowsClosed)
+    private async Task ReportRunOutcomeAsync(
+        Guid runId, DateTime startedAt, TimeSpan elapsed, IReadOnlyList<LoaderRunResult> results, int staleRowsClosed)
     {
         if (_notifier is null) return;
 
@@ -277,7 +278,11 @@ public sealed class PlatformHost
                 HostName = Environment.MachineName,
                 RunId = runId,
                 StartedAtUtc = startedAt,
-                CompletedAtUtc = DateTime.UtcNow,
+                // Derived from the same Stopwatch LogSummary used, not a fresh DateTime.UtcNow
+                // call — one clock describing one run, so an NTP correction mid-run (plausible
+                // across this platform's documented multi-hour EIA/NUCORE backfills) cannot make
+                // the log and the email disagree about how long it took.
+                CompletedAtUtc = startedAt + elapsed,
                 Results = results,
                 StaleRowsClosed = staleRowsClosed
             };
