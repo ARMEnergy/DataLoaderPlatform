@@ -2552,7 +2552,8 @@ public class WatchdogRunnerTests
                 ? Task.FromException<IReadOnlyList<LoaderLastRun>>(ThrowThis)
                 : Task.FromResult<IReadOnlyList<LoaderLastRun>>(LastRuns);
 
-        public Task<IReadOnlyList<StuckRun>> GetStuckRunsAsync(int h, CancellationToken ct) =>
+        public Task<IReadOnlyList<StuckRun>> GetStuckRunsAsync(
+            int h, int days, string? host, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<StuckRun>>(Stuck);
 
         public Task<IReadOnlyList<RecentFailure>> GetRecentFailuresAsync(int h, DateTime n, CancellationToken ct) =>
@@ -2737,7 +2738,16 @@ public sealed class WatchdogRunner
         {
             var lastRuns = await _repository.GetLastRunsAsync(cancellationToken).ConfigureAwait(false);
             var stuck = await _repository
-                .GetStuckRunsAsync(_settings.StuckAfterHours, cancellationToken).ConfigureAwait(false);
+                .GetStuckRunsAsync(
+                    _settings.StuckAfterHours,
+                    _settings.StuckLookbackDays,
+                    // Null means every host. Defaults to this one: 28 of the 35
+                    // orphans in production were left by a developer laptop
+                    // pointed at the production platform database, and a
+                    // watchdog cannot act on another machine's run.
+                    _settings.RestrictStuckRunsToThisHost ? Environment.MachineName : null,
+                    cancellationToken)
+                .ConfigureAwait(false);
             var failures = await _repository
                 .GetRecentFailuresAsync(_settings.ReportRecentFailureHours, nowCentral, cancellationToken)
                 .ConfigureAwait(false);
