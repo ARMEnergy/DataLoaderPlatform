@@ -3520,10 +3520,23 @@ requested 25–50% band, applied uniformly rather than tuned per loader, because
 percentage per loader would reintroduce exactly the kind of unstated per-loader judgment call that
 caused the mean-vs-max mistake in the first place. Two loaders' worst weekday gap was a visible
 singleton far above their otherwise-clean baseline (EnergyAspects 44.5h vs. a clean 24h everywhere
-else in 52 samples; Vulcan 44.8h vs. a clean 24h in 45 samples) — both went in as measured (58h
-each) rather than silently excluded, but are flagged for the coordinator: EnergyAspects has a
-documented history of partial-run instability (CLAUDE.md), so a 58h threshold on it roughly
-triples how long a genuinely stuck run can sit before anyone is told, which is worth a second look.
+else in 52 samples; Vulcan 44.8h vs. a clean 24h in 45 samples); this was flagged rather than
+decided unilaterally.
+
+**Decision, same day: `EnergyAspects` and `Vulcan` are `MaxGapHours: 31`, not 58 — deliberately
+NOT `round(worst_gap × 1.3)` applied to the raw 44.5h/44.8h observation.** Record the reasoning
+here so a future pass does not "fix" this by rerunning the formula over raw data and silently
+putting it back to 58: a single 44.5h (or 44.8h) gap sitting among 44-51 otherwise-clean 24h runs
+is an **outage**, not this loader's cadence. Sizing the threshold to swallow a past outage means
+the alert can never fire on that same outage happening again — the formula, applied literally to
+contaminated input, produces a number whose only function is to stay quiet about the exact event
+it exists to catch. 31h is `round(24h × 1.3)`, the same formula applied to the clean baseline with
+the one outage excluded as input, not as an exception to the rule. This matters most for
+EnergyAspects specifically: CLAUDE.md documents it failing 6 of 7 runs when last measured, making
+it the loader most likely to go fully dark, and 58h vs. 31h is the difference between finding out
+in two and a half days versus about one — worth the cost of one extra email roughly every seven
+weeks if a 44h-class gap recurs at its observed rate, because a 44h gap on an otherwise-daily
+loader is itself worth an email, not just a close call.
 
 Full before/after table, and the measurement commands used, are in the implementation report for
 this correction (commit after `39ab8e5`).
