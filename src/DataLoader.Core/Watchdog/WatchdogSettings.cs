@@ -19,6 +19,29 @@ public sealed class WatchdogSettings
     public int StuckAfterHours { get; set; } = 6;
 
     /// <summary>
+    /// How far back to look for stuck runs.
+    ///
+    /// <para>⚠ Without a bound the watchdog re-reports the same ancient rows on
+    /// every pass forever. Nothing sweeps <c>core.LoaderRun</c> — the
+    /// <c>AbandonStaleLoadLogs</c> sweeper closes <c>core.LoadLog</c> rows only —
+    /// so production held 35 orphans going back to August when this was written.
+    /// An alert that never clears is one people stop reading, which is worse
+    /// than no alert at all.</para>
+    /// </summary>
+    public int StuckLookbackDays { get; set; } = 7;
+
+    /// <summary>
+    /// Report only stuck runs recorded against the machine the watchdog is
+    /// running on.
+    ///
+    /// <para>28 of production's 35 orphans were left by a developer laptop
+    /// pointed at the production platform database. A watchdog on
+    /// ARMH-OPSDB01 reporting someone's laptop is noise by construction —
+    /// it cannot act on it and neither can the reader.</para>
+    /// </summary>
+    public bool RestrictStuckRunsToThisHost { get; set; } = true;
+
+    /// <summary>
     /// Look-back for reporting runs that recorded <c>Success = 0</c>. This
     /// overlaps with the in-process email on purpose — it is the safety net for
     /// when that email could not be delivered.

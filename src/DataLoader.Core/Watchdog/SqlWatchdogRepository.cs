@@ -64,18 +64,27 @@ GROUP BY LoaderName;";
     }
 
     public async Task<IReadOnlyList<StuckRun>> GetStuckRunsAsync(
-        int stuckAfterHours, CancellationToken cancellationToken)
+        int stuckAfterHours, int lookbackDays, string? hostName, CancellationToken cancellationToken)
     {
+        // Bounded two ways: the look-back keeps ancient orphans (nothing sweeps
+        // core.LoaderRun — see WatchdogSettings.StuckLookbackDays) from being
+        // re-reported on every pass forever, and the optional host filter keeps
+        // a dev box pointed at this database from showing up as a production
+        // incident (see WatchdogSettings.RestrictStuckRunsToThisHost).
         const string Sql = @"
 SELECT RunId, StartedAtUtc, HostName
 FROM core.LoaderRun
 WHERE CompletedAtUtc IS NULL
-  AND StartedAtUtc < DATEADD(hour, -@StuckAfterHours, SYSUTCDATETIME())
+  AND StartedAtUtc <  DATEADD(hour, -@StuckAfterHours, SYSUTCDATETIME())
+  AND StartedAtUtc >= DATEADD(day,  -@LookbackDays,    SYSUTCDATETIME())
+  AND (@HostName IS NULL OR HostName = @HostName)
 ORDER BY StartedAtUtc;";
 
         await using var conn = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = Command(conn, Sql);
         cmd.Parameters.AddWithValue("@StuckAfterHours", Math.Max(1, stuckAfterHours));
+        cmd.Parameters.AddWithValue("@LookbackDays", Math.Max(1, lookbackDays));
+        cmd.Parameters.AddWithValue("@HostName", (object?)hostName ?? DBNull.Value);
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         var rows = new List<StuckRun>();

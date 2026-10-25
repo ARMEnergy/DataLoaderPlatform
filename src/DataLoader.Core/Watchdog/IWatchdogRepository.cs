@@ -9,8 +9,13 @@ public interface IWatchdogRepository
     /// <summary>Most recent start per loader, in CENTRAL time (see <see cref="LoaderLastRun"/>).</summary>
     Task<IReadOnlyList<LoaderLastRun>> GetLastRunsAsync(CancellationToken cancellationToken);
 
-    /// <summary>Run rows still open after <paramref name="stuckAfterHours"/>, compared in UTC.</summary>
-    Task<IReadOnlyList<StuckRun>> GetStuckRunsAsync(int stuckAfterHours, CancellationToken cancellationToken);
+    /// <summary>
+    /// Run rows still open after <paramref name="stuckAfterHours"/>, compared in
+    /// UTC, bounded to the last <paramref name="lookbackDays"/> and optionally to
+    /// one host. A null <paramref name="hostName"/> means every host.
+    /// </summary>
+    Task<IReadOnlyList<StuckRun>> GetStuckRunsAsync(
+        int stuckAfterHours, int lookbackDays, string? hostName, CancellationToken cancellationToken);
 
     /// <summary>Runs that recorded Success = 0 within the look-back, in CENTRAL time.</summary>
     Task<IReadOnlyList<RecentFailure>> GetRecentFailuresAsync(
