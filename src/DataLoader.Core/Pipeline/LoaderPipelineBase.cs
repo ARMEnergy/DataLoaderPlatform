@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Concurrency;
@@ -114,6 +115,7 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
             WorkUnitsSkipped = counters.Skipped,
             WorkUnitsFailed = counters.Failed,
             RecordsProcessed = counters.Records,
+            FailedUnits = counters.FailedUnits,
             Duration = sw.Elapsed
         };
     }
@@ -135,7 +137,7 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
         }
         catch (Exception ex)
         {
-            counters.IncrementFailed();
+            counters.IncrementFailed(new FailedWorkUnit(unit.Key, unit.DisplayName, ex.Message, ex.ToString()));
             _logger.LogError(ex, "[{Loader}] Failed to open load log for {Unit}", _loaderId, unit.DisplayName);
             return;
         }
@@ -168,13 +170,16 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
             // straight to the wrong setting. Tell them apart:
             //   - the per-unit budget expiring cancels unitCts;
             //   - an HttpClient.Timeout does not, and carries a TimeoutException.
-            counters.IncrementFailed();
-
             var reason = unitCts.IsCancellationRequested
                 ? $"Work unit timed out after {_settings.WorkUnitTimeoutSeconds}s (WorkUnitTimeoutSeconds)"
                 : ex.InnerException is TimeoutException
                     ? "HTTP request timed out (HttpTimeoutSeconds); the work unit budget was not reached"
                     : "Cancelled before completion (not the work unit budget)";
+
+            // The composed reason — not ex.Message — is the error text here: it
+            // names which budget was exceeded, which the bare exception message
+            // does not.
+            counters.IncrementFailed(new FailedWorkUnit(unit.Key, unit.DisplayName, reason, ex.ToString()));
 
             await TryCompleteFailureAsync(handle, reason).ConfigureAwait(false);
             _logger.LogWarning("[{Loader}] {Unit}: {Reason}", _loaderId, unit.DisplayName, reason);
@@ -187,7 +192,7 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
         }
         catch (Exception ex)
         {
-            counters.IncrementFailed();
+            counters.IncrementFailed(new FailedWorkUnit(unit.Key, unit.DisplayName, ex.Message, ex.ToString()));
             await TryCompleteFailureAsync(handle, ex.Message).ConfigureAwait(false);
             _logger.LogError(ex, "[{Loader}] {Unit} failed", _loaderId, unit.DisplayName);
         }
@@ -208,16 +213,46 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
 
     private sealed class Counters
     {
+        /// <summary>
+        /// Cap on how many <see cref="FailedWorkUnit"/> details (each carrying a
+        /// full stack trace) are retained per run. A loader like EnergyAspects
+        /// runs thousands of units; holding every failure's full detail could be
+        /// tens of megabytes. <see cref="Failed"/> always carries the true count,
+        /// so nothing is lost but bulk beyond this cap.
+        /// </summary>
+        private const int MaxFailedUnitsRetained = 25;
+
         private int _succeeded;
         private int _skipped;
         private int _failed;
         private int _records;
+        private int _failedUnitsCaptured;
+
+        // ConcurrentQueue, not ConcurrentBag: up to MaxConcurrentWorkUnits
+        // threads call IncrementFailed concurrently, and a Bag does not
+        // preserve enqueue order — but "the first N failures" (as rendered by
+        // RunFailureReport) has to be a deterministic set, not whichever ones
+        // a Bag happens to hand back.
+        private readonly ConcurrentQueue<FailedWorkUnit> _failedUnits = new();
+
         public int Succeeded => _succeeded;
         public int Skipped => _skipped;
         public int Failed => _failed;
         public int Records => _records;
+        public IReadOnlyList<FailedWorkUnit> FailedUnits => _failedUnits.ToArray();
+
         public void IncrementSucceeded(int recs) { Interlocked.Increment(ref _succeeded); Interlocked.Add(ref _records, recs); }
         public void IncrementSkipped() => Interlocked.Increment(ref _skipped);
-        public void IncrementFailed() => Interlocked.Increment(ref _failed);
+
+        public void IncrementFailed(FailedWorkUnit detail)
+        {
+            Interlocked.Increment(ref _failed);
+            // Reserve a slot before enqueuing so the cap is exact even when
+            // several units fail at once: only the units that win a slot
+            // numbered <= the cap get queued, regardless of which enqueue call
+            // physically lands first.
+            if (Interlocked.Increment(ref _failedUnitsCaptured) <= MaxFailedUnitsRetained)
+                _failedUnits.Enqueue(detail);
+        }
     }
 }

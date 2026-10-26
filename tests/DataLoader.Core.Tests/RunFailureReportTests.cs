@@ -17,6 +17,20 @@ public class RunFailureReportTests
         WorkUnitsTotal = total, WorkUnitsFailed = failed, WorkUnitsSucceeded = total - failed
     };
 
+    private static LoaderRunResult BadWithUnits(
+        string id, IReadOnlyList<FailedWorkUnit> units, int failed, int total) => new()
+    {
+        LoaderId = id, Success = false, ErrorMessage = "see failed unit detail below",
+        WorkUnitsTotal = total, WorkUnitsFailed = failed, WorkUnitsSucceeded = total - failed,
+        FailedUnits = units
+    };
+
+    private static FailedWorkUnit Failure(int i, string? errorText = null, string? stackTrace = null) => new(
+        Key: $"unit={i}",
+        DisplayName: $"Unit {i}",
+        ErrorText: errorText ?? $"error {i}",
+        StackTrace: stackTrace ?? $"System.InvalidOperationException: error {i}\n   at DataLoader.Vendor.Reader.Read{i}()");
+
     private static RunFailureReport Report(
         IEnumerable<LoaderRunResult>? results = null,
         int staleRowsClosed = 0,
@@ -216,6 +230,115 @@ public class RunFailureReportTests
         var report = Report(new[] { Ok("Platts") });
 
         Assert.Throws<InvalidOperationException>(() => report.BuildMessage());
+    }
+
+    // --------------------------------------------------- per-work-unit detail
+
+    [Fact]
+    public void Body_OneFailedUnit_ShowsFullDetailIncludingTheStack()
+    {
+        var units = new[] { Failure(1) };
+        var body = Report(new[] { BadWithUnits("ICE", units, failed: 1, total: 1) }).BuildMessage().Body;
+
+        Assert.Contains("Failed Work Unit Key:", body);
+        Assert.Contains("unit=1", body);
+        Assert.Contains("Failed Work Unit Display:", body);
+        Assert.Contains("Unit 1", body);
+        Assert.Contains("Error Text:", body);
+        Assert.Contains("error 1", body);
+        Assert.Contains("Error Stack:", body);
+        Assert.Contains("DataLoader.Vendor.Reader.Read1", body);
+    }
+
+    [Fact]
+    public void Body_SevenFailedUnits_FirstFiveGetStacks_NextTwoDoNot()
+    {
+        var units = Enumerable.Range(1, 7).Select(i => Failure(i)).ToArray();
+        var body = Report(new[] { BadWithUnits("ICE", units, failed: 7, total: 7) }).BuildMessage().Body;
+
+        for (var i = 1; i <= 5; i++)
+        {
+            Assert.Contains($"error {i}", body);
+            Assert.Contains($"DataLoader.Vendor.Reader.Read{i}()", body);
+        }
+        for (var i = 6; i <= 7; i++)
+        {
+            Assert.Contains($"error {i}", body);
+            Assert.DoesNotContain($"DataLoader.Vendor.Reader.Read{i}()", body);
+        }
+
+        // All 7 were captured, so there is nothing left to summarize.
+        Assert.DoesNotContain("more failed unit(s)", body);
+    }
+
+    [Fact]
+    public void Body_FortyFailedUnits_RendersTwentyFiveAndSummarizesTheRest()
+    {
+        // Simulates what LoaderPipelineBase.Counters itself hands back for a
+        // run with 40 real failures: only the first 25 are ever captured.
+        var units = Enumerable.Range(1, 25).Select(i => Failure(i)).ToArray();
+        var body = Report(new[] { BadWithUnits("ICE", units, failed: 40, total: 651) }).BuildMessage().Body;
+
+        var keyLineCount = body.Split("Failed Work Unit Key:").Length - 1;
+        Assert.Equal(25, keyLineCount);
+
+        Assert.Contains("DataLoader.Vendor.Reader.Read1()", body);
+        Assert.Contains("DataLoader.Vendor.Reader.Read5()", body);
+        Assert.DoesNotContain("DataLoader.Vendor.Reader.Read6()", body);
+        Assert.DoesNotContain("DataLoader.Vendor.Reader.Read25()", body);
+
+        Assert.Contains("… and 15 more failed unit(s) — see the log", body);
+    }
+
+    [Fact]
+    public void Body_RedactsSecretsInBothFailedUnitErrorTextAndStack()
+    {
+        var unit = new FailedWorkUnit(
+            Key: "unit=1",
+            DisplayName: "Unit 1",
+            ErrorText: "access denied (API key: abc123XYZ)",
+            StackTrace: "System.Exception: token=superSecretValue123\n   at DataLoader.AGSI.Reader.Read()");
+
+        var body = Report(new[] { BadWithUnits("AGSI", new[] { unit }, failed: 1, total: 1) })
+            .BuildMessage().Body;
+
+        Assert.DoesNotContain("abc123XYZ", body);
+        Assert.DoesNotContain("superSecretValue123", body);
+        Assert.Contains("REDACTED", body);
+    }
+
+    [Fact]
+    public void Body_MoreThanTwentyFiveUnitsInTheList_StillRendersOnlyTwentyFive()
+    {
+        // Defense in depth: even if a caller hands over a FailedUnits list
+        // longer than LoaderPipelineBase.Counters would ever produce, the
+        // render side enforces its own 25-unit ceiling rather than emailing
+        // one block per unit.
+        var units = Enumerable.Range(1, 30).Select(i => Failure(i)).ToArray();
+        var body = Report(new[] { BadWithUnits("ICE", units, failed: 30, total: 30) }).BuildMessage().Body;
+
+        var keyLineCount = body.Split("Failed Work Unit Key:").Length - 1;
+        Assert.Equal(25, keyLineCount);
+        Assert.Contains("… and 5 more failed unit(s) — see the log", body);
+    }
+
+    [Fact]
+    public void Body_SuccessfulLoader_NeverShowsFailedUnitDetail()
+    {
+        var ok = Ok("Platts");
+        var body = Report(new[] { ok, BadWithUnits("ICE", new[] { Failure(1) }, failed: 1, total: 1) })
+            .BuildMessage().Body;
+
+        // The "Loaders" table sorts failures first (OrderBy Success ascending),
+        // so ICE's section precedes Platts's. The "Failed Work Unit" block
+        // belongs to ICE only; Platts succeeded and must not grow one just
+        // because another loader failed.
+        var plattsIndex = body.IndexOf("Platts", StringComparison.Ordinal);
+        var iceSection = body[..plattsIndex];
+        var plattsSection = body[plattsIndex..];
+
+        Assert.Contains("Failed Work Unit Key:", iceSection);
+        Assert.DoesNotContain("Failed Work Unit Key:", plattsSection);
     }
 
     // ------------------------------------------------- non-run alerts (watchdog)

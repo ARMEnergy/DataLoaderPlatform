@@ -42,6 +42,29 @@ public sealed class RunFailureReport : INotificationPayload
 
     private const int MaxErrorChars = 2000;
 
+    /// <summary>
+    /// How many failed units get the FULL block (key, display, error text, and
+    /// a trimmed stack). Beyond this and up to <c>LoaderPipelineBase</c>'s own
+    /// 25-unit retention cap, units still get key/display/error text — just no
+    /// stack, since a stack per unit is what actually makes the email large.
+    /// </summary>
+    private const int FullDetailUnitCount = 5;
+
+    /// <summary>
+    /// Hard ceiling on how many failed units this renders, enforced here
+    /// independently of <c>LoaderPipelineBase.Counters</c>' own 25-unit
+    /// retention cap — defense in depth, so a future caller that hands this a
+    /// longer <see cref="LoaderRunResult.FailedUnits"/> list still gets a
+    /// bounded email rather than one line per unit.
+    /// </summary>
+    private const int MaxRenderedFailedUnits = 25;
+
+    /// <summary>Column the value starts at — every label below is padded to this width.</summary>
+    private const int FailedUnitLabelWidth = 26;
+
+    /// <summary>Same indentation as the loader's own error-message line.</summary>
+    private const string FailedUnitIndent = "       ";
+
     private IReadOnlyList<LoaderRunResult> Failures =>
         Results.Where(r => !r.Success).ToList();
 
@@ -158,12 +181,69 @@ public sealed class RunFailureReport : INotificationPayload
                               $"{r.RecordsProcessed} records");
                 if (!string.IsNullOrEmpty(r.ErrorMessage))
                     sb.AppendLine($"       {ErrorTextRedactor.Clean(r.ErrorMessage, MaxErrorChars)}");
+
+                AppendFailedUnits(sb, r);
             }
             sb.AppendLine();
         }
 
         sb.AppendLine($"Full output: {LogPathHint}");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Renders the per-work-unit failure detail immediately after a loader's
+    /// own error line — key/display/error text for every captured unit, plus a
+    /// trimmed stack for the first <see cref="FullDetailUnitCount"/> of them.
+    ///
+    /// <para><see cref="LoaderRunResult.FailedUnits"/> is already capped (at 25,
+    /// in <c>LoaderPipelineBase.Counters</c>) by the time it gets here, so this
+    /// never iterates more than that. When the real failure count exceeds what
+    /// was captured, one summary line reports how many more there were.</para>
+    ///
+    /// <para>🔒 Every string below is vendor-supplied (a work unit's key/display
+    /// name, and the error text and stack captured at the point of failure) and
+    /// goes through <see cref="ErrorTextRedactor"/> before it enters the
+    /// message — the same rule <see cref="ErrorMessage"/> above follows, and for
+    /// the same reason: AGSI echoes <c>x-key</c> back in error bodies, OilX puts
+    /// <c>api_key</c> in query strings, and either can show up in a unit's own
+    /// error text or stack just as easily as in the loader-level message.</para>
+    /// </summary>
+    private static void AppendFailedUnits(StringBuilder sb, LoaderRunResult r)
+    {
+        var units = r.FailedUnits;
+        var renderCount = Math.Min(units.Count, MaxRenderedFailedUnits);
+        for (var i = 0; i < renderCount; i++)
+            AppendFailedUnit(sb, units[i], includeStack: i < FullDetailUnitCount);
+
+        var uncaptured = r.WorkUnitsFailed - renderCount;
+        if (uncaptured > 0)
+            sb.AppendLine($"{FailedUnitIndent}… and {uncaptured} more failed unit(s) — see the log");
+    }
+
+    private static void AppendFailedUnit(StringBuilder sb, FailedWorkUnit unit, bool includeStack)
+    {
+        sb.AppendLine(FailedUnitIndent + "Failed Work Unit Key:".PadRight(FailedUnitLabelWidth) +
+                      ErrorTextRedactor.Clean(unit.Key, MaxErrorChars));
+        sb.AppendLine(FailedUnitIndent + "Failed Work Unit Display:".PadRight(FailedUnitLabelWidth) +
+                      ErrorTextRedactor.Clean(unit.DisplayName, MaxErrorChars));
+        sb.AppendLine(FailedUnitIndent + "Error Text:".PadRight(FailedUnitLabelWidth) +
+                      ErrorTextRedactor.Clean(unit.ErrorText, MaxErrorChars));
+
+        if (!includeStack)
+            return;
+
+        // Formatting (frame trimming) happens first, then redaction — same
+        // ordering StackTraceFormatter documents: trimming is not a security
+        // boundary and must never substitute for Redact.
+        var stack = ErrorTextRedactor.Redact(StackTraceFormatter.Format(unit.StackTrace));
+        var lines = stack.Replace("\r\n", "\n").Split('\n');
+
+        sb.AppendLine(FailedUnitIndent + "Error Stack:".PadRight(FailedUnitLabelWidth) + lines[0]);
+
+        var continuationIndent = new string(' ', FailedUnitIndent.Length + FailedUnitLabelWidth);
+        for (var i = 1; i < lines.Length; i++)
+            sb.AppendLine(continuationIndent + lines[i]);
     }
 
     /// <summary>
