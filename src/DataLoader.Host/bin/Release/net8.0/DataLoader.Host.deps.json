@@ -14,6 +14,7 @@
           "DataLoader.CWG": "1.0.0",
           "DataLoader.Core": "1.0.0",
           "DataLoader.Criterion": "1.0.0",
+          "DataLoader.EIA": "1.0.0",
           "DataLoader.EOX": "1.0.0",
           "DataLoader.EnergyAspects": "1.0.0",
           "DataLoader.EvolutionMarkets": "1.0.0",
@@ -25,6 +26,7 @@
           "DataLoader.ModernCommodities": "1.0.0",
           "DataLoader.NGI": "1.0.0",
           "DataLoader.NGX": "1.0.0",
+          "DataLoader.NUCORE": "1.0.0",
           "DataLoader.OPIS": "1.0.0",
           "DataLoader.OilX": "1.0.0",
           "DataLoader.Platts": "1.0.0",
@@ -875,6 +877,17 @@
           }
         }
       },
+      "DataLoader.EIA/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.EIA.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
       "DataLoader.EnergyAspects/1.0.0": {
         "dependencies": {
           "DataLoader.Core": "1.0.0"
@@ -998,6 +1011,17 @@
         },
         "runtime": {
           "DataLoader.NGX.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "DataLoader.NUCORE/1.0.0": {
+        "dependencies": {
+          "DataLoader.Core": "1.0.0"
+        },
+        "runtime": {
+          "DataLoader.NUCORE.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1606,6 +1630,11 @@
       "serviceable": false,
       "sha512": ""
     },
+    "DataLoader.EIA/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
     "DataLoader.EnergyAspects/1.0.0": {
       "type": "project",
       "serviceable": false,
@@ -1657,6 +1686,11 @@
       "sha512": ""
     },
     "DataLoader.NGX/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DataLoader.NUCORE/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
