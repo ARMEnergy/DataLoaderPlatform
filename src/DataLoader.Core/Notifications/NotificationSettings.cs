@@ -16,11 +16,23 @@ public sealed class NotificationSettings
     public const string SectionName = "Platform:Notifications";
 
     /// <summary>
-    /// Ships false. The feature stays inert until IT confirms the server can
-    /// egress on port 25 and that the tenant's "Reject Direct Send" setting is
-    /// off (see the spec, §10).
+    /// Defaults to TRUE — alerting is on unless somebody deliberately turns it off.
+    ///
+    /// <para>It shipped false while waiting on IT to confirm the server could egress
+    /// on port 25 and that the tenant's "Reject Direct Send" setting was off. Both
+    /// were answered empirically on 2026-10-26, when a real alert left
+    /// <c>ARMH-OPSDB01</c> and arrived, so the gate is gone.</para>
+    ///
+    /// <para>⚠ The default matters for the case where the <c>Platform:Notifications</c>
+    /// section is MISSING entirely — a fresh deployment, or someone trimming config.
+    /// Defaulting to false there would mean a platform that looks fine and silently
+    /// tells nobody anything, which is the exact condition this component exists to
+    /// end. Defaulting to true instead means an unconfigured deployment fails
+    /// <see cref="Validate"/> and degrades to <c>NullNotificationSender</c> with a
+    /// loud log line — visibly broken rather than invisibly silent. That degrade
+    /// path is why turning this on by default cannot stop the loaders running.</para>
     /// </summary>
-    public bool Enabled { get; set; }
+    public bool Enabled { get; set; } = true;
 
     public string SmtpHost { get; set; } = string.Empty;
     public int SmtpPort { get; set; } = 25;

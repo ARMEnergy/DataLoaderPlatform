@@ -39,11 +39,16 @@ public class NotificationSettingsTests
     }
 
     [Fact]
-    public void FromConfiguration_MissingSection_YieldsDisabledDefaults()
+    public void FromConfiguration_MissingSection_DefaultsToEnabled()
     {
         var settings = NotificationSettings.FromConfiguration(Config());
 
-        Assert.False(settings.Enabled);
+        // Deliberately TRUE when the section is absent. A missing config section
+        // defaulting to "off" would give a platform that looks healthy and tells
+        // nobody anything — the exact silence this feature exists to end. On
+        // instead means it fails Validate() and degrades loudly to
+        // NullNotificationSender, which cannot stop the loaders running.
+        Assert.True(settings.Enabled);
         Assert.Equal(25, settings.SmtpPort);
         Assert.True(settings.UseSsl);
         Assert.Equal("[DataLoader]", settings.SubjectPrefix);

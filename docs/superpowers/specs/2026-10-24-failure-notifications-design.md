@@ -280,6 +280,10 @@ Added to `src/DataLoader.Host/appsettings.json` under `Platform`:
 
 ```jsonc
 "Notifications": {
+  // UPDATE 2026-10-27: now ships TRUE, and the C# property defaults to true
+  // as well. The gate below was answered empirically on 2026-10-26 — a real
+  // alert left ARMH-OPSDB01 and arrived, proving port-25 egress and that
+  // "Reject Direct Send" is off. Originally:
   // Ships false. Flipped to true once §10 confirms ARMH-OPSDB01 can egress
   // on 25 and that Reject Direct Send is off.
   "Enabled": false,
@@ -468,7 +472,29 @@ dotnet test DataLoaderPlatform.sln -c Release
 | Deploy: `Publish-ToProd.ps1 -OverwriteSettings`, then the `Src` to `Loader` copy | IT | Yes |
 
 The in-process notifier can be built, tested and merged before any of these
-land; it stays inert while `Enabled: false`.
+land; it stayed inert while `Enabled: false`.
+
+**UPDATE 2026-10-27 — the SMTP prerequisites are satisfied and alerting now
+ships ON.** The two IT questions above were answered by evidence rather than
+confirmation: on 2026-10-26 a real alert (`FAILED: ICE on ARMH-OPSDB01
+(1/651 units failed)`) was sent from the server and delivered, which proves
+both port-25 egress and that "Reject Direct Send" is not blocking. So
+`Platform:Notifications:Enabled` now ships `true`, and `NotificationSettings.Enabled`
+defaults to `true` in code as well.
+
+⚠ The **code** default is the load-bearing half. It governs the case where the
+`Platform:Notifications` section is missing entirely — a fresh deployment, or
+someone trimming config. Defaulting to `false` there would produce a platform
+that looks healthy and silently tells nobody anything, which is precisely the
+condition this component exists to end. Defaulting to `true` means an
+unconfigured deployment instead fails `Validate()` and degrades to
+`NullNotificationSender` with a loud log line: visibly broken rather than
+invisibly silent. That degrade path (§Task 10) is what makes on-by-default safe
+— a bad notification config still cannot stop the loaders running.
+
+Still outstanding for the **watchdog** half only: `Watchdog.cmd` and the
+`\DLP\Watchdog` task. The watchdog has no master on/off switch by design — the
+scheduled task's existence is the switch.
 
 **Production writes.** Deploying this is a write to `ARMH-OPSDB01`. Per the
 standing rule, the exact commands are prepared and handed over, never run
