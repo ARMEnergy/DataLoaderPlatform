@@ -323,6 +323,94 @@ public class RunFailureReportTests
     }
 
     [Fact]
+    public void Body_FailuresWithNoPerUnitDetail_SaysSoRatherThanImplyingUnitsWereShown()
+    {
+        // WorkUnitsFailed > 0 but FailedUnits is empty — either a hand-rolled
+        // merge that forgot to carry the list (the real AGSI bug), or a pipeline
+        // that never captured per-unit detail at all. Rendering "...and 4 more"
+        // here would claim 4 units were just listed above, when zero were.
+        var body = Report(new[] { Bad("Vulcan", "boom", failed: 4, total: 14) }).BuildMessage().Body;
+
+        Assert.Contains("(no per-unit detail captured for this loader)", body);
+        Assert.DoesNotContain("and 4 more", body);
+        Assert.DoesNotContain("more failed unit(s)", body);
+        Assert.DoesNotContain("Failed Work Unit Key:", body);
+    }
+
+    [Fact]
+    public void Body_SomeUnitsRenderedAndMoreExist_StillUsesTheAndMoreWording()
+    {
+        // The genuine overflow case (covered more fully by the 40-failure test
+        // above) — contrasted directly against the all-missing case above so the
+        // two sentences are pinned as deliberately different.
+        var units = Enumerable.Range(1, 3).Select(i => Failure(i)).ToArray();
+        var body = Report(new[] { BadWithUnits("ICE", units, failed: 5, total: 5) }).BuildMessage().Body;
+
+        Assert.Contains("Failed Work Unit Key:", body);
+        Assert.Contains("… and 2 more failed unit(s) — see the log", body);
+        Assert.DoesNotContain("no per-unit detail captured", body);
+    }
+
+    // ------------------------------------------------- AGSI regression (merged result)
+
+    [Fact]
+    public void Body_AgsiShape_MergedSubPipelineFailures_ShowFullDetailForAllFour()
+    {
+        // Reproduces the real production alert: AGSI runs two sub-pipelines
+        // (About then Storage) and merges their results. The merge used to drop
+        // FailedUnits entirely, so the email printed "...and 4 more failed
+        // unit(s)" with zero of the four actually shown. Going through
+        // LoaderRunResult.Aggregate must carry all four through with full detail.
+        var about = new LoaderRunResult
+        {
+            LoaderId = "AGSI", Success = true, WorkUnitsTotal = 2, WorkUnitsSucceeded = 2
+        };
+
+        var countries = new[] { "hu", "pl", "ro", "sk" };
+        var storageFailures = countries.Select(c => new FailedWorkUnit(
+            Key: $"country={c}&date=2026-10-26",
+            DisplayName: $"AGSI Storage {c} 2026-10-26",
+            ErrorText: $"[AGSI Storage] /api?country={c}&date=2026-10-26: HTTP 200 but the body reports error 'Try/Catch error'",
+            StackTrace: $"System.InvalidOperationException: HTTP 200 but the body reports error 'Try/Catch error'\n   at DataLoader.AGSI.AgsiStorageSourceReader.ReadAsync() [{c}]"
+        )).ToArray();
+
+        var storage = new LoaderRunResult
+        {
+            LoaderId = "AGSI", Success = false,
+            WorkUnitsTotal = 524, WorkUnitsSucceeded = 520, WorkUnitsFailed = 4,
+            RecordsProcessed = 478, FailedUnits = storageFailures
+        };
+
+        var merged = LoaderRunResult.Aggregate("AGSI", new[] { about, storage }, TimeSpan.FromMinutes(3));
+
+        // Sanity on the merge itself before checking the render.
+        Assert.False(merged.Success);
+        Assert.Equal(526, merged.WorkUnitsTotal);
+        Assert.Equal(522, merged.WorkUnitsSucceeded);
+        Assert.Equal(4, merged.WorkUnitsFailed);
+        Assert.Equal(478, merged.RecordsProcessed);
+        Assert.Equal(4, merged.FailedUnits.Count);
+
+        var body = Report(new[] { merged }).BuildMessage().Body;
+
+        Assert.Contains("522/526 ok", body);
+        Assert.Contains("4 failed", body);
+        Assert.Contains("478 records", body);
+
+        foreach (var c in countries)
+        {
+            Assert.Contains($"country={c}&date=2026-10-26", body);
+            Assert.Contains(
+                $"[AGSI Storage] /api?country={c}&date=2026-10-26: HTTP 200 but the body reports error 'Try/Catch error'",
+                body);
+        }
+
+        // The whole point: no bare, unexplained "and 4 more" with nothing shown.
+        Assert.DoesNotContain("and 4 more", body);
+        Assert.DoesNotContain("no per-unit detail captured", body);
+    }
+
+    [Fact]
     public void Body_SuccessfulLoader_NeverShowsFailedUnitDetail()
     {
         var ok = Ok("Platts");

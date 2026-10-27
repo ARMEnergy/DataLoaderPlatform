@@ -191,17 +191,7 @@ public sealed class VulcanModule : ILoaderModule
             }
         }
 
-        return new LoaderRunResult
-        {
-            LoaderId = Id,
-            Success = results.All(r => r.Success),
-            WorkUnitsTotal = results.Sum(r => r.WorkUnitsTotal),
-            WorkUnitsSucceeded = results.Sum(r => r.WorkUnitsSucceeded),
-            WorkUnitsSkipped = results.Sum(r => r.WorkUnitsSkipped),
-            WorkUnitsFailed = results.Sum(r => r.WorkUnitsFailed),
-            RecordsProcessed = results.Sum(r => r.RecordsProcessed),
-            ErrorMessage = string.Join("; ", results.Where(r => !r.Success && r.ErrorMessage != null).Select(r => r.ErrorMessage)),
-            Duration = results.Aggregate(TimeSpan.Zero, (acc, r) => acc + r.Duration)
-        };
+        var duration = results.Aggregate(TimeSpan.Zero, (acc, r) => acc + r.Duration);
+        return LoaderRunResult.Aggregate(Id, results, duration);
     }
 }

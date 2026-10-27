@@ -219,8 +219,13 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
         /// runs thousands of units; holding every failure's full detail could be
         /// tens of megabytes. <see cref="Failed"/> always carries the true count,
         /// so nothing is lost but bulk beyond this cap.
+        ///
+        /// <para>Sourced from <see cref="LoaderRunResult.MaxFailedUnitsRetained"/>
+        /// rather than redeclared, so this and <see cref="LoaderRunResult.Aggregate"/>
+        /// (which re-caps when combining several pipelines' results) cannot drift
+        /// apart into two different "25"s.</para>
         /// </summary>
-        private const int MaxFailedUnitsRetained = 25;
+        private const int MaxFailedUnitsRetained = LoaderRunResult.MaxFailedUnitsRetained;
 
         private int _succeeded;
         private int _skipped;

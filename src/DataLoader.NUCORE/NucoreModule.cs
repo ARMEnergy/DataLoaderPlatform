@@ -163,7 +163,7 @@ public sealed class NucoreModule : ILoaderModule
             string.IsNullOrWhiteSpace(settings.StartDate) ? $"{settings.DaysBack} day(s) back" : settings.StartDate,
             settings.SettledAfterDays, settings.PageSize, settings.BatchSize);
 
-        var aggregate = new LoaderRunResult { LoaderId = Id, Success = true };
+        var results = new List<LoaderRunResult>();
         var failures = new List<string>();
 
         foreach (var pipeline in enabled)
@@ -186,40 +186,17 @@ public sealed class NucoreModule : ILoaderModule
                 logger.LogError(ex, "NUCORE: endpoint {Endpoint} threw out of its pipeline",
                     pipeline.EndpointName);
                 failures.Add(pipeline.EndpointName);
+                results.Add(LoaderRunResult.Failed(Id, $"{pipeline.EndpointName}: {ex.Message}", TimeSpan.Zero));
                 continue;
             }
 
             if (!result.Success) failures.Add(pipeline.EndpointName);
-
-            aggregate = new LoaderRunResult
-            {
-                LoaderId = Id,
-                Success = aggregate.Success && result.Success,
-                WorkUnitsTotal = aggregate.WorkUnitsTotal + result.WorkUnitsTotal,
-                WorkUnitsSucceeded = aggregate.WorkUnitsSucceeded + result.WorkUnitsSucceeded,
-                WorkUnitsSkipped = aggregate.WorkUnitsSkipped + result.WorkUnitsSkipped,
-                WorkUnitsFailed = aggregate.WorkUnitsFailed + result.WorkUnitsFailed,
-                RecordsProcessed = aggregate.RecordsProcessed + result.RecordsProcessed,
-                Duration = aggregate.Duration + result.Duration
-            };
+            results.Add(result);
         }
 
-        if (failures.Count > 0)
-        {
-            // LoaderRunResult is an init-only class, not a record - rebuild it.
-            aggregate = new LoaderRunResult
-            {
-                LoaderId = Id,
-                Success = false,
-                ErrorMessage = $"Failed endpoint(s): {string.Join(", ", failures)}",
-                WorkUnitsTotal = aggregate.WorkUnitsTotal,
-                WorkUnitsSucceeded = aggregate.WorkUnitsSucceeded,
-                WorkUnitsSkipped = aggregate.WorkUnitsSkipped,
-                WorkUnitsFailed = aggregate.WorkUnitsFailed,
-                RecordsProcessed = aggregate.RecordsProcessed,
-                Duration = aggregate.Duration
-            };
-        }
+        var duration = results.Aggregate(TimeSpan.Zero, (acc, r) => acc + r.Duration);
+        var errorMessage = failures.Count > 0 ? $"Failed endpoint(s): {string.Join(", ", failures)}" : null;
+        var aggregate = LoaderRunResult.Aggregate(Id, results, duration, errorMessage);
 
         logger.LogInformation(
             "NUCORE run complete: {Succeeded} succeeded, {Skipped} skipped, {Failed} failed, " +

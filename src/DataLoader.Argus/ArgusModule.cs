@@ -163,7 +163,7 @@ public sealed class ArgusModule : ILoaderModule
         logger.LogInformation("Argus: running {Count} of {Total} feed(s): {Feeds}",
             enabled.Count, pipelines.Count, string.Join(", ", enabled.Select(p => p.FeedId)));
 
-        var aggregate = new LoaderRunResult { LoaderId = Id, Success = true };
+        var results = new List<LoaderRunResult>();
         var failures = new List<string>();
 
         foreach (var pipeline in enabled)
@@ -185,39 +185,12 @@ public sealed class ArgusModule : ILoaderModule
             {
                 logger.LogError(ex, "Argus: feed {Feed} threw out of its pipeline", pipeline.FeedId);
                 failures.Add(pipeline.FeedId);
+                results.Add(LoaderRunResult.Failed(Id, $"{pipeline.FeedId}: {ex.Message}", TimeSpan.Zero));
                 continue;
             }
 
             if (!result.Success) failures.Add(pipeline.FeedId);
-
-            aggregate = new LoaderRunResult
-            {
-                LoaderId = Id,
-                Success = aggregate.Success && result.Success,
-                WorkUnitsTotal = aggregate.WorkUnitsTotal + result.WorkUnitsTotal,
-                WorkUnitsSucceeded = aggregate.WorkUnitsSucceeded + result.WorkUnitsSucceeded,
-                WorkUnitsSkipped = aggregate.WorkUnitsSkipped + result.WorkUnitsSkipped,
-                WorkUnitsFailed = aggregate.WorkUnitsFailed + result.WorkUnitsFailed,
-                RecordsProcessed = aggregate.RecordsProcessed + result.RecordsProcessed,
-                Duration = aggregate.Duration + result.Duration
-            };
-        }
-
-        if (failures.Count > 0)
-        {
-            // LoaderRunResult is an init-only class, not a record — rebuild it.
-            aggregate = new LoaderRunResult
-            {
-                LoaderId = Id,
-                Success = false,
-                ErrorMessage = $"Failed feed(s): {string.Join(", ", failures)}",
-                WorkUnitsTotal = aggregate.WorkUnitsTotal,
-                WorkUnitsSucceeded = aggregate.WorkUnitsSucceeded,
-                WorkUnitsSkipped = aggregate.WorkUnitsSkipped,
-                WorkUnitsFailed = aggregate.WorkUnitsFailed,
-                RecordsProcessed = aggregate.RecordsProcessed,
-                Duration = aggregate.Duration
-            };
+            results.Add(result);
         }
 
         // Post-load validation is observational and must not change the run's
@@ -227,6 +200,10 @@ public sealed class ArgusModule : ILoaderModule
         var latestDate = services.GetRequiredService<ArgusTimeSeriesWorkUnitProvider>().LastEnumeratedMaxDate;
         await services.GetRequiredService<ArgusLoadValidator>()
             .ValidateAsync(latestDate, context.CancellationToken).ConfigureAwait(false);
+
+        var duration = results.Aggregate(TimeSpan.Zero, (acc, r) => acc + r.Duration);
+        var errorMessage = failures.Count > 0 ? $"Failed feed(s): {string.Join(", ", failures)}" : null;
+        var aggregate = LoaderRunResult.Aggregate(Id, results, duration, errorMessage);
 
         logger.LogInformation(
             "Argus run complete: {Succeeded} succeeded, {Skipped} skipped, {Failed} failed, {Records} record(s)",

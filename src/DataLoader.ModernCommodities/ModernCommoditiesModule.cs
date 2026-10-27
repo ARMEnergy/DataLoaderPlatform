@@ -230,23 +230,8 @@ public sealed class ModernCommoditiesModule : ILoaderModule
         await services.GetRequiredService<ModernCommoditiesLoadValidator>()
             .ValidateAsync(context, orderedDescriptors, context.CancellationToken).ConfigureAwait(false);
 
-        var failureMessages = results
-            .Where(r => !r.Success && r.ErrorMessage != null)
-            .Select(r => r.ErrorMessage)
-            .ToList();
-
-        return new LoaderRunResult
-        {
-            LoaderId = Id,
-            Success = results.All(r => r.Success),
-            WorkUnitsTotal = results.Sum(r => r.WorkUnitsTotal),
-            WorkUnitsSucceeded = results.Sum(r => r.WorkUnitsSucceeded),
-            WorkUnitsSkipped = results.Sum(r => r.WorkUnitsSkipped),
-            WorkUnitsFailed = results.Sum(r => r.WorkUnitsFailed),
-            RecordsProcessed = results.Sum(r => r.RecordsProcessed),
-            ErrorMessage = failureMessages.Count > 0 ? string.Join("; ", failureMessages) : null,
-            Duration = results.Aggregate(TimeSpan.Zero, (acc, r) => acc + r.Duration)
-        };
+        var duration = results.Aggregate(TimeSpan.Zero, (acc, r) => acc + r.Duration);
+        return LoaderRunResult.Aggregate(Id, results, duration);
     }
 
     /// <summary>

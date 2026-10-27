@@ -52,12 +52,14 @@ public sealed class RunFailureReport : INotificationPayload
 
     /// <summary>
     /// Hard ceiling on how many failed units this renders, enforced here
-    /// independently of <c>LoaderPipelineBase.Counters</c>' own 25-unit
-    /// retention cap — defense in depth, so a future caller that hands this a
-    /// longer <see cref="LoaderRunResult.FailedUnits"/> list still gets a
-    /// bounded email rather than one line per unit.
+    /// independently of <c>LoaderPipelineBase.Counters</c>' (and
+    /// <see cref="LoaderRunResult.Aggregate"/>'s) own retention cap — defense in
+    /// depth, so a future caller that hands this a longer
+    /// <see cref="LoaderRunResult.FailedUnits"/> list still gets a bounded email
+    /// rather than one line per unit. Sourced from the same constant as those
+    /// two so "defense in depth" does not quietly become "two different caps".
     /// </summary>
-    private const int MaxRenderedFailedUnits = 25;
+    private const int MaxRenderedFailedUnits = LoaderRunResult.MaxFailedUnitsRetained;
 
     /// <summary>Column the value starts at — every label below is padded to this width.</summary>
     private const int FailedUnitLabelWidth = 26;
@@ -196,10 +198,22 @@ public sealed class RunFailureReport : INotificationPayload
     /// own error line — key/display/error text for every captured unit, plus a
     /// trimmed stack for the first <see cref="FullDetailUnitCount"/> of them.
     ///
-    /// <para><see cref="LoaderRunResult.FailedUnits"/> is already capped (at 25,
-    /// in <c>LoaderPipelineBase.Counters</c>) by the time it gets here, so this
-    /// never iterates more than that. When the real failure count exceeds what
-    /// was captured, one summary line reports how many more there were.</para>
+    /// <para><see cref="LoaderRunResult.FailedUnits"/> is already capped (at
+    /// <see cref="LoaderRunResult.MaxFailedUnitsRetained"/>, in
+    /// <c>LoaderPipelineBase.Counters</c> or <see cref="LoaderRunResult.Aggregate"/>)
+    /// by the time it gets here, so this never iterates more than that. When the
+    /// real failure count exceeds what was captured, one summary line reports
+    /// how many more there were.</para>
+    ///
+    /// <para>⚠ A loader can report <see cref="LoaderRunResult.WorkUnitsFailed"/>
+    /// greater than zero while <see cref="LoaderRunResult.FailedUnits"/> is
+    /// empty — either a hand-rolled merge that forgot to carry the list (the bug
+    /// that put zero units under "...and 4 more" in a real AGSI alert, before
+    /// every such merge went through <see cref="LoaderRunResult.Aggregate"/>), or
+    /// simply a pipeline that never captures per-unit detail to begin with. That
+    /// is NOT the same situation as some-rendered-some-not, and must not reuse
+    /// its wording: "...and 4 more" implies 4 were just listed above, which is a
+    /// lie when the count rendered is zero. The two cases get different sentences.</para>
     ///
     /// <para>🔒 Every string below is vendor-supplied (a work unit's key/display
     /// name, and the error text and stack captured at the point of failure) and
@@ -215,6 +229,16 @@ public sealed class RunFailureReport : INotificationPayload
         var renderCount = Math.Min(units.Count, MaxRenderedFailedUnits);
         for (var i = 0; i < renderCount; i++)
             AppendFailedUnit(sb, units[i], includeStack: i < FullDetailUnitCount);
+
+        if (renderCount == 0)
+        {
+            // Nothing was listed above, so "...and N more" would read as though
+            // N units had just been shown. Say plainly that there is no detail,
+            // rather than implying an overflow that never happened.
+            if (r.WorkUnitsFailed > 0)
+                sb.AppendLine($"{FailedUnitIndent}(no per-unit detail captured for this loader)");
+            return;
+        }
 
         var uncaptured = r.WorkUnitsFailed - renderCount;
         if (uncaptured > 0)
