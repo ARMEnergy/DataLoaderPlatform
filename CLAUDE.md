@@ -682,6 +682,51 @@ rows accumulate forever; the watchdog's stuck-run query is bounded by
 
 See `docs/superpowers/specs/2026-10-24-failure-notifications-design.md`.
 
+## Log rotation
+
+`C:\ETL_Tools\DataLoaderPlatform\Log\` — one `<LoaderName>.log` per loader plus
+`Watchdog.log` — is the ONLY place a loader's stack trace exists (the app logs to
+console only, and `core.LoadLog` stores just `ex.Message`), and until 2026-10-27
+nothing rotated it: measured that day, 24 files / 157 MB, `EnergyAspects.log` alone
+127 MB over seven weeks and growing ~2.7 MB/day. `scripts\Rotate-Logs.ps1` is the fix.
+Disk was never the constraint (52.9 GB free) — diagnosability was: nobody should page
+through a 127 MB file at 6am to find why a run failed.
+
+Defaults (every parameter has one, so a bare invocation is correct): `-LogPath
+C:\ETL_Tools\DataLoaderPlatform\Log`, `-ThresholdMB 25`, `-CompressAfterDays 7`,
+`-DeleteAfterDays 90`. Each pass runs, in order: **rotate** any `*.log` at/above
+threshold into `Archive\<basename>_yyyy_MM_dd_HH_mm_ss.log` (same stamp convention as
+`Publish-ToProd.ps1`'s `Old\`, `Archive\` created on demand); **compress** any
+`Archive\*.log` older than `-CompressAfterDays` into a `.zip` next to it (~15x
+smaller), deleting the `.log` only once the `.zip` verifiably exists and is
+non-empty; **delete** any `Archive\*.zip`/`*.log` older than `-DeleteAfterDays`; then
+print rotated/skipped-locked/compressed/deleted counts and bytes reclaimed.
+
+🔒 **A locked file is the NORMAL case, not a bug.** Each `.cmd` launcher's
+`>> "%LOGFILE%" 2>&1` holds `cmd.exe`'s append handle open for the whole run — minutes
+to hours — of several concurrent loaders, so renaming an active log routinely fails.
+The script catches that, logs it at information level, and moves on; **exit code
+stays 0** even for a pass where every file was locked. The one loud exception: a file
+still at/above **3× `-ThresholdMB`** after a failed rotation attempt means it has been
+locked across many passes (or something else is wrong), and gets a named warning —
+otherwise the ordinary skip would hide a permanently-stuck file forever. The only
+non-zero exit is `-LogPath` missing or unreadable, i.e. the script itself could not
+function.
+
+`-SelfTest` is the test surface: Pester (3.4.0, the version bundled with Windows
+PowerShell 5.1) is technically present but unused anywhere in `scripts\`, so this
+follows the house precedent set by `Test-SqlParses.ps1` — a self-contained pass/fail
+script rather than a framework. It calls the SAME `Invoke-LogRotationPass` /
+`Invoke-RotateStep` / `Invoke-CompressStep` / `Invoke-DeleteStep` functions a real
+pass uses (not a reimplementation) against a throwaway temp directory, covering
+rotate-over-threshold, leave-under-threshold, skip-locked-exit-0, loud-warning-at-3x,
+compress-then-remove-log, delete-expired-zip, dry-run-changes-nothing, and
+missing/empty `Archive\`. `-DryRun` reports every candidate action and changes
+nothing on disk — verified against a fabricated 127 MB + 9 MB + twenty-small-file
+directory. Never point this at `ARMH-OPSDB01` without being specifically asked — see
+the standing rule at the top of this file; it has only ever been run against local
+temp directories.
+
 ## Key files
 
 - `src/DataLoader.Core/Abstractions/`
