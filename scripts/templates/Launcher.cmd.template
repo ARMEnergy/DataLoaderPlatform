@@ -1,0 +1,86 @@
+@echo off
+setlocal
+
+rem =============================================================================
+rem GENERATED FILE -- DO NOT HAND-EDIT.
+rem
+rem Regenerate every launcher from this one template with
+rem scripts\Generate-Launchers.ps1 (source: scripts\templates\Launcher.cmd.template).
+rem
+rem This exact file, byte for byte, is stamped to EVERY "<Loader>.cmd" AND to
+rem "Watchdog.cmd" -- %~n0 (the filename, no extension) supplies both the log
+rem file name and the argument passed to DataLoader.Host.exe (see LOADER_ARG
+rem below), which is why one template still produces all 23 destination files.
+rem This is the same trick the original launchers used; only the release
+rem resolution below (current.txt) is new.
+rem =============================================================================
+
+set "PLATFORM_ROOT=%~dp0"
+set "LOADER_NAME=%~n0"
+set "LOGFILE=%PLATFORM_ROOT%Log\%LOADER_NAME%.log"
+set "CURRENT_FILE=%PLATFORM_ROOT%current.txt"
+set TS=%date% %time%
+
+rem Watchdog.cmd is this SAME file under a different name: it hardcodes
+rem "--watchdog" where every other loader passes its own filename through.
+if /I "%LOADER_NAME%"=="Watchdog" (
+    set "LOADER_ARG=--watchdog"
+) else (
+    set "LOADER_ARG=%LOADER_NAME%"
+)
+
+echo. >> "%LOGFILE%"
+echo. >> "%LOGFILE%"
+echo [%TS%] Run started >> "%LOGFILE%"
+
+rem --- resolve the active release -----------------------------------------
+rem current.txt is written atomically by Deploy-Release.ps1 (write to a temp
+rem file, then MoveFileEx(MOVEFILE_REPLACE_EXISTING) onto current.txt), so a
+rem task firing mid-flip reads either the OLD full name or the NEW full name
+rem almost always -- but that rename was measured, under heavy contention
+rem while this was built, to leave a microsecond-scale window where a read
+rem can come back zero-length. A handful of IMMEDIATE re-reads (no real
+rem deploy flips current.txt more than once) tells a genuinely missing/empty
+rem pointer apart from that window. What is checked after the retries is
+rem everything a launcher cannot assume on faith: that the pointer names
+rem something, and that something exists on disk with the exe we are about
+rem to run. Any of those failing means STOP -- never fall back to a stale
+rem release or run from the wrong directory.
+set "RELEASE="
+set "READ_ATTEMPTS=0"
+
+:read_current
+set /a READ_ATTEMPTS+=1
+if exist "%CURRENT_FILE%" (
+    for /f "usebackq delims=" %%R in ("%CURRENT_FILE%") do if not defined RELEASE set "RELEASE=%%R"
+)
+if defined RELEASE goto :release_resolved
+if %READ_ATTEMPTS% geq 5 goto :release_resolved
+goto :read_current
+
+:release_resolved
+if not defined RELEASE (
+    echo [%TS%] ERROR: "%CURRENT_FILE%" is missing or empty -- refusing to run >> "%LOGFILE%"
+    set "EXITCODE=1"
+    goto :report
+)
+
+set "RELEASE_DIR=%PLATFORM_ROOT%Releases\%RELEASE%"
+if not exist "%RELEASE_DIR%\DataLoader.Host.exe" (
+    echo [%TS%] ERROR: current.txt names "%RELEASE%" but "%RELEASE_DIR%\DataLoader.Host.exe" was not found -- refusing to run >> "%LOGFILE%"
+    set "EXITCODE=1"
+    goto :report
+)
+
+cd /d "%RELEASE_DIR%"
+rem ".\" is explicit on purpose -- it does not depend on cmd.exe's
+rem current-directory fallback when searching for a bare command name, which
+rem some hardened hosts disable (NoDefaultCurrentDirectoryInExePath=1). An
+rem explicit relative path resolves identically with or without that
+rem setting, so this is strictly safer than the bare name the old launcher used.
+.\DataLoader.Host.exe %LOADER_ARG% >> "%LOGFILE%" 2>&1
+set "EXITCODE=%ERRORLEVEL%"
+
+:report
+echo Exit code: %EXITCODE% >> "%LOGFILE%"
+exit /b %EXITCODE%
