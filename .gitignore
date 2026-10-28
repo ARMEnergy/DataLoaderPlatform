@@ -31,3 +31,6 @@ _ReSharper*/
 .idea/
 #Nuget packages folder
 packages/
+
+#Local developer config overlay - never commit (holds machine-specific paths and may hold secrets)
+appsettings.Local.json

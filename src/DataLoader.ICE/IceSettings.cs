@@ -129,8 +129,27 @@ public sealed class IceSettings : LoaderSettingsBase
 
     /// <summary>
     /// Where downloaded files are kept, laid out <c>&lt;dir&gt;/&lt;FeedId&gt;/&lt;filename&gt;</c>.
-    /// A relative path resolves against the host's base directory, so the default
-    /// keeps files with the deployment rather than in a system temp folder.
+    /// A relative path resolves against the host's base directory; an absolute one
+    /// is used as given.
+    ///
+    /// <para>⚠ <b>Production configures this ABSOLUTE, OUTSIDE the deployment folder,
+    /// and it must stay that way.</b> When it lived under the deployed folder
+    /// (<c>files/ICE</c>, relative), every deploy destroyed the cache:
+    /// <c>Publish-ToProd.ps1</c> MOVES the target's contents into
+    /// <c>Old\&lt;timestamp&gt;\</c>, so the whole cache went with it. Measured
+    /// 2026-10-28 — each archive held ~1.7 GB of orphaned cache across 12 archives
+    /// (14.4 GB total), and the run after each deploy re-downloaded all 462 files
+    /// in one burst (all 22 dates × 21 feeds written within six minutes).</para>
+    ///
+    /// <para>That is expensive, not merely untidy: the ICE account is capped at
+    /// 30 requests/minute <b>account-wide</b>, so a full rebuild is 15+ minutes of
+    /// solid re-fetching that competes with real work. It also made
+    /// <see cref="FileRetentionDays"/> look broken — nothing was ever older than
+    /// 7 days because the clock kept being reset.</para>
+    ///
+    /// <para>A developer wanting files somewhere else should override this in
+    /// <c>appsettings.Local.json</c>, which the host already loads as an optional
+    /// overlay and which is git-ignored.</para>
     /// </summary>
     public string DownloadDirectory { get; set; } = "files/ICE";
 
