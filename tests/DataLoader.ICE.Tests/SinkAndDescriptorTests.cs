@@ -246,7 +246,18 @@ public sealed class SinkAndDescriptorTests
 
         Assert.Equal(30, settings.DaysBack);
         Assert.Equal(30, settings.SettledAfterDays);
-        Assert.Equal(7, settings.FileRetentionDays);
+
+        // 31, deliberately one more than DaysBack, so the whole window stays
+        // cached and nothing is re-fetched merely because it expired. Was 7
+        // until 2026-10-28, when the cache moved out of the deployed folder —
+        // before that every deploy destroyed it, so no file ever lived long
+        // enough for a 7-day sweep to delete and the setting did nothing
+        // observable. Bandwidth is the scarce resource here, not disk: the ICE
+        // account is capped at 30 requests/minute ACCOUNT-WIDE across 21 feeds,
+        // while the full cache is only ~1.7 GB.
+        Assert.Equal(31, settings.FileRetentionDays);
+        Assert.True(settings.FileRetentionDays > settings.DaysBack,
+            "retention must exceed DaysBack, or hot dates re-download every run");
         Assert.Equal("SEE_DB", settings.UserId);
         Assert.Equal("SEE_DB", settings.Password);
         Assert.False(settings.ForceDownload);

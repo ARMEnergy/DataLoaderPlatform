@@ -160,10 +160,22 @@ public sealed class IceSettings : LoaderSettingsBase
     /// <para>
     /// Retention shorter than <see cref="DaysBack"/> means dates between the two
     /// re-download each time they go hot — a bandwidth/disk trade-off, not a
-    /// correctness issue. The shipped 7/30 pair favours disk.
-    /// </para>
+    /// correctness issue.
+    ///
+    /// <para>⚠ Ships <b>31</b>, deliberately one more than <see cref="DaysBack"/>,
+    /// so the whole window stays cached and nothing is ever re-fetched merely
+    /// because it expired. Bandwidth is the scarcer resource here: the ICE account
+    /// is capped at 30 requests/minute <b>account-wide</b>, shared across all 21
+    /// feeds, while the full cache is only ~1.7 GB.</para>
+    ///
+    /// <para>It shipped as 7 until 2026-10-28, chosen to favour disk. That was the
+    /// wrong trade, and the evidence had been invisible: the cache lived inside the
+    /// deployed folder, so every deploy destroyed it (see
+    /// <see cref="DownloadDirectory"/>) and nothing ever survived long enough for a
+    /// 7-day sweep to delete. Retention only became observable once the cache moved
+    /// outside the deployment.</para>
     /// </summary>
-    public int FileRetentionDays { get; set; } = 7;
+    public int FileRetentionDays { get; set; } = 31;
 
     /// <summary>
     /// When false (the default), a file already on disk and non-empty is REUSED
