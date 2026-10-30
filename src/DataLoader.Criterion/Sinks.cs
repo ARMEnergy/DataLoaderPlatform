@@ -43,17 +43,25 @@ public class CriterionTvpSink : SqlSinkBase<CriterionRow>
 {
     private readonly CriterionTableDescriptor _table;
     private readonly string _connectionString;
+    private readonly int _commandTimeoutSeconds;
 
-    public CriterionTvpSink(CriterionTableDescriptor table, string connectionString, ILogger logger)
+    public CriterionTvpSink(
+        CriterionTableDescriptor table, string connectionString, int commandTimeoutSeconds, ILogger logger)
         : base(logger)
     {
         _table = table;
         _connectionString = connectionString;
+        _commandTimeoutSeconds = commandTimeoutSeconds;
     }
 
     protected override string GetConnectionString() => _connectionString;
     protected override string StoredProcedureName => _table.MergeProc;
     protected override string TableValuedParameterType => _table.TvpType;
+
+    // Math.Max(30, …) — same shape as EiaLoadValidator — so a misconfigured zero or
+    // negative CriterionSettings.SinkCommandTimeoutSeconds cannot reintroduce the
+    // 30-second ADO.NET default this setting exists to move away from.
+    protected override int CommandTimeoutSeconds => Math.Max(30, _commandTimeoutSeconds);
 
     protected override DataTable BuildTable(IReadOnlyList<CriterionRow> rows)
     {
@@ -112,12 +120,13 @@ public sealed class CriterionBatchingSink : ISink<CriterionRow>
     private readonly ILogger _logger;
 
     public CriterionBatchingSink(
-        CriterionTableDescriptor table, string connectionString, int batchSize, ILogger logger)
+        CriterionTableDescriptor table, string connectionString, int batchSize, int commandTimeoutSeconds,
+        ILogger logger)
     {
         _table = table;
         _batchSize = Math.Max(1, batchSize);
         _logger = logger;
-        _inner = new CriterionTvpSink(table, connectionString, logger);
+        _inner = new CriterionTvpSink(table, connectionString, commandTimeoutSeconds, logger);
     }
 
     public async Task<int> WriteAsync(IReadOnlyList<CriterionRow> rows, CancellationToken cancellationToken)

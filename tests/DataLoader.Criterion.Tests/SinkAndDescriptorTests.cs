@@ -20,7 +20,7 @@ public sealed class SinkAndDescriptorTests
     private sealed class ProbeSink : CriterionTvpSink
     {
         public ProbeSink(CriterionTableDescriptor table)
-            : base(table, "Server=(local);Database=Criterion;Integrated Security=SSPI;", NullLogger.Instance) { }
+            : base(table, "Server=(local);Database=Criterion;Integrated Security=SSPI;", 300, NullLogger.Instance) { }
 
         public DataTable Build(IReadOnlyList<CriterionRow> rows) => BuildTable(rows);
     }
@@ -109,7 +109,7 @@ public sealed class SinkAndDescriptorTests
         var sink = new CriterionBatchingSink(
             CriterionDescriptors.MiscUnitTable,
             "Server=(local);Database=Criterion;Integrated Security=SSPI;Connect Timeout=1;",
-            50_000, NullLogger.Instance);
+            50_000, 300, NullLogger.Instance);
 
         // No connection is attempted for zero rows, so this returns rather than
         // failing to reach a server that is not there.

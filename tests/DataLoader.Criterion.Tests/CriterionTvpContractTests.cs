@@ -496,6 +496,17 @@ internal static class RepoPaths
     /// </summary>
     public static string LoaderSourceDirectory { get; } = FindUp(Path.Combine("src", "DataLoader.Criterion"));
 
+    /// <summary>
+    /// <c>src/DataLoader.Host/appsettings.json</c> — the actual SHIPPED configuration,
+    /// not <c>CriterionSettings</c>' bare class defaults. <c>WorkUnitTimeoutSeconds=1800</c>
+    /// exists only in this file (the class default, inherited from
+    /// <c>LoaderSettingsBase</c>, is 300), so a guard that compares it against
+    /// <c>SinkCommandTimeoutSeconds</c> only means something if it reads what is
+    /// actually deployed.
+    /// </summary>
+    public static string HostAppSettingsFile { get; } =
+        Path.Combine(FindUp(Path.Combine("src", "DataLoader.Host")), "appsettings.json");
+
     private static string FindSqlDirectory() => FindUp(Path.Combine("sql", "Criterion"));
 
     private static string FindUp(string relative)

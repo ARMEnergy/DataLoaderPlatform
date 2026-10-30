@@ -1,4 +1,5 @@
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Sinks;
 
 namespace DataLoader.Criterion;
 
@@ -177,6 +178,28 @@ public sealed class CriterionSettings : LoaderSettingsBase
     /// </para>
     /// </summary>
     public int MergeBatchSize { get; set; } = 50_000;
+
+    /// <summary>
+    /// Overrides <see cref="SqlSinkBase{TRow}.CommandTimeoutSeconds"/>'s 300s
+    /// default for this loader's TVP merges, in seconds. Criterion is the loader actually
+    /// observed hitting the 30-second ADO.NET default — <c>SqlException -2</c> against
+    /// <c>FinancialSeriesData</c>, roughly 1 run in 15 in October 2026, merging ~136.9M
+    /// rows/day in 50,000-row batches into a 400M-row table — so it is the one loader
+    /// given a knob rather than just the shared 300s default.
+    ///
+    /// <para>
+    /// Resolved via <c>Math.Max(30, …)</c> at the sink, the same shape as
+    /// <c>EiaSettings.ValidationTimeoutSeconds</c>, so a misconfigured zero or negative
+    /// value cannot reintroduce the very default this setting exists to move away from.
+    /// </para>
+    /// <para>
+    /// ⚠ Must stay comfortably below <see cref="LoaderSettingsBase.WorkUnitTimeoutSeconds"/>
+    /// (1800s as shipped) — see the coupling note on
+    /// <see cref="SqlSinkBase{TRow}.CommandTimeoutSeconds"/>. A guard test pins this for
+    /// the shipped settings.
+    /// </para>
+    /// </summary>
+    public int SinkCommandTimeoutSeconds { get; set; } = 300;
 
     // ---------------------------------------------------------------- selection
 

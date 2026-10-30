@@ -115,6 +115,7 @@ public sealed class CriterionModule : ILoaderModule
 
             var sink = new CriterionBatchingSink(
                 feed.Table, options.Value.ConnectionString, options.Value.MergeBatchSize,
+                options.Value.SinkCommandTimeoutSeconds,
                 loggerFactory.CreateLogger($"Criterion.{feed.FeedId}.Sink"));
 
             pipelines.Add(new CriterionPipeline(
