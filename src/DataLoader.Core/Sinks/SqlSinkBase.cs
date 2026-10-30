@@ -57,14 +57,23 @@ public abstract class SqlSinkBase<TRow> : ISink<TRow>
     /// validation query ran on 300s.
     /// </para>
     /// <para>
-    /// ⚠ <b>Coupled to the loader's <c>WorkUnitTimeoutSeconds</c> — this must stay
-    /// comfortably below it.</b> The pipeline's per-work-unit budget is what finally
-    /// cancels a wedged unit; if this timeout sits close to or above that budget, a
-    /// stuck MERGE holds the unit open until something else gives up, instead of this
-    /// timeout failing the call cleanly and letting the loader retry the unit next run.
-    /// Criterion ships <c>WorkUnitTimeoutSeconds = 1800</c>, so this default leaves
-    /// ample room — but a loader with a short unit budget and a long sink timeout here
-    /// would be misconfigured, not merely generous.
+    /// ⚠ <b>The effective limit is whichever expires first — this, or what remains of
+    /// the loader's <c>WorkUnitTimeoutSeconds</c>.</b> The per-unit budget cancels the
+    /// token passed to the command, so it genuinely wins when it is the lower of the
+    /// two. Both outcomes fail the unit and both let the loader retry it next run; they
+    /// differ only in the message, and the unit-budget one is the clearer of the pair
+    /// (it names the setting). So a loader whose budget is below this value is NOT
+    /// misconfigured — its budget simply becomes the real ceiling.
+    ///
+    /// <para>Measured 2026-10-30: 10 of 23 loaders ship a budget at or below this
+    /// default (five at 120s — CWG, AGSI, NGI, StormVista, EvolutionMarkets — and five
+    /// at exactly 300s). For those, raising this value changes nothing. It is the
+    /// loaders with generous budgets that this actually rescues: Criterion 1800,
+    /// NUCORE 1800, EIA 3600, IIR 5400, Vulcan and OilX 7200.</para>
+    ///
+    /// <para>What WOULD be a real misconfiguration is the inverse of the original bug:
+    /// a sink override so large that neither limit is reachable before some external
+    /// patience runs out. Keep any override below the owning loader's budget.</para>
     /// </para>
     /// </summary>
     protected virtual int CommandTimeoutSeconds => 300;
