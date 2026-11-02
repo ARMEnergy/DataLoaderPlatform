@@ -110,7 +110,13 @@ public sealed class GenscapeModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<GenscapeSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(Math.Max(1, s.HttpTimeoutSeconds));
+            // ⚠ LOAD-BEARING: the request budget lives in GenscapeHttpPolicy, not here. A
+            // policy added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that
+            // timeout bounds the whole retried operation (every attempt and backoff
+            // together), not one attempt — the defect that bit EIA and IHSPointLogic.
+            // GenscapeHttpPolicy applies a per-attempt timeout instead; the work-unit CTS
+            // still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
 
             // The vendor's own examples send it, and the endpoint sits behind an
@@ -128,7 +134,7 @@ public sealed class GenscapeModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<GenscapeSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("Genscape.Http");
-            return GenscapeHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return GenscapeHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         });
 
         services.AddSingleton<IReadOnlyList<IGenscapePipeline>>(BuildPipelines);

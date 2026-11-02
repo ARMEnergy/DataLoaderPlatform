@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using DataLoader.Core.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
+using Polly.Timeout;
 
 namespace DataLoader.ModernCommodities;
 
@@ -122,24 +124,45 @@ public sealed class ModComRateLimitingHandler : DelegatingHandler
 /// </list>
 /// <c>HandleTransientHttpError()</c> covers 5xx/408/network only, so 4xx statuses are excluded by
 /// construction — the single explicit <c>OrResult</c> adds <c>429</c> and nothing else.
+///
+/// <para>
+/// ⚠ <b>The per-attempt timeout.</b> <see cref="ModernCommoditiesModule"/> registers its client
+/// with <c>client.Timeout = Timeout.InfiniteTimeSpan</c> — a policy from <c>AddPolicyHandler</c>
+/// runs INSIDE that timeout, so a finite client timeout would bound the whole retried operation
+/// (every attempt and backoff together) instead of one attempt, exactly the defect that bit EIA
+/// (2026-10-16) and IHSPointLogic (2026-11-02). The budget lives HERE as a
+/// <see cref="PerAttemptHttpTimeout"/> wrapped INSIDE the retry so it restarts every attempt, and
+/// <see cref="TimeoutRejectedException"/> is in the predicate so a timed-out attempt is actually
+/// retried instead of just failing once. See <see cref="PerAttemptHttpTimeout"/>.
+/// </para>
 /// </summary>
 internal static class ModComHttpPolicy
 {
-    public static IAsyncPolicy<HttpResponseMessage> Build(int retryCount, int delayMs, ILogger logger)
+    public static IAsyncPolicy<HttpResponseMessage> Build(int retryCount, int delayMs, int perAttemptTimeoutSeconds, ILogger logger)
     {
-        return HttpPolicyExtensions
+        var retry = HttpPolicyExtensions
             .HandleTransientHttpError()                                      // 5xx, 408, network errors
             .OrResult(r => r.StatusCode == HttpStatusCode.TooManyRequests)   // 429
+            .Or<TimeoutRejectedException>()                                  // the per-attempt timeout below
             .WaitAndRetryAsync(
                 Math.Max(0, retryCount),
                 (attempt, outcome, _) => ComputeDelay(attempt, delayMs, outcome),
                 (outcome, delay, attempt, _) =>
                 {
+                    var reason = outcome.Exception is TimeoutRejectedException
+                        ? $"no response within {perAttemptTimeoutSeconds}s (per-attempt budget)"
+                        : outcome.Exception is not null
+                            ? outcome.Exception.Message
+                            : $"status {outcome.Result?.StatusCode}";
+
                     logger.LogWarning(
-                        "ModernCommodities HTTP retry {Attempt}: status {Status}, waiting {Delay}ms",
-                        attempt, outcome.Result?.StatusCode, delay.TotalMilliseconds);
+                        "ModernCommodities HTTP retry {Attempt}: {Reason}, waiting {Delay}ms",
+                        attempt, reason, delay.TotalMilliseconds);
                     return Task.CompletedTask;
                 });
+
+        // Retry OUTSIDE, per-attempt timeout INSIDE => the budget restarts on every attempt.
+        return PerAttemptHttpTimeout.Wrap(retry, perAttemptTimeoutSeconds);
     }
 
     private static TimeSpan ComputeDelay(int attempt, int delayMs, DelegateResult<HttpResponseMessage> outcome)

@@ -87,7 +87,12 @@ public sealed class ModernCommoditiesModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<ModComSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in ModComHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. ModComHttpPolicy applies
+            // a per-attempt timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "text/csv");
         })
         .RemoveAllLoggers()
@@ -95,7 +100,7 @@ public sealed class ModernCommoditiesModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<ModComSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("ModernCommodities.Http");
-            return ModComHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return ModComHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<ModComBasicAuthHandler>()
         .AddHttpMessageHandler<ModComRateLimitingHandler>();

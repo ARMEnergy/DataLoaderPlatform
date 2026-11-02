@@ -93,7 +93,9 @@ public sealed class NgiModule : ILoaderModule
         services.AddHttpClient(TokenClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<NgiSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: see the data client below — the same per-attempt-timeout fix
+            // applies to this client too.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         .RemoveAllLoggers()
@@ -101,7 +103,7 @@ public sealed class NgiModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<NgiSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("NGI.Token.Http");
-            return NgiHttpPolicy.Build(Math.Clamp(s.RetryCount, 0, 3), s.RetryDelayMs, log);
+            return NgiHttpPolicy.Build(Math.Clamp(s.RetryCount, 0, 3), s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<NgiRateLimitingHandler>();
 
@@ -114,7 +116,12 @@ public sealed class NgiModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<NgiSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in NgiHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. NgiHttpPolicy applies
+            // a per-attempt timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         .RemoveAllLoggers()
@@ -122,7 +129,7 @@ public sealed class NgiModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<NgiSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("NGI.Http");
-            return NgiHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return NgiHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<NgiTokenAuthHandler>()
         .AddHttpMessageHandler<NgiRateLimitingHandler>();

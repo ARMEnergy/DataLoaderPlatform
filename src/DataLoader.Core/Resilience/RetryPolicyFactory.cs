@@ -1,5 +1,6 @@
 using Polly;
 using Polly.Extensions.Http;
+using Polly.Timeout;
 
 namespace DataLoader.Core.Resilience;
 
@@ -32,6 +33,23 @@ public static class RetryPolicyFactory
     /// </para>
     ///
     /// <para>
+    /// ⚠ <b>Also handles <see cref="TimeoutRejectedException"/></b> — what
+    /// <see cref="DataLoader.Core.Resilience.PerAttemptHttpTimeout"/> throws. Every caller of
+    /// this factory is expected to register its <see cref="HttpClient"/> with
+    /// <c>client.Timeout = Timeout.InfiniteTimeSpan</c> and wrap the policy this method
+    /// returns around a <see cref="PerAttemptHttpTimeout"/> built from the loader's own
+    /// <c>HttpTimeoutSeconds</c> (<see cref="PerAttemptHttpTimeout.Wrap"/>, or, for a loader
+    /// that already composes an outer 429 policy, pass
+    /// <see cref="PerAttemptHttpTimeout.Build"/> as the innermost policy to
+    /// <c>Policy.WrapAsync</c>). Without this clause a per-attempt timeout would fire once
+    /// and the operation would simply fail — the fix would silently not retry the one
+    /// failure mode it exists for. (This is the same defect EIA and IHSPointLogic hit via
+    /// <c>client.Timeout</c> bounding the whole retried operation instead of one attempt —
+    /// see <see cref="PerAttemptHttpTimeout"/> — now closed for every loader built on this
+    /// shared factory too.)
+    /// </para>
+    ///
+    /// <para>
     /// Note the interaction with <c>WorkUnitTimeoutSeconds</c>: retries are
     /// serial, so the worst case is roughly
     /// <c>HttpTimeoutSeconds × (retryCount + 1)</c> plus backoff. Keep that under
@@ -45,6 +63,7 @@ public static class RetryPolicyFactory
         HttpPolicyExtensions
             .HandleTransientHttpError()
             .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
+            .Or<TimeoutRejectedException>()
             .WaitAndRetryAsync(
                 retryCount,
                 attempt => TimeSpan.FromMilliseconds(delayMs * Math.Pow(2, attempt - 1)),

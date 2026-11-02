@@ -45,7 +45,12 @@ public sealed class AgsiModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<AgsiSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in AgsiHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. AgsiHttpPolicy applies
+            // a per-attempt timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         // Suppress IHttpClientFactory's default logging handlers (they log the full request URI)
@@ -56,7 +61,7 @@ public sealed class AgsiModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<AgsiSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("AGSI.Http");
-            return AgsiHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return AgsiHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<AgsiRateLimitingHandler>();
 

@@ -38,7 +38,12 @@ public sealed class CwgModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<CwgSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in CwgHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. CwgHttpPolicy applies
+            // a per-attempt timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "text/csv");
         })
         // Suppress IHttpClientFactory's default logging handlers: they log the full
@@ -50,7 +55,7 @@ public sealed class CwgModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<CwgSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("CWG.Http");
-            return CwgHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return CwgHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<CwgRateLimitingHandler>();
 

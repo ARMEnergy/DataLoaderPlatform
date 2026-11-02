@@ -1,8 +1,10 @@
 using System.Net;
+using DataLoader.Core.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
+using Polly.Timeout;
 
 namespace DataLoader.AGSI;
 
@@ -63,24 +65,45 @@ public sealed class AgsiRateLimitingHandler : DelegatingHandler
 /// as transient, honours a <c>Retry-After</c> header when present, and backs off
 /// exponentially otherwise. 404 is NOT retried (it is a valid "no data" outcome
 /// handled by the storage reader).
+///
+/// <para>
+/// ⚠ <b>The per-attempt timeout.</b> <see cref="AgsiModule"/> registers its client with
+/// <c>client.Timeout = Timeout.InfiniteTimeSpan</c> — a policy from <c>AddPolicyHandler</c>
+/// runs INSIDE that timeout, so a finite client timeout would bound the whole retried
+/// operation (every attempt and backoff together) instead of one attempt, exactly the defect
+/// that bit EIA (2026-10-16) and IHSPointLogic (2026-11-02). The budget lives HERE as a
+/// <see cref="PerAttemptHttpTimeout"/> wrapped INSIDE the retry so it restarts every attempt,
+/// and <see cref="TimeoutRejectedException"/> is in the predicate so a timed-out attempt is
+/// actually retried instead of just failing once. See <see cref="PerAttemptHttpTimeout"/>.
+/// </para>
 /// </summary>
 internal static class AgsiHttpPolicy
 {
-    public static IAsyncPolicy<HttpResponseMessage> Build(int retryCount, int delayMs, ILogger logger)
+    public static IAsyncPolicy<HttpResponseMessage> Build(int retryCount, int delayMs, int perAttemptTimeoutSeconds, ILogger logger)
     {
-        return HttpPolicyExtensions
+        var retry = HttpPolicyExtensions
             .HandleTransientHttpError()                                      // 5xx, 408, network errors
             .OrResult(r => r.StatusCode == HttpStatusCode.TooManyRequests)   // 429
+            .Or<TimeoutRejectedException>()                                  // the per-attempt timeout below
             .WaitAndRetryAsync(
                 retryCount,
                 (attempt, outcome, _) => ComputeDelay(attempt, delayMs, outcome),
                 (outcome, delay, attempt, _) =>
                 {
+                    var reason = outcome.Exception is TimeoutRejectedException
+                        ? $"no response within {perAttemptTimeoutSeconds}s (per-attempt budget)"
+                        : outcome.Exception is not null
+                            ? outcome.Exception.Message
+                            : $"status {outcome.Result?.StatusCode}";
+
                     logger.LogWarning(
-                        "AGSI HTTP retry {Attempt}: status {Status}, waiting {Delay}ms",
-                        attempt, outcome.Result?.StatusCode, delay.TotalMilliseconds);
+                        "AGSI HTTP retry {Attempt}: {Reason}, waiting {Delay}ms",
+                        attempt, reason, delay.TotalMilliseconds);
                     return Task.CompletedTask;
                 });
+
+        // Retry OUTSIDE, per-attempt timeout INSIDE => the budget restarts on every attempt.
+        return PerAttemptHttpTimeout.Wrap(retry, perAttemptTimeoutSeconds);
     }
 
     private static TimeSpan ComputeDelay(int attempt, int delayMs, DelegateResult<HttpResponseMessage> outcome)

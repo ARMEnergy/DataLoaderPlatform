@@ -53,7 +53,13 @@ public sealed class VulcanModule : ILoaderModule
             var s = sp.GetRequiredService<IOptions<VulcanSettings>>().Value;
             if (!string.IsNullOrWhiteSpace(s.BaseUrl))
                 client.BaseAddress = new Uri(s.BaseUrl);
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in the per-attempt timeout wrapped
+            // around the retry policy below, not here. A policy added via AddPolicyHandler
+            // runs INSIDE HttpClient.Timeout, so that timeout bounds the whole retried
+            // operation (every attempt and backoff together), not one attempt — the defect
+            // that bit EIA and IHSPointLogic. PerAttemptHttpTimeout applies the per-attempt
+            // timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
             if (!string.IsNullOrWhiteSpace(s.ApiKey))
                 client.DefaultRequestHeaders.Add("Access-Key", s.ApiKey);
@@ -62,11 +68,16 @@ public sealed class VulcanModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<VulcanSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("Vulcan.Http");
-            return RetryPolicyFactory.BuildHttpRetryPolicy(
+            var retry = RetryPolicyFactory.BuildHttpRetryPolicy(
                 s.RetryCount, s.RetryDelayMs,
                 (outcome, delay, attempt) =>
                     log.LogWarning("HTTP retry {Attempt}: status {Status}, waiting {Delay}ms",
                         attempt, outcome.Result?.StatusCode, delay.TotalMilliseconds));
+
+            // Retry OUTSIDE, per-attempt timeout INSIDE => the budget restarts on every
+            // attempt. BuildHttpRetryPolicy already treats the timeout's own
+            // TimeoutRejectedException as retryable.
+            return PerAttemptHttpTimeout.Wrap(retry, s.HttpTimeoutSeconds);
         });
 
         services.AddSingleton<IVulcanWatermarkStore, VulcanWatermarkStore>();

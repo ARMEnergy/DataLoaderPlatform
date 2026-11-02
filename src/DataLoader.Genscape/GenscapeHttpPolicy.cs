@@ -2,6 +2,7 @@ using System.Net;
 using DataLoader.Core.Resilience;
 using Microsoft.Extensions.Logging;
 using Polly;
+using Polly.Timeout;
 
 namespace DataLoader.Genscape;
 
@@ -29,10 +30,22 @@ namespace DataLoader.Genscape;
 /// credentials at the vendor. <see cref="GenscapeSourceReader"/> turns each into a
 /// diagnosable exception instead.
 /// </para>
+/// <para>
+/// ⚠ <b>The per-attempt timeout.</b> <see cref="GenscapeModule"/> registers its client with
+/// <c>client.Timeout = Timeout.InfiniteTimeSpan</c> — a policy from <c>AddPolicyHandler</c> runs
+/// INSIDE that timeout, so a finite client timeout would bound the whole retried operation (every
+/// attempt and backoff together) instead of one attempt, exactly the defect that bit EIA
+/// (2026-10-16) and IHSPointLogic (2026-11-02). The budget is the INNERMOST policy of the three —
+/// <c>throttled(transient(perAttempt))</c> — so it restarts on every attempt regardless of which
+/// outer layer triggered the retry. <see cref="RetryPolicyFactory.BuildHttpRetryPolicy"/> (the
+/// <c>transient</c> policy, directly wrapping the per-attempt timeout) now treats
+/// <see cref="TimeoutRejectedException"/> as retryable, so a timed-out attempt is actually
+/// retried instead of just failing once. See <see cref="PerAttemptHttpTimeout"/>.
+/// </para>
 /// </summary>
 internal static class GenscapeHttpPolicy
 {
-    public static IAsyncPolicy<HttpResponseMessage> Build(int retryCount, int delayMs, ILogger logger)
+    public static IAsyncPolicy<HttpResponseMessage> Build(int retryCount, int delayMs, int perAttemptTimeoutSeconds, ILogger logger)
     {
         var transient = RetryPolicyFactory.BuildHttpRetryPolicy(
             retryCount, delayMs,
@@ -62,8 +75,9 @@ internal static class GenscapeHttpPolicy
                 });
 
         // Throttling is the OUTER policy: a 429 retry should restart the whole
-        // transient-retry budget rather than consume it.
-        return Policy.WrapAsync(throttled, transient);
+        // transient-retry budget rather than consume it. The per-attempt timeout is the
+        // INNERMOST policy so its budget restarts on every attempt, including a 429 replay.
+        return Policy.WrapAsync(throttled, transient, PerAttemptHttpTimeout.Build(perAttemptTimeoutSeconds));
     }
 
     private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;

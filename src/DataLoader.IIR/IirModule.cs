@@ -53,7 +53,9 @@ public sealed class IirModule : ILoaderModule
         services.AddHttpClient(TokenClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<IirSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: see the data client below — the same per-attempt-timeout fix
+            // applies to this client too.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         .RemoveAllLoggers()
@@ -61,7 +63,7 @@ public sealed class IirModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<IirSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("IIR.Token.Http");
-            return IirHttpPolicy.Build(Math.Clamp(s.RetryCount, 0, 3), s.RetryDelayMs, log);
+            return IirHttpPolicy.Build(Math.Clamp(s.RetryCount, 0, 3), s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         });
 
         // Shared, rate-limited, JWT-Bearer DATA client. Handler order (design §1.3):
@@ -73,7 +75,12 @@ public sealed class IirModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<IirSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in IirHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. IirHttpPolicy applies
+            // a per-attempt timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         .RemoveAllLoggers()
@@ -81,7 +88,7 @@ public sealed class IirModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<IirSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("IIR.Http");
-            return IirHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return IirHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<IirTokenAuthHandler>()
         .AddHttpMessageHandler<IirRateLimitingHandler>();

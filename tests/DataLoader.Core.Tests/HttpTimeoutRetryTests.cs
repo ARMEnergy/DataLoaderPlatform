@@ -1,6 +1,7 @@
 using System.Net;
 using DataLoader.Core.Resilience;
 using Polly;
+using Polly.Timeout;
 using Xunit;
 
 namespace DataLoader.Core.Tests;
@@ -120,5 +121,30 @@ public class HttpTimeoutRetryTests
             }));
 
         Assert.Equal(2, attempts);
+    }
+
+    /// <summary>
+    /// <see cref="TimeoutRejectedException"/> — what
+    /// <see cref="DataLoader.Core.Resilience.PerAttemptHttpTimeout"/> throws — must also be
+    /// retried by this shared factory. Every loader built on
+    /// <see cref="RetryPolicyFactory.BuildHttpRetryPolicy"/> is migrated to register its
+    /// <c>HttpClient</c> with an infinite <c>Timeout</c> and wrap the policy around a
+    /// per-attempt timeout instead; without this clause that per-attempt timeout would fire
+    /// once and the operation would simply fail, reintroducing the "zero effective retries on
+    /// a slow response" defect for every one of this factory's callers at once.
+    /// </summary>
+    [Fact]
+    public async Task TimeoutRejectedException_IsRetried()
+    {
+        var attempts = 0;
+
+        await Assert.ThrowsAsync<TimeoutRejectedException>(() =>
+            Policy().ExecuteAsync(() =>
+            {
+                attempts++;
+                throw new TimeoutRejectedException();
+            }));
+
+        Assert.Equal(4, attempts); // initial + 3 retries
     }
 }

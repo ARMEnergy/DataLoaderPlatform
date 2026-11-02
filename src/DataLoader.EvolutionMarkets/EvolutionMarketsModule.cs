@@ -73,7 +73,12 @@ public sealed class EvolutionMarketsModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<EvoSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in EvoHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. EvoHttpPolicy applies
+            // a per-attempt timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         .RemoveAllLoggers()
@@ -81,7 +86,7 @@ public sealed class EvolutionMarketsModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<EvoSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("EvolutionMarkets.Http");
-            return EvoHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return EvoHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<EvoApiKeyAuthHandler>()
         .AddHttpMessageHandler<EvoRateLimitingHandler>();

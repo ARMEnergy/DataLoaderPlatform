@@ -38,7 +38,12 @@ public sealed class StormVistaModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<StormVistaSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in StormVistaHttpPolicy, not here. A
+            // policy added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. StormVistaHttpPolicy
+            // applies a per-attempt timeout instead; the work-unit CTS still bounds the unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "text/csv");
         })
         // Suppress IHttpClientFactory's default logging handlers: they log the full
@@ -51,7 +56,7 @@ public sealed class StormVistaModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<StormVistaSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("StormVista.Http");
-            return StormVistaHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return StormVistaHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<StormVistaRateLimitingHandler>();
 

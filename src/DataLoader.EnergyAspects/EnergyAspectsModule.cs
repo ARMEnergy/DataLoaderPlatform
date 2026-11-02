@@ -47,7 +47,16 @@ public sealed class EnergyAspectsModule : ILoaderModule
             var s = sp.GetRequiredService<IOptions<EnergyAspectsSettings>>().Value;
             if (!string.IsNullOrWhiteSpace(s.BaseUrl))
                 client.BaseAddress = new Uri(s.BaseUrl);
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in the per-attempt timeout wrapped
+            // around the retry policy below, not here. A policy added via AddPolicyHandler
+            // runs INSIDE HttpClient.Timeout, so that timeout bounds the whole retried
+            // operation (every attempt and backoff together), not one attempt — this is
+            // exactly the defect that bit EIA (2026-10-16) and IHSPointLogic (2026-11-02);
+            // EnergyAspects itself lost a work unit to the same shape (see
+            // RetryPolicyFactory.BuildHttpRetryPolicy's remarks). PerAttemptHttpTimeout
+            // applies the per-attempt timeout instead; the work-unit CTS still bounds the
+            // whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         // 🔒 LOAD-BEARING. Energy Aspects authenticates with a QUERY PARAMETER, so the
@@ -62,11 +71,16 @@ public sealed class EnergyAspectsModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<EnergyAspectsSettings>>().Value;
             var log = sp.GetRequiredService<ILogger<EnergyAspectsApiSource>>();
-            return RetryPolicyFactory.BuildHttpRetryPolicy(
+            var retry = RetryPolicyFactory.BuildHttpRetryPolicy(
                 s.RetryCount, s.RetryDelayMs,
                 (outcome, delay, attempt) =>
                     log.LogWarning("HTTP retry {Attempt}: status {Status}, waiting {Delay}ms",
                         attempt, outcome.Result?.StatusCode, delay.TotalMilliseconds));
+
+            // Retry OUTSIDE, per-attempt timeout INSIDE => the budget restarts on every
+            // attempt. BuildHttpRetryPolicy already treats the timeout's own
+            // TimeoutRejectedException as retryable.
+            return PerAttemptHttpTimeout.Wrap(retry, s.HttpTimeoutSeconds);
         });
 
         // -- loader-specific services --

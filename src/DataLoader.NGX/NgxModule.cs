@@ -121,7 +121,12 @@ public sealed class NgxModule : ILoaderModule
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
             var s = sp.GetRequiredService<IOptions<NgxSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(Math.Max(1, s.HttpTimeoutSeconds));
+            // ⚠ LOAD-BEARING: the request budget lives in NgxHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt — the defect that bit EIA and IHSPointLogic. NgxHttpPolicy applies
+            // a per-attempt timeout instead; the work-unit CTS still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml"));
 
             // HTTP Basic. The credentials go in a header, never in a URL, so the
@@ -145,7 +150,7 @@ public sealed class NgxModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<NgxSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("NGX.Http");
-            return NgxHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return NgxHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         });
 
         services.AddSingleton<IReadOnlyList<INgxPipeline>>(BuildPipelines);
