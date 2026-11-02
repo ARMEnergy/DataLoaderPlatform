@@ -20,6 +20,19 @@ namespace DataLoader.IHSPointLogic;
 /// </summary>
 public sealed class IHSPointLogicSettings : LoaderSettingsBase
 {
+    public IHSPointLogicSettings()
+    {
+        // ⚠ The base default is 300s, which used to be shorter than this loader's own
+        // worst-case retry budget once HttpTimeoutSeconds became a genuine per-attempt
+        // budget: (RetryCount + 1) x HttpTimeoutSeconds + backoff = 4 x 120 + ~7s = 487s.
+        // Left at 300, a unit that legitimately needed its retries would be cancelled
+        // mid-retry by the work-unit timeout, reporting a generic "work unit timed out"
+        // and burying the real vendor error the retry was trying to recover from. This is
+        // the exact trap EIA hit (see CLAUDE.md); the shipped appsettings.json value is
+        // asserted against this same inequality by a coupling test.
+        WorkUnitTimeoutSeconds = 900;
+    }
+
     /// <summary>API base host (paths under <c>cs/v1/…</c>).</summary>
     public string BaseUrl { get; set; } = "https://api.connect.ihsmarkit.com";
 
@@ -29,8 +42,25 @@ public sealed class IHSPointLogicSettings : LoaderSettingsBase
     /// <summary>Basic-auth password (PAT secret). Resolved from <c>core.Param</c>; never logged.</summary>
     public string ClientSecret { get; set; } = "SEE_DB";
 
-    /// <summary>Per-request timeout on the shared <see cref="HttpClient"/>.</summary>
-    public int HttpTimeoutSeconds { get; set; } = 60;
+    /// <summary>
+    /// Seconds before ONE HTTP attempt times out.
+    ///
+    /// <para>
+    /// ⚠ This is enforced inside <see cref="PlHttpPolicy"/>, per attempt, with
+    /// <c>HttpClient.Timeout</c> left infinite (<see cref="IHSPointLogicModule"/>).
+    /// Setting <c>HttpClient.Timeout</c> to this instead would bound the WHOLE retried
+    /// operation rather than one attempt — the bug behind the repeated "PointMetadata
+    /// latest" production failures, where the reader's paging loop makes several requests
+    /// per work unit and a later one inherited an earlier attempt's spent budget.
+    /// </para>
+    /// <para>
+    /// Raised from 60 to 120 alongside the fix: 60s was the shared-budget value, not a
+    /// genuine per-attempt one, and <c>PointMetadata latest</c> units measured 83-270s
+    /// total against the old 300s work-unit budget, so some margin per attempt is needed
+    /// now that this number actually means what it says.
+    /// </para>
+    /// </summary>
+    public int HttpTimeoutSeconds { get; set; } = 120;
 
     /// <summary>Endpoints to run this pass; matched case-insensitively against pipeline endpoint ids. Defaults to all 25.</summary>
     public string[] EnabledEndpoints { get; set; } = PlDescriptors.AllIds;

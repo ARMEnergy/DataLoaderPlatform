@@ -47,8 +47,17 @@ public sealed class IHSPointLogicModule : ILoaderModule
         //   reader logs only the sanitized relative path.
         services.AddHttpClient(HttpClientName, (sp, client) =>
         {
-            var s = sp.GetRequiredService<IOptions<IHSPointLogicSettings>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(s.HttpTimeoutSeconds);
+            // ⚠ LOAD-BEARING: the request budget lives in PlHttpPolicy, not here. A policy
+            // added via AddPolicyHandler runs INSIDE HttpClient.Timeout, so that timeout
+            // bounds the whole retried operation (every attempt and backoff together), not
+            // one attempt. Leaving it at HttpTimeoutSeconds is what caused the repeated
+            // production failures on "PointMetadata latest" — the reader's paging loop makes
+            // several SendAsync calls per unit, and the second or third shared the first
+            // attempt's leftover budget. See PlHttpPolicy.Build / PerAttemptHttpTimeout.
+            //
+            // Nothing can hang forever: PlHttpPolicy applies a per-attempt timeout, and the
+            // work-unit CTS (WorkUnitTimeoutSeconds) still bounds the whole unit.
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         })
         .RemoveAllLoggers()
@@ -56,7 +65,7 @@ public sealed class IHSPointLogicModule : ILoaderModule
         {
             var s = sp.GetRequiredService<IOptions<IHSPointLogicSettings>>().Value;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("IHSPointLogic.Http");
-            return PlHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, log);
+            return PlHttpPolicy.Build(s.RetryCount, s.RetryDelayMs, s.HttpTimeoutSeconds, log);
         })
         .AddHttpMessageHandler<PlBasicAuthHandler>()
         .AddHttpMessageHandler<PlRateLimitingHandler>();

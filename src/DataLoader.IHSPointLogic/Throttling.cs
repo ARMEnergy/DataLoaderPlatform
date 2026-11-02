@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using DataLoader.Core.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
+using Polly.Timeout;
 
 namespace DataLoader.IHSPointLogic;
 
@@ -91,24 +93,66 @@ public sealed class PlRateLimitingHandler : DelegatingHandler
 /// transient, honours a <c>Retry-After</c> header when present, and backs off exponentially
 /// otherwise. 404 is NOT retried (it is a valid "no data" outcome handled by the source reader);
 /// 401/403 are NOT retried (there is no token to refresh — surface loudly).
+///
+/// <para>
+/// ⚠ <b>The per-attempt timeout, and why it has to be built this way.</b> The three
+/// compounding defects behind the "PointMetadata latest" production failures (~11 times in
+/// 10 days, always the same paging work unit): (1) <see cref="IHSPointLogicModule"/> used to
+/// set <c>client.Timeout = HttpTimeoutSeconds</c>, but a policy from
+/// <c>AddPolicyHandler</c> runs INSIDE that timeout, so it bounded the whole retried
+/// operation, not one attempt — see <see cref="PerAttemptHttpTimeout"/> for the general
+/// shape of the trap; (2) the predicate below only matched
+/// <see cref="HttpPolicyExtensions.HandleTransientHttpError"/> and 429, so the
+/// <see cref="TaskCanceledException"/> a client timeout actually throws was never retried at
+/// all — <c>RetryCount</c> was decorative for this failure mode; (3) the reader's paging loop
+/// (<see cref="PlSourceReader{TRow}.ReadAsync"/>) makes several <c>SendAsync</c> calls per
+/// unit, each sharing the one 60s client budget.
+/// </para>
+/// <para>
+/// The fix: <see cref="IHSPointLogicModule"/> now sets <c>client.Timeout =
+/// Timeout.InfiniteTimeSpan</c>, the budget lives HERE as a
+/// <see cref="PerAttemptHttpTimeout"/> wrapped INSIDE the retry so it restarts every attempt,
+/// and <see cref="TimeoutRejectedException"/> is added to the predicate so a timed-out
+/// attempt is actually retried instead of just failing once. Nothing can hang forever: the
+/// work-unit CTS (<c>WorkUnitTimeoutSeconds</c>) still bounds the whole unit.
+/// </para>
 /// </summary>
 internal static class PlHttpPolicy
 {
-    public static IAsyncPolicy<HttpResponseMessage> Build(int retryCount, int delayMs, ILogger logger)
+    public static IAsyncPolicy<HttpResponseMessage> Build(
+        int retryCount, int delayMs, int perAttemptTimeoutSeconds, ILogger logger)
     {
-        return HttpPolicyExtensions
+        var retry = HttpPolicyExtensions
             .HandleTransientHttpError()                                      // 5xx, 408, network errors
             .OrResult(r => r.StatusCode == HttpStatusCode.TooManyRequests)   // 429
+            // The per-attempt timeout below surfaces as this. Without it in the predicate,
+            // a timed-out attempt fails outright instead of being retried — the second of
+            // the three compounding production defects.
+            .Or<TimeoutRejectedException>()
+            // Defence in depth for a client-side timeout from something OTHER than the
+            // per-attempt policy (e.g. SocketsHttpHandler's own connect timeout) — it
+            // surfaces the same way a real cancellation does NOT: wrapping a
+            // TimeoutException rather than propagating the caller's own token state.
+            .Or<TaskCanceledException>(ex => ex.InnerException is TimeoutException)
             .WaitAndRetryAsync(
                 retryCount,
                 (attempt, outcome, _) => ComputeDelay(attempt, delayMs, outcome),
                 (outcome, delay, attempt, _) =>
                 {
+                    var reason = outcome.Exception is TimeoutRejectedException
+                        ? $"no response within {perAttemptTimeoutSeconds}s (per-attempt budget)"
+                        : outcome.Exception is not null
+                            ? outcome.Exception.Message
+                            : $"status {outcome.Result?.StatusCode}";
+
                     logger.LogWarning(
-                        "IHSPointLogic HTTP retry {Attempt}: status {Status}, waiting {Delay}ms",
-                        attempt, outcome.Result?.StatusCode, delay.TotalMilliseconds);
+                        "IHSPointLogic HTTP retry {Attempt}: {Reason}, waiting {Delay}ms",
+                        attempt, reason, delay.TotalMilliseconds);
                     return Task.CompletedTask;
                 });
+
+        // Retry OUTSIDE, per-attempt timeout INSIDE => the budget restarts on every attempt.
+        return PerAttemptHttpTimeout.Wrap(retry, perAttemptTimeoutSeconds);
     }
 
     private static TimeSpan ComputeDelay(int attempt, int delayMs, DelegateResult<HttpResponseMessage> outcome)
