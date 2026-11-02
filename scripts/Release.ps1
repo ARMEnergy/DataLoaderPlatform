@@ -638,10 +638,18 @@ function Invoke-ReleaseFlow {
 
     # ---------------------------------------------------------------- normal release
     Write-Step 'Preflight: git state'
-    Invoke-GitPreflight -RepoRoot $RepoRoot -PublishDirFull $PublishDirFull
+    # ⚠ Every helper call in this function is piped to Out-Null, and must stay that way.
+    # They are all `& $script:Local.X` / `& $script:Remote.X` invocations, so whatever the
+    # injected scriptblock emits — dotnet publish's stdout, a Copy-Item result — lands in
+    # THIS function's pipeline and joins the pscustomobject returned at the end. The caller
+    # then holds an ARRAY, and `$result.DryRun` member-enumerates over a leaked string,
+    # which under `Set-StrictMode -Version 2.0` throws "The property 'DryRun' cannot be
+    # found on this object" — AFTER a completely successful release, reporting failure for
+    # work that actually succeeded. Observed in production on 2026-11-02.
+    Invoke-GitPreflight -RepoRoot $RepoRoot -PublishDirFull $PublishDirFull | Out-Null
 
     Write-Step 'Build'
-    Invoke-BuildStep -RepoRoot $RepoRoot
+    Invoke-BuildStep -RepoRoot $RepoRoot | Out-Null
     Write-Ok 'build clean'
 
     Write-Step 'Test'
@@ -650,7 +658,7 @@ function Invoke-ReleaseFlow {
         $testSummary.Passed, $testSummary.Failed, $testSummary.Skipped, $testSummary.Total, $testSummary.Projects)
 
     Write-Step 'Publish'
-    Invoke-PublishStep -RepoRoot $RepoRoot -PublishDirFull $PublishDirFull
+    Invoke-PublishStep -RepoRoot $RepoRoot -PublishDirFull $PublishDirFull | Out-Null
     Write-Ok "published to $PublishDirFull"
 
     $before = Get-RemoteCurrentRelease -Server $Server -PlatformRoot $PlatformRoot
@@ -664,11 +672,11 @@ function Invoke-ReleaseFlow {
     }
 
     if (-not $Force) {
-        Confirm-Action 'Deploy now?'
+        Confirm-Action 'Deploy now?' | Out-Null
     }
 
     Write-Step 'Sync scripts\ to the server'
-    Sync-ScriptsToServer -Server $Server -LocalScriptsDir (Join-Path $RepoRoot 'scripts') -PlatformRoot $PlatformRoot
+    Sync-ScriptsToServer -Server $Server -LocalScriptsDir (Join-Path $RepoRoot 'scripts') -PlatformRoot $PlatformRoot | Out-Null
     Write-Ok 'scripts\ synced'
 
     Write-Step 'Copy publish output to _staging'
@@ -993,6 +1001,35 @@ function Invoke-SelfTest {
         } finally { Restore-RealImpls; Remove-SelfTestRoot $ctx }
     }
 
+    Invoke-Case 'flow: a chatty step does not turn the result into an array (the 2026-11-02 bug)' {
+        # The real bug this guards: every helper is `& $script:Local.X` / `& $script:Remote.X`,
+        # so anything the injected scriptblock emits joins THIS function's pipeline and the
+        # caller ends up with an array. `$result.DryRun` then member-enumerates over a leaked
+        # string and StrictMode throws "The property 'DryRun' cannot be found on this object"
+        # -- after a release that had already fully succeeded.
+        #
+        # The original self-test stubs were all silent, which is exactly why they missed it.
+        # These deliberately are not.
+        $ctx = New-SelfTestGitRepo
+        try {
+            Reset-Fakes
+            Set-RemoteStubState -CurrentReleases @('REL_A', 'REL_B') -DeployExitCode 0
+            $publishFull = Join-Path $ctx.RepoPath 'publish-staging'
+            New-Item -ItemType Directory -Path $publishFull -Force | Out-Null
+
+            # Make the local steps chatty, the way `dotnet publish` really is.
+            $script:Local.Publish = { param($RepoRoot, $PublishDirFull)
+                'MSBuild version 17.11.9'; '  Determining projects to restore...'; "  DataLoader.Host -> $PublishDirFull" }
+            $script:Local.Build   = { param($RepoRoot) 'Build succeeded.'; '    0 Warning(s)' }
+
+            $result = Invoke-ReleaseFlow -RepoRoot $ctx.RepoPath -Server 'FAKE-SRV' -PlatformRoot 'C:\FakeRoot' -PublishDirFull $publishFull -Force
+
+            if ($result -is [System.Array]) { throw "the flow returned $($result.Count) objects; a chatty step leaked into the pipeline" }
+            if ($result.DryRun)      { throw 'expected a real (non-DryRun) run' }
+            if ($result.After -ne 'REL_B') { throw "expected REL_B, got $($result.After)" }
+        } finally { Restore-RealImpls; Remove-SelfTestRoot $ctx }
+    }
+
     Invoke-Case 'flow: a non-zero remote exit aborts and reports current.txt NOT changed' {
         $ctx = New-SelfTestGitRepo
         try {
@@ -1119,6 +1156,16 @@ try {
     $publishDirFull = Resolve-PathFull -BaseDir $RepoRoot -Path $PublishDir
     $result = Invoke-ReleaseFlow -RepoRoot $RepoRoot -Server $Server -PlatformRoot $PlatformRoot `
         -PublishDirFull $publishDirFull -Rollback:$Rollback -DryRun:$DryRun -Force:$Force
+
+    # Belt and braces for the leak described inside Invoke-ReleaseFlow. If a future step
+    # forgets its Out-Null, fail HERE with something that names the real problem, rather
+    # than letting StrictMode report a confusing missing-property error several lines
+    # later — after the release has already succeeded.
+    if ($result -is [System.Array]) {
+        throw ("Internal error: the release flow emitted {0} objects instead of 1. A step " +
+               "leaked into the pipeline (missing '| Out-Null'). The release itself may " +
+               "well have SUCCEEDED -- check current.txt on $Server before re-running." -f $result.Count)
+    }
 
     Write-Host ''
     Write-Host '=========================================================' -ForegroundColor Green
