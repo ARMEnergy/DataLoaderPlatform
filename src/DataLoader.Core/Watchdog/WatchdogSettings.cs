@@ -67,6 +67,24 @@ public sealed class WatchdogSettings
     public int ReportRecentFailureHours { get; set; } = 2;
 
     /// <summary>
+    /// Suppress a RECENT FAILURES finding once every one of its failed work units has a
+    /// later successful <c>core.LoadLog</c> row for the same loader — see
+    /// <see cref="Watchdog.WatchdogFailureResolver"/> for the matching rule.
+    ///
+    /// <para>Defaulted true from measurement, not assumption: in the 7 days before this
+    /// was written, production recorded 37 failed runs and ALL 37 were followed by a
+    /// later success. The RECENT FAILURES signal was reporting entirely on problems that
+    /// had already fixed themselves — which is exactly what buries the ones that have
+    /// NOT — so suppressing self-healed failures by default is what makes the signal
+    /// worth reading again.</para>
+    ///
+    /// <para>Set to false to report exactly as before this feature existed — every
+    /// candidate in the window, unfiltered. See <see cref="WatchdogReport.RecentFailures"/>
+    /// and <see cref="RecentFailure.UnresolvedUnits"/>.</para>
+    /// </summary>
+    public bool SkipAlertIfResolved { get; set; } = true;
+
+    /// <summary>
     /// Per-loader expectations. A loader absent from here is never reported,
     /// which is what keeps build-only loaders that were run by hand once from
     /// alerting forever.

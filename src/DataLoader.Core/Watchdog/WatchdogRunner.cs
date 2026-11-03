@@ -112,18 +112,44 @@ public sealed class WatchdogRunner
             stuck = Array.Empty<StuckRun>();
         }
 
-        IReadOnlyList<RecentFailure> failures;
+        RecentFailuresResult failuresResult;
         try
         {
-            failures = await _repository
-                .GetRecentFailuresAsync(_settings.ReportRecentFailureHours, nowCentral, cancellationToken)
+            failuresResult = await _repository
+                .GetRecentFailuresAsync(
+                    _settings.ReportRecentFailureHours, nowCentral, _settings.SkipAlertIfResolved, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Watchdog could not check for recent failures; continuing with the rest of the pass");
             degraded.Add(DegradedReason("recent failures", ex));
-            failures = Array.Empty<RecentFailure>();
+            failuresResult = new RecentFailuresResult(Array.Empty<RecentFailure>(), Array.Empty<RecentFailure>());
+        }
+
+        var failures = failuresResult.Failures;
+
+        // Suppressed findings are logged, never silently dropped — core.LoadLog is the
+        // only place an operator could otherwise see that a failure resolved itself. This
+        // must happen whether or not anything else in this run notifies: a suppressed
+        // finding is itself information worth having in Log\Watchdog.log even on an
+        // all-clear pass.
+        if (failuresResult.Suppressed.Count > 0)
+        {
+            _logger.LogInformation(
+                "Watchdog: {Count} recent failure(s) suppressed as resolved (every failed work unit had a later success)",
+                failuresResult.Suppressed.Count);
+
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                foreach (var s in failuresResult.Suppressed)
+                {
+                    _logger.LogDebug(
+                        "Watchdog: suppressed as resolved — {LoaderName} {StartTime:yyyy-MM-dd HH:mm} Central, " +
+                        "{UnitsFailed}/{UnitsTotal} units failed, all since succeeded",
+                        s.LoaderName, s.StartTimeCentral, s.UnitsFailed, s.UnitsTotal);
+                }
+            }
         }
 
         // Deliberately OUTSIDE every catch above: a bug in evaluation itself
@@ -139,9 +165,10 @@ public sealed class WatchdogRunner
             lastRuns, stuck, failures, _settings, Environment.MachineName, nowCentral, degraded);
 
         _logger.LogInformation(
-            "Watchdog: {Overdue} overdue, {Stuck} stuck, {Failures} recent failures, {Misconfigured} misconfigured, {Degraded} degraded",
+            "Watchdog: {Overdue} overdue, {Stuck} stuck, {Failures} recent failures, " +
+            "{Suppressed} suppressed as resolved, {Misconfigured} misconfigured, {Degraded} degraded",
             report.Overdue.Count, report.Stuck.Count, report.RecentFailures.Count,
-            report.Misconfigured.Count, report.Degraded.Count);
+            failuresResult.Suppressed.Count, report.Misconfigured.Count, report.Degraded.Count);
 
         NotificationOutcome outcome;
         try

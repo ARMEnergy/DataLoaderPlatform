@@ -17,7 +17,16 @@ public interface IWatchdogRepository
     Task<IReadOnlyList<StuckRun>> GetStuckRunsAsync(
         int stuckAfterHours, int lookbackDays, string? hostName, CancellationToken cancellationToken);
 
-    /// <summary>Runs that recorded Success = 0 within the look-back, in CENTRAL time.</summary>
-    Task<IReadOnlyList<RecentFailure>> GetRecentFailuresAsync(
-        int lookbackHours, DateTime nowCentral, CancellationToken cancellationToken);
+    /// <summary>
+    /// Runs that recorded Success = 0 within the look-back, in CENTRAL time.
+    ///
+    /// <para>When <paramref name="skipAlertIfResolved"/> is true, a candidate whose failed
+    /// work units have ALL since succeeded (matched on <c>(LoaderId, WorkUnitDisplay)</c> —
+    /// see <see cref="WatchdogFailureResolver"/>) is returned in
+    /// <see cref="RecentFailuresResult.Suppressed"/> instead of
+    /// <see cref="RecentFailuresResult.Failures"/>. When false, every candidate is returned
+    /// in <c>Failures</c>, matching the platform's behaviour before this setting existed.</para>
+    /// </summary>
+    Task<RecentFailuresResult> GetRecentFailuresAsync(
+        int lookbackHours, DateTime nowCentral, bool skipAlertIfResolved, CancellationToken cancellationToken);
 }

@@ -1,5 +1,6 @@
 using DataLoader.Core.Notifications;
 using DataLoader.Core.Watchdog;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -12,7 +13,19 @@ public class WatchdogRunnerTests
     {
         public List<LoaderLastRun> LastRuns = new();
         public List<StuckRun> Stuck = new();
+
+        // What GetRecentFailuresAsync returns — already split into reported vs
+        // suppressed, exactly as SqlWatchdogRepository would hand back after resolution.
+        // These tests exercise WatchdogRunner's own handling of that split (does it log
+        // the suppressed ones, does it refrain from re-filtering Failures, does it thread
+        // the flag through) — the resolution ALGORITHM itself is pure and is tested
+        // directly in WatchdogFailureResolverTests, with no database or fake needed.
         public List<RecentFailure> Failures = new();
+        public List<RecentFailure> Suppressed = new();
+
+        /// <summary>Captures what WatchdogRunner actually passed, so a test can confirm
+        /// <see cref="WatchdogSettings.SkipAlertIfResolved"/> made it all the way through.</summary>
+        public bool? ReceivedSkipAlertIfResolved;
 
         // GetLastRunsAsync is the primary signal: a failure here aborts the
         // whole pass. GetStuckRunsAsync/GetRecentFailuresAsync are secondary
@@ -33,10 +46,28 @@ public class WatchdogRunnerTests
                 ? Task.FromException<IReadOnlyList<StuckRun>>(ThrowOnStuck)
                 : Task.FromResult<IReadOnlyList<StuckRun>>(Stuck);
 
-        public Task<IReadOnlyList<RecentFailure>> GetRecentFailuresAsync(int h, DateTime n, CancellationToken ct) =>
-            ThrowOnFailures is not null
-                ? Task.FromException<IReadOnlyList<RecentFailure>>(ThrowOnFailures)
-                : Task.FromResult<IReadOnlyList<RecentFailure>>(Failures);
+        public Task<RecentFailuresResult> GetRecentFailuresAsync(
+            int h, DateTime n, bool skipAlertIfResolved, CancellationToken ct)
+        {
+            ReceivedSkipAlertIfResolved = skipAlertIfResolved;
+            return ThrowOnFailures is not null
+                ? Task.FromException<RecentFailuresResult>(ThrowOnFailures)
+                : Task.FromResult(new RecentFailuresResult(Failures, Suppressed));
+        }
+    }
+
+    /// <summary>Captures formatted log lines so a test can assert on their content,
+    /// unlike <see cref="NullLogger{T}"/> which discards everything.</summary>
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public readonly List<(LogLevel Level, string Message)> Entries = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 
     private sealed class FakeNotifier : IFailureNotifier
@@ -77,6 +108,10 @@ public class WatchdogRunnerTests
         return new WatchdogRunner(
             repo, notifier, Options.Create(settings), NullLogger<WatchdogRunner>.Instance);
     }
+
+    private static WatchdogRunner Build(
+        FakeRepository repo, IFailureNotifier notifier, WatchdogSettings settings, ILogger<WatchdogRunner> logger) =>
+        new(repo, notifier, Options.Create(settings), logger);
 
     [Fact]
     public async Task ExitsZeroAndSendsNothing_WhenEverythingIsHealthy()
@@ -283,5 +318,99 @@ public class WatchdogRunnerTests
         var exit = await Build(repo, new ThrowingNotifier(), ("Platts", 26)).RunAsync(default);
 
         Assert.Equal(1, exit);
+    }
+
+    // --------------------------------------------- SkipAlertIfResolved / suppression
+    //
+    // The resolution ALGORITHM — matching on (LoaderId, WorkUnitDisplay), never
+    // WorkUnitKey — is pure and lives in WatchdogFailureResolver; it is tested directly,
+    // with no fake or database, in WatchdogFailureResolverTests. What belongs here is
+    // WatchdogRunner's own job: thread the setting through to the repository, trust the
+    // repository's Failures/Suppressed split without re-filtering it, and log what was
+    // suppressed — including never letting a suppressed-only pass notify.
+
+    [Fact]
+    public async Task SkipAlertIfResolved_False_IsPassedToTheRepository_AndRunnerReportsExactlyWhatItReturns()
+    {
+        // Simulates what SqlWatchdogRepository returns when the setting is off: every
+        // candidate in Failures, unfiltered, nothing in Suppressed. WatchdogRunner must
+        // not re-apply any filtering of its own on top of that — the report should show
+        // exactly what the repository handed back, "as today".
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) },
+            Failures =
+            {
+                new RecentFailure("Platts", DateTime.Now.AddHours(-2), 3, 14, 3),
+                new RecentFailure("EnergyAspects", DateTime.Now.AddHours(-1), 1, 7, 1)
+            }
+        };
+        var settings = new WatchdogSettings { SkipAlertIfResolved = false };
+        settings.Loaders["Platts"] = new WatchdogLoaderSettings { MaxGapHours = 26 };
+        var notifier = new FakeNotifier();
+
+        var exit = await Build(repo, notifier, settings, NullLogger<WatchdogRunner>.Instance).RunAsync(default);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(false, repo.ReceivedSkipAlertIfResolved);
+        var report = Assert.IsType<WatchdogReport>(Assert.Single(notifier.Payloads));
+        Assert.Equal(2, report.RecentFailures.Count);
+    }
+
+    [Fact]
+    public async Task SuppressionAlone_NeverTriggersANotification()
+    {
+        // All-resolved and nothing else wrong: ShouldNotify must be false, and the
+        // suppressed finding must never appear in RecentFailures.
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) },
+            Suppressed = { new RecentFailure("Platts", DateTime.Now.AddHours(-2), 3, 14, 0) }
+        };
+        var notifier = new FakeNotifier();
+
+        var exit = await Build(repo, notifier, ("Platts", 26)).RunAsync(default);
+
+        Assert.Equal(0, exit);
+        var report = Assert.IsType<WatchdogReport>(Assert.Single(notifier.Payloads));
+        Assert.Empty(report.RecentFailures);
+        Assert.False(report.ShouldNotify);
+        Assert.All(notifier.Payloads, p => Assert.False(p.ShouldNotify));
+    }
+
+    [Fact]
+    public async Task SuppressedCount_ReachesTheSummaryLogLine()
+    {
+        var repo = new FakeRepository
+        {
+            LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) },
+            Suppressed =
+            {
+                new RecentFailure("Platts", DateTime.Now.AddHours(-2), 3, 14, 0),
+                new RecentFailure("AGSI", DateTime.Now.AddHours(-3), 25, 2630, 0)
+            }
+        };
+        var notifier = new FakeNotifier();
+        var settings = new WatchdogSettings();
+        settings.Loaders["Platts"] = new WatchdogLoaderSettings { MaxGapHours = 26 };
+        var logger = new CapturingLogger<WatchdogRunner>();
+
+        await Build(repo, notifier, settings, logger).RunAsync(default);
+
+        // The existing "Watchdog: N overdue, N stuck, …" summary line now carries the
+        // suppressed count too, so it is visible even on a pass where nothing else fires.
+        Assert.Contains(logger.Entries,
+            e => e.Level == LogLevel.Information &&
+                 e.Message.Contains("Watchdog:") &&
+                 e.Message.Contains("2 suppressed as resolved"));
+
+        // Plus a dedicated line naming the count, and per-item debug detail for the
+        // Log\Watchdog.log audit trail.
+        Assert.Contains(logger.Entries,
+            e => e.Level == LogLevel.Information && e.Message.Contains("2 recent failure(s) suppressed"));
+        Assert.Contains(logger.Entries,
+            e => e.Level == LogLevel.Debug && e.Message.Contains("Platts"));
+        Assert.Contains(logger.Entries,
+            e => e.Level == LogLevel.Debug && e.Message.Contains("AGSI"));
     }
 }

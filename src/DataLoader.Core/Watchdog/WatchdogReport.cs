@@ -108,8 +108,18 @@ public sealed class WatchdogReport : INotificationPayload
             sb.AppendLine("RECENT FAILURES");
             sb.AppendLine(new string('-', 60));
             foreach (var f in RecentFailures.OrderByDescending(f => f.StartTimeCentral))
+            {
+                // Shown only when it adds information: if UnresolvedUnits == UnitsFailed,
+                // either nothing resolved yet or resolution was never evaluated
+                // (SkipAlertIfResolved = false) — either way the plain count already says
+                // everything there is to say, and this keeps that path's text identical to
+                // before this feature existed.
+                var unresolvedSuffix = f.UnresolvedUnits < f.UnitsFailed
+                    ? $" ({f.UnresolvedUnits} unresolved)"
+                    : string.Empty;
                 sb.AppendLine($"  {f.LoaderName}: {f.StartTimeCentral:yyyy-MM-dd HH:mm} Central, " +
-                              $"{f.UnitsFailed}/{f.UnitsTotal} units failed");
+                              $"{f.UnitsFailed}/{f.UnitsTotal} units failed{unresolvedSuffix}");
+            }
             sb.AppendLine();
         }
 

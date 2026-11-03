@@ -272,7 +272,7 @@ public class WatchdogEvaluatorTests
         var report = Evaluate(
             Settings(("Platts", 26)),
             new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-1)) },
-            failures: new[] { new RecentFailure("Platts", NowCentral.AddHours(-2), 3, 14) });
+            failures: new[] { new RecentFailure("Platts", NowCentral.AddHours(-2), 3, 14, 3) });
 
         Assert.True(report.ShouldNotify);
     }
@@ -332,7 +332,7 @@ public class WatchdogEvaluatorTests
             Settings(("Platts", 26)),
             new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-30)) },
             stuck: new[] { new StuckRun(Guid.NewGuid(), DateTime.UtcNow.AddHours(-20), "ARMH-OPSDB01") },
-            failures: new[] { new RecentFailure("EnergyAspects", NowCentral.AddHours(-2), 3, 14) });
+            failures: new[] { new RecentFailure("EnergyAspects", NowCentral.AddHours(-2), 3, 14, 3) });
 
         var message = report.BuildMessage();
 
@@ -341,6 +341,40 @@ public class WatchdogEvaluatorTests
         Assert.Contains("1 recent failure", message.Subject);
         Assert.Contains("Platts", message.Body);
         Assert.Contains("EnergyAspects", message.Body);
+    }
+
+    [Fact]
+    public void Body_ShowsUnresolvedCount_WhenPartiallyResolved()
+    {
+        // 3 failed, 1 still unresolved: the body should say so, because it is new
+        // information beyond the plain "3/14 units failed" the pre-resolution report
+        // already showed.
+        var report = Evaluate(
+            Settings(("AGSI", 26)),
+            new[] { new LoaderLastRun("AGSI", NowCentral.AddHours(-1)) },
+            failures: new[] { new RecentFailure("AGSI", NowCentral.AddHours(-2), 3, 2630, 1) });
+
+        var body = report.BuildMessage().Body;
+
+        Assert.Contains("3/2630 units failed (1 unresolved)", body);
+    }
+
+    [Fact]
+    public void Body_OmitsUnresolvedSuffix_WhenNothingWasResolved()
+    {
+        // UnresolvedUnits == UnitsFailed: either resolution found nothing resolved, or
+        // SkipAlertIfResolved is off and nothing was evaluated at all. Either way the
+        // plain count already says everything there is to say — this is the "report
+        // exactly as today" text path, so no parenthetical is added.
+        var report = Evaluate(
+            Settings(("Platts", 26)),
+            new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-1)) },
+            failures: new[] { new RecentFailure("Platts", NowCentral.AddHours(-2), 3, 14, 3) });
+
+        var body = report.BuildMessage().Body;
+
+        Assert.Contains("3/14 units failed", body);
+        Assert.DoesNotContain("unresolved", body);
     }
 
     [Fact]
