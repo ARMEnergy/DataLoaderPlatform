@@ -153,6 +153,23 @@ public class WatchdogFailureResolverTests
     }
 
     [Fact]
+    public void MatchingIsCaseInsensitive_OnBothLoaderIdAndWorkUnitDisplay()
+    {
+        // These identifiers are programmatically generated, not user input, so a harmless
+        // casing difference must not be mistaken for a different unit — matching
+        // WatchdogEvaluator's own case-insensitive loader-name comparison.
+        var runId = Guid.NewGuid();
+        var candidates = new[] { Candidate(runId, "Platts") };
+        var failedUnits = new[] { new FailedWorkUnit(runId, "Platts", "key-1", "Platts Daily", T0) };
+        var laterSuccesses = new[] { new SuccessfulWorkUnit("PLATTS", "key-2", "platts daily", T0.AddHours(1)) };
+
+        var result = WatchdogFailureResolver.Resolve(candidates, failedUnits, laterSuccesses);
+
+        Assert.Empty(result.Failures);
+        Assert.Single(result.Suppressed);
+    }
+
+    [Fact]
     public void SuccessBeforeTheFailure_DoesNotResolveIt()
     {
         // A success that happened BEFORE the failure (e.g. the run before the one that

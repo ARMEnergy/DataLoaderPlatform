@@ -52,7 +52,14 @@ public static class WatchdogFailureResolver
         // Only the LATEST success per (LoaderId, WorkUnitDisplay) can matter for "is there
         // a success after this failure": if the latest one is after, at least one success
         // is; if the latest one is not, none can be either.
-        var latestSuccess = new Dictionary<(string LoaderId, string WorkUnitDisplay), DateTime>();
+        //
+        // OrdinalIgnoreCase on both parts of the key, matching WatchdogEvaluator's own
+        // loader-name matching — these identifiers are programmatically generated, not
+        // user input, so a case mismatch would be an upstream formatting quirk rather
+        // than a real identity difference, and the default tuple comparer is
+        // case-sensitive.
+        var latestSuccess = new Dictionary<(string LoaderId, string WorkUnitDisplay), DateTime>(
+            LoaderWorkUnitComparer.Instance);
         foreach (var s in laterSuccesses)
         {
             var key = (s.LoaderId, s.WorkUnitDisplay);
@@ -92,5 +99,26 @@ public static class WatchdogFailureResolver
         }
 
         return new RecentFailuresResult(reported, suppressed);
+    }
+
+    /// <summary>
+    /// Case-insensitive equality over the (LoaderId, WorkUnitDisplay) resolution key. The
+    /// built-in <see cref="ValueTuple{T1,T2}"/> comparer is case-SENSITIVE, which would
+    /// silently fail to match a success against its failure over a harmless casing quirk —
+    /// the fail-open direction here is "stays reported", not "wrongly suppressed", but
+    /// there is no reason to accept even that for free.
+    /// </summary>
+    private sealed class LoaderWorkUnitComparer : IEqualityComparer<(string LoaderId, string WorkUnitDisplay)>
+    {
+        public static readonly LoaderWorkUnitComparer Instance = new();
+
+        public bool Equals((string LoaderId, string WorkUnitDisplay) x, (string LoaderId, string WorkUnitDisplay) y) =>
+            string.Equals(x.LoaderId, y.LoaderId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(x.WorkUnitDisplay, y.WorkUnitDisplay, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string LoaderId, string WorkUnitDisplay) obj) =>
+            HashCode.Combine(
+                obj.LoaderId.ToUpperInvariant(),
+                obj.WorkUnitDisplay.ToUpperInvariant());
     }
 }
