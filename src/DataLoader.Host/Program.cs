@@ -3,6 +3,7 @@ using DataLoader.Core.Configuration;
 using DataLoader.Core.Hosting;
 using DataLoader.Core.Notifications;
 using DataLoader.Core.Persistence;
+using DataLoader.Core.Resilience;
 using DataLoader.Core.Watchdog;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -251,8 +252,32 @@ internal static class Program
     {
         var services = new ServiceCollection();
 
+        // Set the ambient SQL open policy BEFORE anything can touch the database. The
+        // earliest connection a process makes is SqlParamStore resolving SEE_DB settings
+        // during options post-configuration, which happens below — so reading straight
+        // from IConfiguration here, rather than from bound options, is what makes the
+        // policy apply to the very first connection instead of the second.
+        var platformSection = configuration.GetSection(PlatformSettings.SectionName);
+        var connectTimeout = platformSection.GetValue("SqlConnectTimeoutSeconds", 60);
+        SqlConnectionResilience.Policy = new SqlConnectionResiliencePolicy
+        {
+            ConnectTimeoutSeconds = connectTimeout,
+            MaxAttempts = platformSection.GetValue("SqlConnectMaxAttempts", 3),
+            BaseDelay = TimeSpan.FromSeconds(
+                platformSection.GetValue("SqlConnectRetryBaseDelaySeconds", 2.0))
+        };
+
         services.AddSingleton(configuration);
-        services.Configure<PlatformSettings>(configuration.GetSection(PlatformSettings.SectionName));
+        services.Configure<PlatformSettings>(platformSection);
+
+        // Inject Connect Timeout into the platform connection string. Registered before
+        // the EnabledLoaders override below only for readability — post-configure actions
+        // touch disjoint properties, so their relative order does not matter here.
+        services.PostConfigure<PlatformSettings>(s =>
+        {
+            s.LoadLogConnectionString =
+                SqlConnectionResilience.ApplyDefaults(s.LoadLogConnectionString, connectTimeout);
+        });
 
         // If the caller named loaders on the command line, override the
         // EnabledLoaders list in the bound options. This is option (a) from

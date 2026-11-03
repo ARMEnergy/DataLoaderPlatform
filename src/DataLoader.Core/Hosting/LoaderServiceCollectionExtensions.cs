@@ -1,4 +1,5 @@
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Resilience;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -67,6 +68,16 @@ public static class LoaderServiceCollectionExtensions
                 loaderId,
                 sp.GetRequiredService<ISeeDbParamStore>(),
                 sp.GetRequiredService<ILogger<SeeDbSettingsResolver<TSettings>>>()));
+
+        // ⚠ MUST stay registered after the SEE_DB resolver above: post-configure actions
+        // run in registration order, and a ConnectionString whose configured value is the
+        // SEE_DB sentinel is still that literal string until the resolver has replaced it.
+        // Normalising first would parse "SEE_DB" as a connection string, inject nothing,
+        // and leave the real one — fetched a moment later — on the 15-second default.
+        services.PostConfigure<TSettings>(s =>
+        {
+            s.ConnectionString = SqlConnectionResilience.ApplyDefaults(s.ConnectionString);
+        });
 
         return services;
     }

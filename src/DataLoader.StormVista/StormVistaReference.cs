@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -79,7 +80,7 @@ public sealed class SqlStormVistaReferenceProvider : IStormVistaReferenceProvide
     private async Task<StormVistaReference> LoadAsync(CancellationToken ct)
     {
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
         // One read proc returns the six reference result sets in a fixed order.
         // Consume them positionally, advancing with NextResult between each.

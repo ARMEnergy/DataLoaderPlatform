@@ -151,10 +151,10 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.AssemblyInfoInputs.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.AssemblyInfo.cs
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.csproj.CoreCompileInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.sourcelink.json
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoad.B73AAF06.Up2Date
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\refint\DataLoader.Vulcan.Tests.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.genruntimeconfig.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\ref\DataLoader.Vulcan.Tests.dll
-C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Vulcan.Tests\obj\Release\net8.0\DataLoader.Vulcan.Tests.sourcelink.json

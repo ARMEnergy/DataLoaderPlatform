@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
@@ -32,8 +33,13 @@ public sealed class SqlParamStore : ISeeDbParamStore
                 $"'{LoadLogConnectionStringKey}' is not configured; it is required to resolve SEE_DB loader settings via core.usp_GetParam.");
         }
 
-        using var connection = new SqlConnection(connectionString);
-        connection.Open();
+        // Normalised here rather than inherited from PlatformSettings: this reads the raw
+        // configuration value directly (see LoadLogConnectionStringKey above), so it never
+        // passes through the PostConfigure<PlatformSettings> that normalises every other
+        // use of the same string.
+        using var connection = new SqlConnection(
+            SqlConnectionResilience.ApplyDefaults(connectionString));
+        connection.OpenWithRetry();
 
         using var command = new SqlCommand("core.usp_GetParam", connection)
         {

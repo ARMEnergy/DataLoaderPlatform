@@ -1,6 +1,7 @@
 using System.Data;
 using System.Globalization;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -89,7 +90,7 @@ public sealed class SqlNgiFileLog : INgiFileLog
             SqlWriteGate.KeyFor(_settings.ConnectionString, "arm.usp_UpsertFileLog"), cancellationToken).ConfigureAwait(false);
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand("arm.usp_UpsertFileLog", conn) { CommandType = CommandType.StoredProcedure };
         cmd.Parameters.Add("@Endpoint", SqlDbType.VarChar, 40).Value = file.Endpoint;

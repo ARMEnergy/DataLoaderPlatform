@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 
@@ -18,7 +19,7 @@ public sealed class VulcanWatermarkStore : IVulcanWatermarkStore
     public async Task<DateOnly?> GetAsync(string tableId, CancellationToken ct)
     {
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("dbo.usp_GetVulcanWatermark", conn) { CommandType = CommandType.StoredProcedure };
         cmd.Parameters.AddWithValue("@TableName", tableId);
         var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);

@@ -1,6 +1,7 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -45,7 +46,7 @@ public sealed class SqlLoadLogRepository : ILoadLogRepository, ILoadLogSweeper
     public async Task BeginRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         await using var conn = CreateConnection();
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = CreateCommand(conn, "core.usp_BeginLoaderRun");
         cmd.Parameters.AddWithValue("@RunId", runId);
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -54,7 +55,7 @@ public sealed class SqlLoadLogRepository : ILoadLogRepository, ILoadLogSweeper
     public async Task CompleteRunAsync(Guid runId, bool success, CancellationToken cancellationToken)
     {
         await using var conn = CreateConnection();
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = CreateCommand(conn, "core.usp_CompleteLoaderRun");
         cmd.Parameters.AddWithValue("@RunId", runId);
         cmd.Parameters.AddWithValue("@Success", success);
@@ -66,7 +67,7 @@ public sealed class SqlLoadLogRepository : ILoadLogRepository, ILoadLogSweeper
         CancellationToken cancellationToken)
     {
         await using var conn = CreateConnection();
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
         await using var cmd = CreateCommand(conn, "core.usp_BeginLoadLog");
         cmd.Parameters.AddWithValue("@LoaderId", loaderId);
@@ -96,7 +97,7 @@ public sealed class SqlLoadLogRepository : ILoadLogRepository, ILoadLogSweeper
     public async Task CompleteSuccessAsync(LoadLogHandle handle, int recordsProcessed, CancellationToken cancellationToken)
     {
         await using var conn = CreateConnection();
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = CreateCommand(conn, "core.usp_CompleteLoadLog");
         cmd.Parameters.AddWithValue("@LoadLogId", handle.LoadLogId);
         cmd.Parameters.AddWithValue("@IsComplete", true);
@@ -108,7 +109,7 @@ public sealed class SqlLoadLogRepository : ILoadLogRepository, ILoadLogSweeper
     public async Task CompleteFailureAsync(LoadLogHandle handle, string errorMessage, CancellationToken cancellationToken)
     {
         await using var conn = CreateConnection();
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = CreateCommand(conn, "core.usp_CompleteLoadLog");
         cmd.Parameters.AddWithValue("@LoadLogId", handle.LoadLogId);
         cmd.Parameters.AddWithValue("@IsComplete", false);
@@ -121,7 +122,7 @@ public sealed class SqlLoadLogRepository : ILoadLogRepository, ILoadLogSweeper
     public async Task<int> AbandonStaleAsync(Guid currentRunId, CancellationToken cancellationToken)
     {
         await using var conn = CreateConnection();
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = CreateCommand(conn, "core.usp_AbandonStaleLoadLogs");
         cmd.Parameters.AddWithValue("@CurrentRunId", currentRunId);
         cmd.Parameters.AddWithValue("@StaleAfterHours", _settings.AbandonStaleAfterHours);

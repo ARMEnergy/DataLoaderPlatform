@@ -1,3 +1,4 @@
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
@@ -62,7 +63,7 @@ internal sealed class EiaLoadHistory
         try
         {
             await using var conn = new SqlConnection(_connectionString);
-            await conn.OpenAsync(ct).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
             await using var cmd = new SqlCommand(
                 "SELECT DISTINCT WorkUnitKey FROM core.LoadLog WHERE LoaderId = @LoaderId AND IsComplete = 1",

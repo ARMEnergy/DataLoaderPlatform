@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -48,7 +49,7 @@ internal sealed class EiaLoadValidator
         try
         {
             await using var conn = new SqlConnection(_settings.ConnectionString);
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             await using var cmd = new SqlCommand("arm.usp_ValidateLoad", conn)
             {

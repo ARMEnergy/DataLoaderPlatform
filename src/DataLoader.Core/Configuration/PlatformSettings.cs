@@ -29,6 +29,25 @@ public sealed class PlatformSettings
     public string LoadLogConnectionString { get; set; } = string.Empty;
 
     /// <summary>
+    /// Seconds allowed for ONE attempt to open any SQL connection, injected as
+    /// <c>Connect Timeout</c> into every platform and loader connection string that does
+    /// not already specify one. See
+    /// <see cref="Resilience.SqlConnectionResiliencePolicy.ConnectTimeoutSeconds"/> for
+    /// why the ADO.NET default of 15 is not enough on ARMH-OPSDB01.
+    /// </summary>
+    public int SqlConnectTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Total attempts to open a SQL connection before failing. 1 disables retrying.
+    /// </summary>
+    public int SqlConnectMaxAttempts { get; set; } = 3;
+
+    /// <summary>
+    /// Delay before the 2nd open attempt, tripling thereafter.
+    /// </summary>
+    public double SqlConnectRetryBaseDelaySeconds { get; set; } = 2;
+
+    /// <summary>
     /// Optional default date window. Loaders that don't define their own
     /// dates fall back to these. Loaders that are not date-windowed ignore
     /// them.

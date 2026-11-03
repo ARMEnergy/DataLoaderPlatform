@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 
@@ -39,7 +40,7 @@ public sealed class VulcanTableRegistry : IVulcanTableRegistry
     public async Task<IReadOnlyList<VulcanTableRegistration>> GetAllAsync(CancellationToken ct)
     {
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("dbo.usp_GetVulcanLoaderTables", conn)
             { CommandType = CommandType.StoredProcedure };
 
@@ -58,7 +59,7 @@ public sealed class VulcanTableRegistry : IVulcanTableRegistry
     public async Task SetLastRunAsync(string tableName, CancellationToken ct)
     {
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("dbo.usp_SetVulcanTableLastRun", conn)
             { CommandType = CommandType.StoredProcedure };
         cmd.Parameters.AddWithValue("@TableName", tableName);

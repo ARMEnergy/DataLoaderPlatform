@@ -1,6 +1,7 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using DataLoader.Core.Sinks;
 using DataLoader.EnergyAspects.Models;
 using Microsoft.Data.SqlClient;
@@ -69,7 +70,7 @@ public sealed class EnergyAspectsSink : ISink<TimeseriesBatch>
     {
         var mappings = new List<DatasetMapping>();
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("dbo.usp_GetActiveMappings", conn) { CommandType = CommandType.StoredProcedure };
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -94,7 +95,7 @@ public sealed class EnergyAspectsSink : ISink<TimeseriesBatch>
             SqlWriteGate.KeyFor(_settings.ConnectionString, "dbo.usp_LogApiResponse"), ct).ConfigureAwait(false);
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("dbo.usp_LogApiResponse", conn) { CommandType = CommandType.StoredProcedure };
         cmd.Parameters.AddWithValue("@MappingId", mappingId);
         cmd.Parameters.AddWithValue("@ResponseCode", responseCode);
@@ -112,7 +113,7 @@ public sealed class EnergyAspectsSink : ISink<TimeseriesBatch>
                 SqlWriteGate.KeyFor(_settings.ConnectionString, procName), ct).ConfigureAwait(false);
 
             await using var conn = new SqlConnection(_settings.ConnectionString);
-            await conn.OpenAsync(ct).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
             await using var cmd = new SqlCommand(procName, conn) { CommandType = CommandType.StoredProcedure };
             var p = cmd.Parameters.AddWithValue("@Records", table);
             p.SqlDbType = SqlDbType.Structured;
@@ -136,7 +137,7 @@ public sealed class EnergyAspectsSink : ISink<TimeseriesBatch>
                 SqlWriteGate.KeyFor(_settings.ConnectionString, procName), ct).ConfigureAwait(false);
 
             await using var conn = new SqlConnection(_settings.ConnectionString);
-            await conn.OpenAsync(ct).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
             await using var cmd = new SqlCommand(procName, conn) { CommandType = CommandType.StoredProcedure };
             var p = cmd.Parameters.AddWithValue("@Records", table);
             p.SqlDbType = SqlDbType.Structured;

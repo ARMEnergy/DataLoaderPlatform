@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -88,7 +89,7 @@ public abstract class SqlPlIntIdProvider
     private async Task<IReadOnlyList<int>> LoadAsync(CancellationToken ct)
     {
         await using var conn = new SqlConnection(Settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand(ReadProc, conn) { CommandType = CommandType.StoredProcedure };
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -189,7 +190,7 @@ public sealed class SqlPlPointProvider : IPlPointProvider
     private async Task<IReadOnlyList<PlPointRef>> LoadAsync(CancellationToken ct)
     {
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand(ReadProc, conn) { CommandType = CommandType.StoredProcedure };
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -265,7 +266,7 @@ public sealed class SqlPlSubregionProvider : IPlSubregionProvider
     private async Task LoadAsync(CancellationToken ct)
     {
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand(ReadProc, conn) { CommandType = CommandType.StoredProcedure };
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);

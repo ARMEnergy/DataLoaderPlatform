@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -43,7 +44,7 @@ public sealed class ArgusLoadValidator
         try
         {
             await using var conn = new SqlConnection(_settings.ConnectionString);
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             await using var cmd = new SqlCommand("dlp.usp_ValidateLoad", conn) { CommandType = CommandType.StoredProcedure };
             cmd.Parameters.Add("@ReportDate", SqlDbType.Date).Value =

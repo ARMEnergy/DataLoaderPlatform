@@ -1,5 +1,6 @@
 using System.Data;
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -54,7 +55,7 @@ public sealed class SqlAdditionalProcessRunner : IAdditionalProcessRunner
         try
         {
             await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             await using var cmd = new SqlCommand("core.usp_RunAdditionalProcesses", conn)
             {

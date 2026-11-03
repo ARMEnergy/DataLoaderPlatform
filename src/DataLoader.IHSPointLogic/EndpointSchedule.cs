@@ -1,5 +1,6 @@
 using System.Data;
 using System.Globalization;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -105,7 +106,7 @@ public sealed class SqlPlEndpointSchedule : IPlEndpointSchedule
         var map = new Dictionary<string, HourSet>(StringComparer.OrdinalIgnoreCase);
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand(ReadProc, conn) { CommandType = CommandType.StoredProcedure };
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);

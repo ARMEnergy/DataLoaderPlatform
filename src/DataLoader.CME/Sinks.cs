@@ -1,6 +1,7 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
@@ -112,7 +113,7 @@ public sealed class CmeFactSink : ISink<CmeFactRow>
                 SqlWriteGate.KeyFor(_connectionString, table.MergeProc), cancellationToken).ConfigureAwait(false);
 
             await using var conn = new SqlConnection(_connectionString);
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             await using var cmd = new SqlCommand(table.MergeProc, conn) { CommandType = CommandType.StoredProcedure };
 

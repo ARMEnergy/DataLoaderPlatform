@@ -1,9 +1,4 @@
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\bin\Release\net8.0\.msCoverageSourceRootsMapping_DataLoader.Platts.Tests
-C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.csproj.AssemblyReference.cache
-C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.AssemblyInfoInputs.cache
-C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.AssemblyInfo.cs
-C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.csproj.CoreCompileInputs.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\bin\Release\net8.0\testhost.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\bin\Release\net8.0\testhost.exe
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\bin\Release\net8.0\xunit.runner.visualstudio.testadapter.dll
@@ -153,10 +148,15 @@ C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\bin\Release\net8.0\DataLoader.Platts.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\bin\Release\net8.0\DataLoader.Platts.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\bin\Release\net8.0\DataLoader.Core.pdb
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.csproj.AssemblyReference.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.AssemblyInfoInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.AssemblyInfo.cs
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.csproj.CoreCompileInputs.cache
+C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.sourcelink.json
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoad.CD11114F.Up2Date
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\refint\DataLoader.Platts.Tests.dll
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.pdb
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.genruntimeconfig.cache
 C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\ref\DataLoader.Platts.Tests.dll
-C:\Users\yaroslav.chekhuta\MyProjects\DataLoaderPlatform\tests\DataLoader.Platts.Tests\obj\Release\net8.0\DataLoader.Platts.Tests.sourcelink.json

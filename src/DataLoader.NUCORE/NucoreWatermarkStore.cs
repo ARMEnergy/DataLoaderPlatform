@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
@@ -43,7 +44,7 @@ internal sealed class NucoreWatermarkStore
         try
         {
             await using var connection = new SqlConnection(_connectionString);
-            await connection.OpenAsync(ct).ConfigureAwait(false);
+            await connection.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
             await using var command = new SqlCommand(
                 $"dbo.usp_Get{endpoint.Name}Watermark", connection)

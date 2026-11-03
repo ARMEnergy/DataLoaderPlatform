@@ -1,6 +1,7 @@
 using System.Data;
 using System.Globalization;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -64,7 +65,7 @@ public sealed class SqlIirFileLog : IIirFileLog
             SqlWriteGate.KeyFor(_settings.ConnectionString, "arm.usp_UpsertFileLog"), cancellationToken).ConfigureAwait(false);
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand("arm.usp_UpsertFileLog", conn) { CommandType = CommandType.StoredProcedure };
         // Explicit SqlDbType + size matching the proc's VARCHAR/DATE/INT params so no implicit

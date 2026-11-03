@@ -1,5 +1,6 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -40,7 +41,7 @@ public sealed class AgsiLoadValidator
         try
         {
             await using var conn = new SqlConnection(_settings.ConnectionString);
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             await using var cmd = new SqlCommand("arm.usp_ValidateLoad", conn) { CommandType = CommandType.StoredProcedure };
             cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = from.ToDateTime(TimeOnly.MinValue);

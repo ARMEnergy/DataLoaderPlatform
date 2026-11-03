@@ -1,4 +1,5 @@
 using System.Data;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -75,7 +76,7 @@ public sealed class SqlAgsiCountryProvider : IAgsiCountryProvider
         // arm.usp_GetGasStorageEntities returns two columns (Id INT, Code VARCHAR(16)) — the
         // DISTINCT non-blank entities ordered by Code (design §2 / sql/AGSI/003).
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand("arm.usp_GetGasStorageEntities", conn) { CommandType = CommandType.StoredProcedure };
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);

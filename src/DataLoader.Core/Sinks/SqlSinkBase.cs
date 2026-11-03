@@ -1,6 +1,7 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
@@ -107,7 +108,7 @@ public abstract class SqlSinkBase<TRow> : ISink<TRow>
             using var gate = await SqlWriteGate.AcquireAsync(key, cancellationToken).ConfigureAwait(false);
 
             await using var conn = new SqlConnection(GetConnectionString());
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             await using var cmd = CreateCommand(conn);
             var tvp = cmd.Parameters.AddWithValue("@Records", table);

@@ -1,5 +1,6 @@
 using System.Data;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -35,7 +36,7 @@ internal sealed class EiaCatalogRepository
         var list = new List<EiaSeries>();
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("arm.usp_GetActiveSeries", conn)
         {
             CommandType = CommandType.StoredProcedure
@@ -67,7 +68,7 @@ internal sealed class EiaCatalogRepository
         var list = new List<EiaFrequency>();
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("arm.usp_GetSeriesFrequencies", conn)
         {
             CommandType = CommandType.StoredProcedure
@@ -96,7 +97,7 @@ internal sealed class EiaCatalogRepository
         var list = new List<EiaDataType>();
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("arm.usp_GetSeriesDataTypes", conn)
         {
             CommandType = CommandType.StoredProcedure
@@ -136,7 +137,7 @@ internal sealed class EiaCatalogRepository
             .ConfigureAwait(false);
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
         await using var cmd = new SqlCommand("arm.usp_UpdateSeriesEndPeriod", conn)
         {
             CommandType = CommandType.StoredProcedure

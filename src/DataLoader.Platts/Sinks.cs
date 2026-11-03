@@ -1,6 +1,7 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using DataLoader.Core.Sinks;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
@@ -145,7 +146,7 @@ public sealed class PlattsFileLogWriter : IPlattsFileLog
             SqlWriteGate.KeyFor(_settings.ConnectionString, "arm.usp_UpsertFileLog"), ct).ConfigureAwait(false);
 
         await using var conn = new SqlConnection(_settings.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(ct).ConfigureAwait(false);
 
         await using var cmd = new SqlCommand("arm.usp_UpsertFileLog", conn) { CommandType = CommandType.StoredProcedure };
         cmd.Parameters.AddWithValue("@Feed", feed);

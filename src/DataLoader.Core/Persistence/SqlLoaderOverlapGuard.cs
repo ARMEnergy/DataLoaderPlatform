@@ -1,5 +1,6 @@
 using System.Data;
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -46,7 +47,7 @@ public sealed class SqlLoaderOverlapGuard : ILoaderOverlapGuard
         var conn = new SqlConnection(_settings.LoadLogConnectionString);
         try
         {
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             await using (var cmd = new SqlCommand("core.usp_TryAcquireLoaderLock", conn)
                          { CommandType = CommandType.StoredProcedure })

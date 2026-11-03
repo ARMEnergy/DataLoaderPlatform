@@ -1,4 +1,5 @@
 using DataLoader.Core.Configuration;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 
@@ -56,7 +57,7 @@ WHERE LoaderName IS NOT NULL AND LTRIM(RTRIM(LoaderName)) <> ''
 GROUP BY LoaderName;";
 
         await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = Command(conn, Sql);
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -84,7 +85,7 @@ WHERE CompletedAtUtc IS NULL
 ORDER BY StartedAtUtc;";
 
         await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = Command(conn, Sql);
         cmd.Parameters.AddWithValue("@StuckAfterHours", Math.Max(1, stuckAfterHours));
         cmd.Parameters.AddWithValue("@LookbackDays", Math.Max(1, lookbackDays));
@@ -155,7 +156,7 @@ WHERE frs.Success = 0
 ORDER BY frs.StartTime DESC;";
 
         await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = Command(conn, Sql);
         cmd.Parameters.AddWithValue("@LookbackHours", Math.Max(1, lookbackHours));
         cmd.Parameters.AddWithValue("@NowCentral", nowCentral);
@@ -190,7 +191,7 @@ ORDER BY frs.StartTime DESC;";
         IReadOnlyList<FailedRunCandidate> candidates, CancellationToken cancellationToken)
     {
         await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
         var paramNames = new string[candidates.Count];
         for (var i = 0; i < candidates.Count; i++)
@@ -237,7 +238,7 @@ ORDER BY frs.StartTime DESC;";
         var earliestFailure = failedUnits.Min(f => f.StartedAtUtc);
 
         await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
         var paramNames = new string[loaderIds.Count];
         for (var i = 0; i < loaderIds.Count; i++)

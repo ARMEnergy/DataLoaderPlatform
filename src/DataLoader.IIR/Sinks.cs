@@ -1,6 +1,7 @@
 using System.Data;
 using DataLoader.Core.Abstractions;
 using DataLoader.Core.Concurrency;
+using DataLoader.Core.Resilience;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -72,7 +73,7 @@ public abstract class IirSqlSinkBase<TRow> : ISink<TRow>
             // One connection for the whole batch, reused across every chunk MERGE (still inside the
             // write gate) — so the ~112k-row plants pull opens the connection once, not ~12 times.
             await using var conn = new SqlConnection(_connectionString);
-            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
 
             foreach (var chunk in chunks)
             {
