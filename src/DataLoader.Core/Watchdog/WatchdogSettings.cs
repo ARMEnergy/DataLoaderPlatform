@@ -27,8 +27,15 @@ public sealed class WatchdogSettings
     /// so production held 35 orphans going back to August when this was written.
     /// An alert that never clears is one people stop reading, which is worse
     /// than no alert at all.</para>
+    ///
+    /// <para>Lowered from 7 to 2 on 2026-11-02. A stuck run is a persistent
+    /// CONDITION, not an event — nothing closes the row, so every hourly pass
+    /// re-reports it for the whole window. At 7 days a single killed process
+    /// produced roughly 168 identical emails; at 2 days it is about 48, still
+    /// far more than enough to notice and act on. The window only governs how
+    /// long something is SHOUTED about, never whether it is detected.</para>
     /// </summary>
-    public int StuckLookbackDays { get; set; } = 7;
+    public int StuckLookbackDays { get; set; } = 2;
 
     /// <summary>
     /// Report only stuck runs recorded against the machine the watchdog is
@@ -45,8 +52,19 @@ public sealed class WatchdogSettings
     /// Look-back for reporting runs that recorded <c>Success = 0</c>. This
     /// overlaps with the in-process email on purpose — it is the safety net for
     /// when that email could not be delivered.
+    ///
+    /// <para>Lowered from 24 to 2 on 2026-11-02. The overlap is the whole point
+    /// of the signal, but a 24-hour window means every hourly pass re-sends the
+    /// same handful of failures for a full day — failures the reader already
+    /// received an in-process email about. Since that in-process path is now
+    /// proven working in production (a real alert was delivered on 2026-10-26),
+    /// the net only has to cover the short gap where delivery might have failed.
+    /// At 2 hours a failure is mentioned at most twice.</para>
+    ///
+    /// <para>⚠ There is no "off": <c>SqlWatchdogRepository</c> applies
+    /// <c>Math.Max(1, …)</c>, so 0 becomes a one-hour window, not no window.</para>
     /// </summary>
-    public int ReportRecentFailureHours { get; set; } = 24;
+    public int ReportRecentFailureHours { get; set; } = 2;
 
     /// <summary>
     /// Per-loader expectations. A loader absent from here is never reported,
