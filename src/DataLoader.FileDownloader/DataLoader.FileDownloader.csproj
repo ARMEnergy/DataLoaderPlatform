@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DataLoader.FileDownloader</RootNamespace>
+    <AssemblyName>DataLoader.FileDownloader</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DataLoader.Core\DataLoader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Same versions already in this solution, deliberately: FluentFTP 53.0.1 is
+         what OPIS/EOX/Argus use and SSH.NET 2026.0.0 is what CME/Platts use. The
+         etl-tools original pinned ssh.net 2024.1.0 and FluentFTP 53.0.1; taking the
+         solution's versions rather than the original's keeps one copy of each
+         driver in the publish output. -->
+    <PackageReference Include="FluentFTP" Version="53.0.1" />
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <!-- Link-mode scraping. The original project already used HtmlAgilityPack for
+         Baker Hughes; no browser is needed for a page whose download link is in the
+         served HTML. -->
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataLoader.FileDownloader.Tests" />
+  </ItemGroup>
+</Project>
