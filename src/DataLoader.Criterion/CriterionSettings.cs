@@ -89,6 +89,45 @@ public sealed class CriterionSettings : LoaderSettingsBase
     public int SourceConnectTimeoutSeconds { get; set; } = 30;
 
     /// <summary>
+    /// Total attempts to OPEN a source connection (NOT retries after the first); 1
+    /// disables retrying. Only a transient connect failure is retried — see
+    /// <see cref="CriterionConnectRetry.IsTransientConnectFailure"/>. A failed login is
+    /// never retried.
+    ///
+    /// <para>
+    /// ⚠ Why this exists: on five mornings between 2026-10-23 and 2026-11-06 the run that
+    /// starts at exactly <b>11:00 UTC</b> (06:00 CDT before DST, 05:00 CST after) failed
+    /// to connect within 30s while enumerating <c>FinancialSeriesData</c> work units.
+    /// Enumeration had no retry, so one slow connect cost the whole feed's 304 units, and
+    /// the next hour's run loaded them fine. The other feeds in those same runs were
+    /// 100–1000× slower than usual but did connect, so the slow spell lasts minutes, not
+    /// seconds.
+    /// </para>
+    /// <para>
+    /// ⚠ Where the slowness is has NOT been established. It may be the vendor, the network
+    /// path, or this box: one of the five (2026-11-05) failed with a bare
+    /// <see cref="TimeoutException"/> that may come from Npgsql's DNS step, before any
+    /// socket opens, which would point at a local stall like the Windows Update one
+    /// behind <c>SqlConnectionResiliencePolicy.ConnectTimeoutSeconds</c>. The retry covers
+    /// both cases.
+    /// </para>
+    /// <para>
+    /// ⚠ Coupled to <see cref="LoaderSettingsBase.WorkUnitTimeoutSeconds"/>: the worst case
+    /// to fail an open is <c>attempts × SourceConnectTimeoutSeconds</c> plus the backoff
+    /// (<see cref="SourceConnectRetryDelaySeconds"/>, tripling each time). With the shipped
+    /// 3 × 30s + 10s + 30s that is 130s against 1800s; a guard test pins it.
+    /// </para>
+    /// </summary>
+    public int SourceConnectMaxAttempts { get; set; } = 3;
+
+    /// <summary>
+    /// Seconds to wait before the 2nd connect attempt; each later attempt waits three
+    /// times longer (10s, 30s, …). Longer than the SQL Server side's 2s because what is
+    /// being outlasted here is a vendor-side slow spell, not a brief local OS stall.
+    /// </summary>
+    public int SourceConnectRetryDelaySeconds { get; set; } = 10;
+
+    /// <summary>
     /// Seconds a single source query may run. Generous by default: a paged
     /// <c>FinancialSeriesData</c> unit pulls tens of megabytes of JSON, and the
     /// nomination window scans hundreds of thousands of rows.

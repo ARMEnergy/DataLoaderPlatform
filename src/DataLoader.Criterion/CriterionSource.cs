@@ -316,7 +316,31 @@ public sealed class NpgsqlCriterionSource : ICriterionSource
 
     private int CommandTimeout => Math.Max(30, Settings.SourceCommandTimeoutSeconds);
 
-    private async Task<NpgsqlConnection> OpenAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Opens a source connection, retrying a transient connect failure per
+    /// <see cref="CriterionSettings.SourceConnectMaxAttempts"/>. Each attempt gets a fresh
+    /// <see cref="NpgsqlConnection"/>; a failed one is disposed before the next.
+    ///
+    /// <para>
+    /// ⚠ This matters most for work-unit ENUMERATION (<see cref="GetPageKeysAsync"/>), which
+    /// runs outside any per-unit retry: before this, a single slow connect there failed the
+    /// whole <c>FinancialSeriesData</c> feed. See the setting for the production history.
+    /// </para>
+    /// </summary>
+    private Task<NpgsqlConnection> OpenAsync(CancellationToken cancellationToken) =>
+        CriterionConnectRetry.OpenWithRetryAsync(
+            OpenOnceAsync,
+            Settings.SourceConnectMaxAttempts,
+            TimeSpan.FromSeconds(Math.Max(0, Settings.SourceConnectRetryDelaySeconds)),
+            Task.Delay,
+            (attempt, attempts, wait, ex) => _logger.LogWarning(
+                "Criterion: source connect attempt {Attempt}/{Attempts} to {Host}:{Port} failed " +
+                "({Error}); retrying in {Wait}s",
+                attempt, attempts, Settings.SourceHost, Settings.SourcePort,
+                ex.Message, (int)wait.TotalSeconds),
+            cancellationToken);
+
+    private async Task<NpgsqlConnection> OpenOnceAsync(CancellationToken cancellationToken)
     {
         var conn = new NpgsqlConnection(GetConnectionString());
         try

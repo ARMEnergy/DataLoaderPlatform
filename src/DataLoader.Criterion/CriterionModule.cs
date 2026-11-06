@@ -172,12 +172,12 @@ public sealed class CriterionModule : ILoaderModule
             catch (Exception ex)
             {
                 logger.LogError(ex, "Criterion: feed {Feed} threw out of its pipeline", pipeline.FeedId);
-                failures.Add(pipeline.FeedId);
+                failures.Add(DescribeFailedFeed(pipeline.FeedId, ex.Message));
                 results.Add(LoaderRunResult.Failed(Id, $"{pipeline.FeedId}: {ex.Message}", TimeSpan.Zero));
                 continue;
             }
 
-            if (!result.Success) failures.Add(pipeline.FeedId);
+            if (!result.Success) failures.Add(DescribeFailedFeed(pipeline.FeedId, result.ErrorMessage));
             results.Add(result);
         }
 
@@ -199,6 +199,22 @@ public sealed class CriterionModule : ILoaderModule
 
         return aggregate;
     }
+
+    /// <summary>
+    /// One entry of the "Failed feed(s): …" summary. A feed that failed on some work
+    /// units carries no message of its own (the detail is in its failed units), so it is
+    /// named alone. A feed that failed BEFORE any unit existed (could not enumerate, or
+    /// threw out of its pipeline) has nothing else to explain it, so its reason goes in
+    /// with it: <c>FinancialSeriesData (The operation has timed out)</c>.
+    ///
+    /// <para>
+    /// ⚠ Without this, the override passed to <see cref="LoaderRunResult.Aggregate"/>
+    /// replaced the enumeration error, so the 2026-11-06 failure email named the feed
+    /// but not why it failed, and showed "0/98 units failed".
+    /// </para>
+    /// </summary>
+    internal static string DescribeFailedFeed(string feedId, string? reason) =>
+        string.IsNullOrWhiteSpace(reason) ? feedId : $"{feedId} ({reason.Trim()})";
 
     /// <summary>
     /// Startup checks that warn rather than throw. Each of these is a configuration
