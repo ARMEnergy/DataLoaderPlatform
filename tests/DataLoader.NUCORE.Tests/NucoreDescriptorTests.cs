@@ -12,15 +12,17 @@ public class NucoreDescriptorTests
     public void RegistryValidates() => NucoreDescriptors.Validate();
 
     [Fact]
-    public void AllFiveEndpointsArePresent()
+    public void AllSevenEndpointsArePresent()
     {
-        Assert.Equal(5, NucoreDescriptors.All.Count);
+        Assert.Equal(7, NucoreDescriptors.All.Count);
 
         foreach (var name in new[]
                  {
                      NucoreDescriptors.VarResults, NucoreDescriptors.PositionSummary,
                      NucoreDescriptors.PnlExplain, NucoreDescriptors.PositionDetails,
-                     NucoreDescriptors.Volatilities
+                     NucoreDescriptors.Volatilities,
+                     NucoreDescriptors.SettlementPublicationIndexPrices,
+                     NucoreDescriptors.ProductSpecCurves
                  })
             Assert.NotNull(NucoreDescriptors.Find(name));
     }
@@ -36,6 +38,8 @@ public class NucoreDescriptorTests
         Assert.Equal(120, NucoreDescriptors.Find("PnlExplain")!.Columns.Count);
         Assert.Equal(165, NucoreDescriptors.Find("PositionDetails")!.Columns.Count);
         Assert.Equal(15,  NucoreDescriptors.Find("Volatilities")!.Columns.Count);
+        Assert.Equal(20,  NucoreDescriptors.Find("SettlementPublicationIndexPrices")!.Columns.Count);
+        Assert.Equal(25,  NucoreDescriptors.Find("ProductSpecCurves")!.Columns.Count);
     }
 
     /// <summary>
@@ -123,11 +127,18 @@ public class NucoreDescriptorTests
     [Theory]
     [InlineData("VarResults",   new[] { "VarDate", "VarBucket", "LegalEntity", "ConfidenceLevelId", "HoldingPeriod", "TradeBook", "TradeMonth", "ProductSpec" })]
     [InlineData("Volatilities", new[] { "SystemDate", "ProductSpec", "InstrumentType", "StartTradeMonth", "EndTradeMonth", "PutCallFlag", "StrikeType", "StrikePrice" })]
+    [InlineData("SettlementPublicationIndexPrices", new[] { "LocalTime", "SpiSettlementPublicationIndexId", "SpifSettlementPublicationIndexFrequencyId" })]
+    [InlineData("ProductSpecCurves", new[] { "SystemDate", "PrsSpecId", "TradeMonth", "StartFlowDate", "LocalStartFlowHour" })]
     public void OnlyKeysVerifiedOverCompletePopulationsSurvive(string endpointName, string[] expected)
     {
         // Re-verified over COMPLETE days, not samples:
         //   VarResults    7 days: 9,378 / 9,684 / 9,666 / 10,350 / 10,170 / 6,714 / 6,948
         //   Volatilities  5 days: 147,908 / 147,770 / 144,878 / 139,860 / 132,588
+        //   SPIP          5 days: 1,823 / 1,821 / 1,820 / 1,804 / 460  (7,728 total)
+        //   ProductSpecCurves 5 days: 44,351 / 41,861 / 33,921 / 7,684 / 6,933 (134,750)
+        // Each day reconciled against the envelope's own totalRecords, and the two new keys
+        // were re-checked across the five days COMBINED, which is what a table-wide primary
+        // key actually has to survive.
         var endpoint = NucoreDescriptors.Find(endpointName)!;
 
         Assert.Equal(NucoreWriteMode.Merge, endpoint.WriteMode);
@@ -136,17 +147,21 @@ public class NucoreDescriptorTests
     }
 
     [Fact]
-    public void ExactlyTwoEndpointsStillMerge()
+    public void OnlyEndpointsWithAProvenKeyMerge()
     {
         // A bare list, so quietly turning another endpoint back into a merge has to be a
-        // deliberate edit to this test rather than a silent change.
+        // deliberate edit to this test rather than a silent change. The three absent from
+        // it (PositionSummary, PnlExplain, PositionDetails) have no trustworthy key and are
+        // replaced; PositionDetails is the one that failed in production.
         var merging = NucoreDescriptors.All
             .Where(e => e.WriteMode == NucoreWriteMode.Merge)
             .Select(e => e.Name)
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(new[] { "VarResults", "Volatilities" }, merging);
+        Assert.Equal(
+            new[] { "ProductSpecCurves", "SettlementPublicationIndexPrices", "VarResults", "Volatilities" },
+            merging);
     }
 
     /// <summary>
@@ -223,6 +238,88 @@ public class NucoreDescriptorTests
         // would round real risk numbers away without any error.
         Assert.True(NucoreColumns.DecimalScale >= 10,
             $"DecimalScale is {NucoreColumns.DecimalScale}; live data carries 10 decimal places.");
+    }
+
+    /// <summary>
+    /// ⚠ SettlementPublicationIndexPrices publishes SEVEN DAYS A WEEK.
+    ///
+    /// Saturdays and Sundays each carry a full 1,823 rows - the same as any weekday -
+    /// because power flows every day. Every other endpoint is weekday-only, so the
+    /// platform-wide SkipWeekends setting looks safe and is not: honouring it here would
+    /// silently discard two days in every seven, with no error and no gap anyone would see
+    /// without counting rows.
+    /// </summary>
+    [Fact]
+    public void OnlySettlementPublicationIndexPricesPublishesOnWeekends()
+    {
+        var weekendPublishers = NucoreDescriptors.All
+            .Where(e => e.PublishesOnWeekends)
+            .Select(e => e.Name)
+            .ToArray();
+
+        Assert.Equal(new[] { "SettlementPublicationIndexPrices" }, weekendPublishers);
+    }
+
+    /// <summary>
+    /// ⚠ The restatement horizon, measured rather than assumed.
+    ///
+    /// SettlementPublicationIndexPrices rows are still being modified 21 days after the flow
+    /// day they describe (modifiedAt runs to flow day + 21 on 2026-10-15 and + 20 on
+    /// 2026-06-10). The platform default of SettledAfterDays = 3 would freeze a day two and
+    /// a half weeks before the vendor stops correcting it, and a settled unit is skipped
+    /// without a request ever being sent - so every later correction would be lost in
+    /// silence.
+    /// </summary>
+    [Fact]
+    public void SettlementPricesStayHotLongerThanTheVendorRestatesThem()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+
+        Assert.True(endpoint.MinSettledAfterDays >= 22,
+            $"MinSettledAfterDays is {endpoint.MinSettledAfterDays}; restatements were " +
+            "observed up to 21 days after the flow day.");
+    }
+
+    /// <summary>
+    /// A day enumerated ahead of today must stay hot for longer than it is in the future,
+    /// or it settles while the vendor is still writing it and keeps a partial read forever.
+    /// </summary>
+    [Fact]
+    public void ForwardLookingEndpointsStayHotPastTheirOwnHorizon()
+    {
+        foreach (var endpoint in NucoreDescriptors.All)
+        {
+            if (endpoint.DaysAhead == 0) continue;
+
+            Assert.True(endpoint.MinSettledAfterDays > endpoint.DaysAhead,
+                $"{endpoint.Name} enumerates {endpoint.DaysAhead} day(s) ahead but settles " +
+                $"after {endpoint.MinSettledAfterDays}.");
+        }
+    }
+
+    /// <summary>
+    /// The date parameter style and the parameter name must agree, in both directions. The
+    /// registry enforces this at startup; this is the second half of the guard.
+    /// </summary>
+    [Theory]
+    [InlineData("VarResults",                      "SingleDate")]
+    [InlineData("PositionSummary",                 "SingleDate")]
+    [InlineData("PnlExplain",                      "SingleDate")]
+    [InlineData("PositionDetails",                 "None")]
+    [InlineData("Volatilities",                    "SingleDate")]
+    [InlineData("SettlementPublicationIndexPrices","DateTimeRange")]
+    [InlineData("ProductSpecCurves",               "DateRange")]
+    public void EachEndpointDeclaresTheDateShapeTheVendorActuallyAccepts(
+        string endpointName, string expectedStyle)
+    {
+        var endpoint = NucoreDescriptors.Find(endpointName)!;
+
+        Assert.Equal(expectedStyle, endpoint.DateParamStyle.ToString());
+
+        if (endpoint.DateParamStyle == NucoreDateParamStyle.None)
+            Assert.Null(endpoint.DateParam);
+        else
+            Assert.False(string.IsNullOrWhiteSpace(endpoint.DateParam));
     }
 
     private static int KeyByteCost(NucoreColumn column) => column.Kind switch

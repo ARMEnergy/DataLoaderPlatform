@@ -12,10 +12,10 @@ namespace DataLoader.NUCORE;
 /// NUCORE.IntegrationService gateway).
 ///
 /// <para>
-/// Five risk endpoints land in five <c>dbo</c> tables in the <c>NUCORE</c> database. The
+/// Seven risk endpoints land in seven <c>dbo</c> tables in the <c>NUCORE</c> database. The
 /// shape is the platform's standard machinery - work units, resume keys, TVP merges, the
 /// write gate - with the vendor's quirks confined to <see cref="NucoreSourceReader"/> and
-/// <see cref="NucoreHttp"/>. Five of those quirks are silent if you get them wrong:
+/// <see cref="NucoreHttp"/>. Eight of those quirks are silent if you get them wrong:
 /// </para>
 /// <list type="number">
 ///   <item>
@@ -38,6 +38,24 @@ namespace DataLoader.NUCORE;
 ///   <item>
 ///     <b><c>pageSize=500000</c> answers HTTP 504</b> on <c>PositionDetails</c>, because one
 ///     unfiltered call is 2,468,453 rows.
+///   </item>
+///   <item>
+///     <b><c>SettlementPublicationIndexPrices</c> takes a DATETIME range, and a date-only
+///     bound means the midnight INSTANT</b> - 56 rows where the day holds 1,823. Its
+///     <c>LocalTimeTo</c> is also INCLUSIVE, so the bound is 23:59:59 and never the next
+///     midnight. See <see cref="NucoreDateParamStyle.DateTimeRange"/>.
+///   </item>
+///   <item>
+///     <b><c>SettlementPublicationIndexPrices</c> publishes seven days a week</b> - a full
+///     1,823 rows every Saturday and Sunday - so the platform-wide weekend skip must not
+///     apply to it, and it is restated for up to 21 days after the flow day. See
+///     <see cref="NucoreEndpoint.PublishesOnWeekends"/> and
+///     <see cref="NucoreEndpoint.MinSettledAfterDays"/>.
+///   </item>
+///   <item>
+///     <b><c>ProductSpecCurves</c> does NOT default to the current system date</b> when its
+///     bounds are left blank, whatever the vendor's spec says - an unfiltered call returns
+///     all 10,551,909 rows of history.
 ///   </item>
 /// </list>
 ///

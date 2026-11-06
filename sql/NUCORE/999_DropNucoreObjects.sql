@@ -20,6 +20,8 @@ DROP PROCEDURE IF EXISTS [dbo].[usp_MergePositionSummary];
 DROP PROCEDURE IF EXISTS [dbo].[usp_MergePnlExplain];
 DROP PROCEDURE IF EXISTS [dbo].[usp_MergePositionDetails];
 DROP PROCEDURE IF EXISTS [dbo].[usp_MergeVolatilities];
+DROP PROCEDURE IF EXISTS [dbo].[usp_MergeSettlementPublicationIndexPrices];
+DROP PROCEDURE IF EXISTS [dbo].[usp_MergeProductSpecCurves];
 DROP PROCEDURE IF EXISTS [dbo].[usp_GetPositionDetailsWatermark];
 GO
 
@@ -28,6 +30,8 @@ DROP TYPE IF EXISTS [dbo].[PositionSummaryType];
 DROP TYPE IF EXISTS [dbo].[PnlExplainType];
 DROP TYPE IF EXISTS [dbo].[PositionDetailsType];
 DROP TYPE IF EXISTS [dbo].[VolatilitiesType];
+DROP TYPE IF EXISTS [dbo].[SettlementPublicationIndexPricesType];
+DROP TYPE IF EXISTS [dbo].[ProductSpecCurvesType];
 GO
 
 DROP TABLE IF EXISTS [dbo].[VarResults];
@@ -35,5 +39,7 @@ DROP TABLE IF EXISTS [dbo].[PositionSummary];
 DROP TABLE IF EXISTS [dbo].[PnlExplain];
 DROP TABLE IF EXISTS [dbo].[PositionDetails];
 DROP TABLE IF EXISTS [dbo].[Volatilities];
+DROP TABLE IF EXISTS [dbo].[SettlementPublicationIndexPrices];
+DROP TABLE IF EXISTS [dbo].[ProductSpecCurves];
 GO
 

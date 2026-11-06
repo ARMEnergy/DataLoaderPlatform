@@ -3,7 +3,7 @@
     Generates the NUCORE column contract: the C# descriptor file and all four .sql files.
 
 .DESCRIPTION
-    NUCORE lands 437 columns across five tables. Each column has to appear, in the SAME
+    NUCORE lands 481 columns across seven tables. Each column has to appear, in the SAME
     ORDER and with the SAME TYPE, in four places:
 
         1. dbo.<Table>                       (sql/NUCORE/001)
@@ -170,6 +170,54 @@ $Endpoints = @(
         # Verified UNIQUE over FIVE complete days totalling 712,004 rows (147,908 / 147,770
         # / 144,878 / 139,860 / 132,588), spanning 2025-10 to 2026-10.
         KeyColumns    = @('systemDate','productSpec','instrumentType','startTradeMonth','endTradeMonth','putCallFlag','strikeType','strikePrice')
+        ScopeColumns  = @()
+        ClusterColumns = @()
+    },
+    [ordered]@{
+        Name          = 'SettlementPublicationIndexPrices'
+        Dto           = 'SettlementPublicationIndexPricesVDto'
+        Path          = '/Integration/api/risk/SettlementPublicationIndexPrices/Get'
+        # Sent as LocalTimeFrom / LocalTimeTo - a DATETIME range, not a single date. See
+        # NucoreDateParamStyle.DateTimeRange for the two traps that come with it.
+        DateParam     = 'LocalTime'
+        DateColumn    = 'LocalTime'
+        Partition     = 'Date'
+        WriteMode     = 'Merge'
+        # Verified UNIQUE over FIVE complete days (1,823 / 1,821 / 1,820 / 1,804 / 460 rows,
+        # 7,728 total) spanning 2024-12 to 2026-10, each reconciling against the envelope's
+        # own totalRecords - and also unique across the five days COMBINED, which is what
+        # matters for a table-wide primary key.
+        #
+        # Keyed on the ids rather than the text (settlementPublication + index + frequency +
+        # localTime is equally unique but costs ~460 bytes of index instead of 16), and led
+        # by localTime so the clustered index groups a day together.
+        #
+        # settlementPublicationIndexPriceId is the vendor's own surrogate and was also unique
+        # over the same population. It is deliberately NOT the key: it carries no business
+        # meaning, it would not group a day together, and a vendor-side re-issue would append
+        # rather than update.
+        KeyColumns    = @('localTime','spiSettlementPublicationIndexId','spifSettlementPublicationIndexFrequencyId')
+        ScopeColumns  = @()
+        ClusterColumns = @()
+    },
+    [ordered]@{
+        Name          = 'ProductSpecCurves'
+        Dto           = 'ProductSpecCurvesVDto'
+        Path          = '/Integration/api/risk/ProductSpecCurves/Get'
+        # Sent as SystemDateFrom / SystemDateTo, both inclusive.
+        #
+        # The vendor's spec says each "will default to the current system date if left
+        # blank". It does NOT: an unfiltered call returns all 10,551,909 rows of history.
+        DateParam     = 'SystemDate'
+        DateColumn    = 'SystemDate'
+        Partition     = 'Date'
+        WriteMode     = 'Merge'
+        # Verified UNIQUE over FIVE complete days (44,351 / 41,861 / 33,921 / 7,684 / 6,933
+        # rows, 134,750 total) spanning 2024-12 to 2026-10, each reconciling against the
+        # envelope's own totalRecords. The same day keyed on (systemDate, prsSpecId,
+        # tradeMonth) alone leaves 33,734 duplicates, so the flow-date pair is load-bearing.
+        # riskType is not needed - the key is already unique without it.
+        KeyColumns    = @('systemDate','prsSpecId','tradeMonth','startFlowDate','localStartFlowHour')
         ScopeColumns  = @()
         ClusterColumns = @()
     }

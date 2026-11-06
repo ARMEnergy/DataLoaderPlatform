@@ -83,18 +83,32 @@ internal sealed class NucoreWorkUnitProvider : IWorkUnitProvider<NucoreWorkUnit>
         var today = NucoreTime.Today();
         var (from, to) = ResolveWindow(context, today);
 
+        // ⚠ SkipWeekends is a platform-wide SETTING, but "there is no weekend data" is not a
+        // platform-wide FACT. SettlementPublicationIndexPrices carries a full 1,823 rows on
+        // Saturdays and Sundays alike, because power flows every day. Applying the global
+        // skip to it would silently drop two days in every seven - and an unvisited day
+        // raises no error, so nothing would ever surface it.
+        var skipWeekends = _settings.SkipWeekends && !_endpoint.PublishesOnWeekends;
+
+        // The operator's lever can WIDEN the hot window for every endpoint, but it may not
+        // narrow one past the restatement horizon its vendor behaviour demands. See
+        // NucoreEndpoint.MinSettledAfterDays.
+        var settledAfterDays = Math.Max(
+            Math.Max(0, _settings.SettledAfterDays), _endpoint.MinSettledAfterDays);
+
         var units = new List<NucoreWorkUnit>();
         for (var day = from; day <= to; day = day.AddDays(1))
         {
-            // NUCORE publishes on business days only: every weekend sampled returned 200
-            // with totalRecords 0. Skipping them removes ~29% of a full-history backfill's
-            // units without losing a row. Holidays are NOT skipped - they still come back
-            // as legitimate empty reads, because there is no calendar to consult.
-            if (_settings.SkipWeekends &&
+            // Most of these endpoints publish on business days only: every weekend sampled
+            // returned 200 with totalRecords 0. Skipping them removes ~29% of a
+            // full-history backfill's units without losing a row. Holidays are NOT skipped -
+            // they still come back as legitimate empty reads, because there is no calendar
+            // to consult.
+            if (skipWeekends &&
                 day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
                 continue;
 
-            var isHot = day > today.AddDays(-Math.Max(0, _settings.SettledAfterDays));
+            var isHot = day > today.AddDays(-settledAfterDays);
 
             units.Add(new NucoreWorkUnit
             {
@@ -154,13 +168,43 @@ internal sealed class NucoreWorkUnitProvider : IWorkUnitProvider<NucoreWorkUnit>
         if (context.DateFrom is not null && context.DateTo is not null)
             return (context.DateFrom.Value.Date, context.DateTo.Value.Date);
 
-        var to = today;
+        // Most endpoints report on a closed business day and stop at today.
+        // SettlementPublicationIndexPrices publishes DAY-AHEAD prices, so its window has to
+        // run past today or tomorrow's rows are always picked up a day late.
+        var to = today.AddDays(Math.Max(0, _endpoint.DaysAhead));
+
+        if (ResolveStartDate() is { } configured)
+            return (configured, to);
+
+        // DaysBack stays anchored on TODAY rather than on the forward edge, so widening
+        // DaysAhead cannot quietly shorten the history an endpoint reads.
+        return (today.AddDays(-Math.Max(0, _settings.DaysBack)), to);
+    }
+
+    /// <summary>
+    /// The configured first date for this endpoint: its own override if one is set,
+    /// otherwise the loader-wide <see cref="NucoreSettings.StartDate"/>. Null means neither
+    /// is set, so <see cref="NucoreSettings.DaysBack"/> decides instead.
+    /// </summary>
+    private DateTime? ResolveStartDate()
+    {
+        if (_settings.StartDateByEndpoint is not null &&
+            _settings.StartDateByEndpoint.TryGetValue(_endpoint.Name, out var perEndpoint) &&
+            !string.IsNullOrWhiteSpace(perEndpoint))
+        {
+            if (DateTime.TryParse(perEndpoint, out var parsed)) return parsed.Date;
+
+            _logger.LogWarning(
+                "NUCORE {Endpoint}: StartDateByEndpoint value '{Value}' is not a date; " +
+                "falling back to the loader-wide StartDate",
+                _endpoint.Name, perEndpoint);
+        }
 
         if (!string.IsNullOrWhiteSpace(_settings.StartDate) &&
             DateTime.TryParse(_settings.StartDate, out var configured))
-            return (configured.Date, to);
+            return configured.Date;
 
-        return (to.AddDays(-Math.Max(0, _settings.DaysBack)), to);
+        return null;
     }
 
     /// <summary>

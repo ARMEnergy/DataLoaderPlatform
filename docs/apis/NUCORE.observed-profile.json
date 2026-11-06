@@ -466,6 +466,63 @@
         "createdAt": { "nulls": 0, "maxLen": 32, "maxScale": 0, "hasOffset": true, "minNum": null, "maxNum": null },
         "modifiedAt": { "nulls": 0, "maxLen": 32, "maxScale": 0, "hasOffset": true, "minNum": null, "maxNum": null }
       }
+    },
+    "SettlementPublicationIndexPrices": {
+      "sourceFile": "nuc_SettlementPublicationIndexPrices_2026-10.json",
+      "rowsProfiled": 56486,
+      "columns": {
+        "settlementPublicationIndexPriceId": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 53558868, "maxNum": 61700512 },
+        "settlementPublisherId": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 1, "maxNum": 61 },
+        "spSettlementPublicationId": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 1, "maxNum": 41 },
+        "spiSettlementPublicationIndexId": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 1, "maxNum": 22921 },
+        "spifSettlementPublicationIndexFrequencyId": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 1, "maxNum": 222482 },
+        "settlementPublication": { "nulls": 0, "maxLen": 32, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "settlementPublicationIndex": { "nulls": 0, "maxLen": 31, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "frequency": { "nulls": 0, "maxLen": 9, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "localTime": { "nulls": 0, "maxLen": 19, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "localFlowHour": { "nulls": 0, "maxLen": 4, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "beginningUtc": { "nulls": 0, "maxLen": 19, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "utcFlowHour": { "nulls": 0, "maxLen": 4, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "systemEnergyPrice": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 0, "maxNum": 0 },
+        "settlePrice": { "nulls": 0, "maxLen": 0, "maxScale": 3, "hasOffset": false, "minNum": -57.31, "maxNum": 485.18 },
+        "congestionPrice": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 0, "maxNum": 0 },
+        "marginalLossPrice": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 0, "maxNum": 0 },
+        "createdByUser": { "nulls": 0, "maxLen": 6, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "modifiedByUser": { "nulls": 0, "maxLen": 6, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "createdAt": { "nulls": 0, "maxLen": 32, "maxScale": 0, "hasOffset": true, "minNum": null, "maxNum": null },
+        "modifiedAt": { "nulls": 0, "maxLen": 32, "maxScale": 0, "hasOffset": true, "minNum": null, "maxNum": null }
+      }
+    },
+    "ProductSpecCurves": {
+      "sourceFile": "nuc_ProductSpecCurves_2026-10-15.json",
+      "rowsProfiled": 44351,
+      "columns": {
+        "systemDate": { "nulls": 0, "maxLen": 19, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "prsSpecId": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": 1, "maxNum": 503 },
+        "productSpec": { "nulls": 0, "maxLen": 24, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "riskType": { "nulls": 0, "maxLen": 13, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "productGroup": { "nulls": 0, "maxLen": 22, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "productRegion": { "nulls": 249, "maxLen": 10, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "tradeMonth": { "nulls": 0, "maxLen": 6, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "startFlowDate": { "nulls": 0, "maxLen": 19, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "endFlowDate": { "nulls": 0, "maxLen": 19, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "localStartFlowDate": { "nulls": 0, "maxLen": 19, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "localEndFlowDate": { "nulls": 0, "maxLen": 19, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "localStartFlowHour": { "nulls": 0, "maxLen": 4, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "localEndFlowHour": { "nulls": 0, "maxLen": 4, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "price": { "nulls": 0, "maxLen": 0, "maxScale": 17, "hasOffset": false, "minNum": -89.2485, "maxNum": 711 },
+        "dlvyPrice": { "nulls": 0, "maxLen": 0, "maxScale": 15, "hasOffset": false, "minNum": -84.5145, "maxNum": 711 },
+        "priorPrice": { "nulls": 0, "maxLen": 0, "maxScale": 17, "hasOffset": false, "minNum": -89.2485, "maxNum": 711 },
+        "priorDlvyPrice": { "nulls": 0, "maxLen": 0, "maxScale": 15, "hasOffset": false, "minNum": -84.5115, "maxNum": 711 },
+        "dailyPriceReturn": { "nulls": 0, "maxLen": 0, "maxScale": 18, "hasOffset": false, "minNum": -0.88889, "maxNum": 4 },
+        "dailyDlvyPriceReturn": { "nulls": 0, "maxLen": 0, "maxScale": 18, "hasOffset": false, "minNum": -1, "maxNum": 0.40284 },
+        "currency": { "nulls": 0, "maxLen": 3, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "updatedFlag": { "nulls": 0, "maxLen": 0, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "createdByUser": { "nulls": 0, "maxLen": 6, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "modifiedByUser": { "nulls": 0, "maxLen": 6, "maxScale": 0, "hasOffset": false, "minNum": null, "maxNum": null },
+        "createdAt": { "nulls": 0, "maxLen": 32, "maxScale": 0, "hasOffset": true, "minNum": null, "maxNum": null },
+        "modifiedAt": { "nulls": 0, "maxLen": 32, "maxScale": 0, "hasOffset": true, "minNum": null, "maxNum": null }
+      }
     }
   }
 }

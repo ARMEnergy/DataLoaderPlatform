@@ -253,6 +253,133 @@ END
 GO
 
 -- ------------------------------------------------------------------------------------
+-- usp_MergeSettlementPublicationIndexPrices
+-- ------------------------------------------------------------------------------------
+IF OBJECT_ID(N'[dbo].[usp_MergeSettlementPublicationIndexPrices]', N'P') IS NULL
+    EXEC(N'CREATE PROCEDURE [dbo].[usp_MergeSettlementPublicationIndexPrices] AS BEGIN SET NOCOUNT ON; END');
+GO
+
+ALTER PROCEDURE [dbo].[usp_MergeSettlementPublicationIndexPrices]
+    @Records [dbo].[SettlementPublicationIndexPricesType] READONLY,
+    @FileLogId BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @Changed INT = 0;
+
+    MERGE [dbo].[SettlementPublicationIndexPrices] AS t
+    USING @Records AS s
+       ON t.[LocalTime] = s.[LocalTime]
+     AND t.[SpiSettlementPublicationIndexId] = s.[SpiSettlementPublicationIndexId]
+     AND t.[SpifSettlementPublicationIndexFrequencyId] = s.[SpifSettlementPublicationIndexFrequencyId]
+    WHEN MATCHED AND EXISTS (
+             -- EXCEPT treats NULL as equal to NULL, so this yields a row only when the
+             -- values genuinely differ and ModifiedAtUtc tracks real change. A plain
+             -- "t.col <> s.col OR ..." chain is UNKNOWN wherever either side is NULL,
+             -- which silently stops detecting changes into and out of NULL.
+             SELECT t.[CreatedAt], t.[ModifiedAt], t.[CreatedByUser], t.[ModifiedByUser], t.[SettlementPublicationIndexPriceId], t.[SettlementPublisherId], t.[SpSettlementPublicationId], t.[SettlementPublication], t.[SettlementPublicationIndex], t.[Frequency], t.[LocalFlowHour], t.[BeginningUtc], t.[UtcFlowHour], t.[SystemEnergyPrice], t.[SettlePrice], t.[CongestionPrice], t.[MarginalLossPrice]
+             EXCEPT
+             SELECT s.[CreatedAt], s.[ModifiedAt], s.[CreatedByUser], s.[ModifiedByUser], s.[SettlementPublicationIndexPriceId], s.[SettlementPublisherId], s.[SpSettlementPublicationId], s.[SettlementPublication], s.[SettlementPublicationIndex], s.[Frequency], s.[LocalFlowHour], s.[BeginningUtc], s.[UtcFlowHour], s.[SystemEnergyPrice], s.[SettlePrice], s.[CongestionPrice], s.[MarginalLossPrice]
+         )
+    THEN UPDATE SET
+             t.[CreatedAt] = s.[CreatedAt],
+             t.[ModifiedAt] = s.[ModifiedAt],
+             t.[CreatedByUser] = s.[CreatedByUser],
+             t.[ModifiedByUser] = s.[ModifiedByUser],
+             t.[SettlementPublicationIndexPriceId] = s.[SettlementPublicationIndexPriceId],
+             t.[SettlementPublisherId] = s.[SettlementPublisherId],
+             t.[SpSettlementPublicationId] = s.[SpSettlementPublicationId],
+             t.[SettlementPublication] = s.[SettlementPublication],
+             t.[SettlementPublicationIndex] = s.[SettlementPublicationIndex],
+             t.[Frequency] = s.[Frequency],
+             t.[LocalFlowHour] = s.[LocalFlowHour],
+             t.[BeginningUtc] = s.[BeginningUtc],
+             t.[UtcFlowHour] = s.[UtcFlowHour],
+             t.[SystemEnergyPrice] = s.[SystemEnergyPrice],
+             t.[SettlePrice] = s.[SettlePrice],
+             t.[CongestionPrice] = s.[CongestionPrice],
+             t.[MarginalLossPrice] = s.[MarginalLossPrice],
+             t.[FileLogId]     = @FileLogId,
+             t.[ModifiedAtUtc] = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT ([CreatedAt], [ModifiedAt], [CreatedByUser], [ModifiedByUser], [SettlementPublicationIndexPriceId], [SettlementPublisherId], [SpSettlementPublicationId], [SpiSettlementPublicationIndexId], [SpifSettlementPublicationIndexFrequencyId], [SettlementPublication], [SettlementPublicationIndex], [Frequency], [LocalTime], [LocalFlowHour], [BeginningUtc], [UtcFlowHour], [SystemEnergyPrice], [SettlePrice], [CongestionPrice], [MarginalLossPrice], [FileLogId])
+        VALUES (s.[CreatedAt], s.[ModifiedAt], s.[CreatedByUser], s.[ModifiedByUser], s.[SettlementPublicationIndexPriceId], s.[SettlementPublisherId], s.[SpSettlementPublicationId], s.[SpiSettlementPublicationIndexId], s.[SpifSettlementPublicationIndexFrequencyId], s.[SettlementPublication], s.[SettlementPublicationIndex], s.[Frequency], s.[LocalTime], s.[LocalFlowHour], s.[BeginningUtc], s.[UtcFlowHour], s.[SystemEnergyPrice], s.[SettlePrice], s.[CongestionPrice], s.[MarginalLossPrice], @FileLogId);
+
+    SET @Changed = @@ROWCOUNT;
+
+    SELECT @Changed;
+END
+GO
+
+-- ------------------------------------------------------------------------------------
+-- usp_MergeProductSpecCurves
+-- ------------------------------------------------------------------------------------
+IF OBJECT_ID(N'[dbo].[usp_MergeProductSpecCurves]', N'P') IS NULL
+    EXEC(N'CREATE PROCEDURE [dbo].[usp_MergeProductSpecCurves] AS BEGIN SET NOCOUNT ON; END');
+GO
+
+ALTER PROCEDURE [dbo].[usp_MergeProductSpecCurves]
+    @Records [dbo].[ProductSpecCurvesType] READONLY,
+    @FileLogId BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @Changed INT = 0;
+
+    MERGE [dbo].[ProductSpecCurves] AS t
+    USING @Records AS s
+       ON t.[SystemDate] = s.[SystemDate]
+     AND t.[PrsSpecId] = s.[PrsSpecId]
+     AND t.[TradeMonth] = s.[TradeMonth]
+     AND t.[StartFlowDate] = s.[StartFlowDate]
+     AND t.[LocalStartFlowHour] = s.[LocalStartFlowHour]
+    WHEN MATCHED AND EXISTS (
+             -- EXCEPT treats NULL as equal to NULL, so this yields a row only when the
+             -- values genuinely differ and ModifiedAtUtc tracks real change. A plain
+             -- "t.col <> s.col OR ..." chain is UNKNOWN wherever either side is NULL,
+             -- which silently stops detecting changes into and out of NULL.
+             SELECT t.[CreatedAt], t.[ModifiedAt], t.[CreatedByUser], t.[ModifiedByUser], t.[ProductSpec], t.[RiskType], t.[ProductGroup], t.[ProductRegion], t.[EndFlowDate], t.[LocalStartFlowDate], t.[LocalEndFlowDate], t.[LocalEndFlowHour], t.[Price], t.[DlvyPrice], t.[PriorPrice], t.[PriorDlvyPrice], t.[DailyPriceReturn], t.[DailyDlvyPriceReturn], t.[Currency], t.[UpdatedFlag]
+             EXCEPT
+             SELECT s.[CreatedAt], s.[ModifiedAt], s.[CreatedByUser], s.[ModifiedByUser], s.[ProductSpec], s.[RiskType], s.[ProductGroup], s.[ProductRegion], s.[EndFlowDate], s.[LocalStartFlowDate], s.[LocalEndFlowDate], s.[LocalEndFlowHour], s.[Price], s.[DlvyPrice], s.[PriorPrice], s.[PriorDlvyPrice], s.[DailyPriceReturn], s.[DailyDlvyPriceReturn], s.[Currency], s.[UpdatedFlag]
+         )
+    THEN UPDATE SET
+             t.[CreatedAt] = s.[CreatedAt],
+             t.[ModifiedAt] = s.[ModifiedAt],
+             t.[CreatedByUser] = s.[CreatedByUser],
+             t.[ModifiedByUser] = s.[ModifiedByUser],
+             t.[ProductSpec] = s.[ProductSpec],
+             t.[RiskType] = s.[RiskType],
+             t.[ProductGroup] = s.[ProductGroup],
+             t.[ProductRegion] = s.[ProductRegion],
+             t.[EndFlowDate] = s.[EndFlowDate],
+             t.[LocalStartFlowDate] = s.[LocalStartFlowDate],
+             t.[LocalEndFlowDate] = s.[LocalEndFlowDate],
+             t.[LocalEndFlowHour] = s.[LocalEndFlowHour],
+             t.[Price] = s.[Price],
+             t.[DlvyPrice] = s.[DlvyPrice],
+             t.[PriorPrice] = s.[PriorPrice],
+             t.[PriorDlvyPrice] = s.[PriorDlvyPrice],
+             t.[DailyPriceReturn] = s.[DailyPriceReturn],
+             t.[DailyDlvyPriceReturn] = s.[DailyDlvyPriceReturn],
+             t.[Currency] = s.[Currency],
+             t.[UpdatedFlag] = s.[UpdatedFlag],
+             t.[FileLogId]     = @FileLogId,
+             t.[ModifiedAtUtc] = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT ([CreatedAt], [ModifiedAt], [CreatedByUser], [ModifiedByUser], [SystemDate], [PrsSpecId], [ProductSpec], [RiskType], [ProductGroup], [ProductRegion], [TradeMonth], [StartFlowDate], [EndFlowDate], [LocalStartFlowDate], [LocalEndFlowDate], [LocalStartFlowHour], [LocalEndFlowHour], [Price], [DlvyPrice], [PriorPrice], [PriorDlvyPrice], [DailyPriceReturn], [DailyDlvyPriceReturn], [Currency], [UpdatedFlag], [FileLogId])
+        VALUES (s.[CreatedAt], s.[ModifiedAt], s.[CreatedByUser], s.[ModifiedByUser], s.[SystemDate], s.[PrsSpecId], s.[ProductSpec], s.[RiskType], s.[ProductGroup], s.[ProductRegion], s.[TradeMonth], s.[StartFlowDate], s.[EndFlowDate], s.[LocalStartFlowDate], s.[LocalEndFlowDate], s.[LocalStartFlowHour], s.[LocalEndFlowHour], s.[Price], s.[DlvyPrice], s.[PriorPrice], s.[PriorDlvyPrice], s.[DailyPriceReturn], s.[DailyDlvyPriceReturn], s.[Currency], s.[UpdatedFlag], @FileLogId);
+
+    SET @Changed = @@ROWCOUNT;
+
+    SELECT @Changed;
+END
+GO
+
+-- ------------------------------------------------------------------------------------
 -- usp_GetPositionDetailsWatermark
 --
 -- PositionDetails has NO date parameter, so the loader cannot ask for one day. It instead

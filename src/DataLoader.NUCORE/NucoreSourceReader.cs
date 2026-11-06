@@ -440,7 +440,31 @@ internal sealed class NucoreSourceReader
         };
 
         if (unit.Date is not null && _endpoint.DateParam is not null)
-            query.Add($"{_endpoint.DateParam}={NucoreTime.FormatDate(unit.Date.Value)}");
+        {
+            var date = NucoreTime.FormatDate(unit.Date.Value);
+
+            switch (_endpoint.DateParamStyle)
+            {
+                case NucoreDateParamStyle.DateRange:
+                    query.Add($"{_endpoint.DateParam}From={date}");
+                    query.Add($"{_endpoint.DateParam}To={date}");
+                    break;
+
+                // ⚠ The times are load-bearing and the upper bound is 23:59:59, NOT the
+                // next midnight. A date-only bound selects the midnight INSTANT - 56 rows
+                // instead of a 1,823-row day - and because To is INCLUSIVE, a next-midnight
+                // bound swallows the following day's first row into this unit as well.
+                // See NucoreDateParamStyle.DateTimeRange.
+                case NucoreDateParamStyle.DateTimeRange:
+                    query.Add($"{_endpoint.DateParam}From={date}T00:00:00");
+                    query.Add($"{_endpoint.DateParam}To={date}T23:59:59");
+                    break;
+
+                default:
+                    query.Add($"{_endpoint.DateParam}={date}");
+                    break;
+            }
+        }
 
         if (unit.TradeMonth is not null)
         {

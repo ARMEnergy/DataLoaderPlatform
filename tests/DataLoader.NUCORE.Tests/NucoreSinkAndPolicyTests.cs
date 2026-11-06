@@ -172,6 +172,11 @@ public class NucoreSinkAndPolicyTests
         Assert.True(settings.MaxPagesPerUnit > 0);
         Assert.True(NucoreTime.TryParseTradeMonth(settings.TradeMonthFrom, out _));
         Assert.True(DateTime.TryParse(settings.StartDate, out _));
-        Assert.Equal(5, settings.EnabledEndpoints.Count);
+        // Every descriptor is enabled by default; a new endpoint that is wired up but left
+        // out of this list would build, test green and quietly never run.
+        Assert.Equal(NucoreDescriptors.All.Count, settings.EnabledEndpoints.Count);
+        Assert.Equal(
+            NucoreDescriptors.All.Select(e => e.Name).OrderBy(x => x, StringComparer.Ordinal),
+            settings.EnabledEndpoints.OrderBy(x => x, StringComparer.Ordinal));
     }
 }

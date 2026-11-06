@@ -1,6 +1,6 @@
 # NUCORE loader — design of record
 
-Reads five risk endpoints from ARM's NUCORE integration gateway into five `dbo` tables in
+Reads seven risk endpoints from ARM's NUCORE integration gateway into seven `dbo` tables in
 the `NUCORE` database.
 
 Vendor behaviour lives in `docs/apis/NUCORE.md`; this document is about the loader.
@@ -21,7 +21,7 @@ NucoreModule
                       └── NucoreTableSink          TVP merge
 ```
 
-The five pipelines are **mutually independent**: no barrier, no shared state, no FK between
+The seven pipelines are **mutually independent**: no barrier, no shared state, no FK between
 the target tables. A failure in one is recorded and the run continues, matching the
 Argus/ICE/Criterion/Genscape/OilX posture.
 
@@ -38,7 +38,7 @@ but streams and merges in batches of `BatchSize`.
 
 ## 2. The column contract is generated, not written
 
-436 columns across five tables, each of which must appear in the **same order** with the
+481 columns across seven tables, each of which must appear in the **same order** with the
 **same type** in four places: the table (001), the TVP type (002), the merge procedure (003)
 and the `DataTable` the sink builds. A TVP binds **by position**, so one typo in any of them
 shifts every later column and writes rows that are entirely plausible and entirely wrong.
@@ -79,7 +79,8 @@ caught it.
 
 | Endpoint | Unit | Hot while | Settled |
 |---|---|---|---|
-| VarResults, PositionSummary, PnlExplain, Volatilities | one business **date** | within `SettledAfterDays` (3) of today | stable key, skipped forever |
+| VarResults, PositionSummary, PnlExplain, Volatilities, ProductSpecCurves | one business **date** | within `SettledAfterDays` (3) of today | stable key, skipped forever |
+| SettlementPublicationIndexPrices | one **calendar** date, incl. weekends | within **25** days of today (its own floor) | stable key, skipped forever |
 | PositionDetails | one **trade month** | within `SettledTradeMonthsBack` (3) months, **and every future month** | stable key, skipped forever |
 
 A settled unit's resume key is stable, so `ILoadLogRepository.BeginAsync` returns `null` and
@@ -94,6 +95,28 @@ already-recorded success would suppress a legitimate re-pull.
 Weekends are not enumerated (`SkipWeekends`, default on): NUCORE publishes on business days
 only, and skipping them removes ~29% of a backfill's units at no cost in data. Holidays are
 **not** skipped — there is no calendar to consult, so they arrive as legitimate empty reads.
+
+### ⚠ Three per-endpoint calendar facts, because the platform defaults are wrong for one endpoint
+
+`SkipWeekends`, the end of the window and `SettledAfterDays` are all loader-wide settings,
+and all three are wrong for `SettlementPublicationIndexPrices`. Each would lose data in
+total silence, so the descriptor carries the measured fact and the provider honours it:
+
+| `NucoreEndpoint` field | Default | SPIP | Why |
+|---|---|---|---|
+| `PublishesOnWeekends` | `false` | **`true`** | Saturdays and Sundays each carry a full 1,823 rows. The global skip would discard two days in seven. |
+| `DaysAhead` | `0` | **`2`** | Day-ahead prices: tomorrow already has rows, and `createdAt` runs up to 14 days before the flow day. |
+| `MinSettledAfterDays` | `0` | **`25`** | Restatements observed up to **21** days after the flow day. |
+
+`MinSettledAfterDays` is a **floor**, not an override: the effective threshold is
+`max(SettledAfterDays, MinSettledAfterDays)`. The operator's global lever can still widen the
+hot window for everything, but it cannot narrow one past what the vendor demonstrably needs —
+and narrowing is the dangerous direction, because a settled unit is skipped without a request
+being made at all.
+
+`NucoreDescriptors.Validate()` also refuses a configuration where `MinSettledAfterDays <=
+DaysAhead`: a day enumerated ahead of today must stay hot longer than it is in the future, or
+it settles while the vendor is still writing it and keeps a partial read forever.
 
 ### PositionDetails: the watermark
 
@@ -122,6 +145,32 @@ throws instead.
 
 ## 4. Correctness guards
 
+### ⚠ The date parameter has three shapes, and the echo check does not cover the difference
+
+`NucoreDateParamStyle` decides how a unit's date reaches the query string:
+
+| Style | Rendered as | Endpoints |
+|---|---|---|
+| `SingleDate` | `{Param}=yyyy-MM-dd` | VarResults, PositionSummary, PnlExplain, Volatilities |
+| `DateRange` | `{Param}From=…&{Param}To=…` (dates, inclusive) | ProductSpecCurves |
+| `DateTimeRange` | `{Param}From=…T00:00:00&{Param}To=…T23:59:59` | SettlementPublicationIndexPrices |
+| `None` | nothing | PositionDetails |
+
+The `DateTimeRange` bounds are **not cosmetic**. A date-only bound selects the midnight
+*instant* — 56 rows where the day holds 1,823 — and `LocalTimeTo` is **inclusive**, so the
+upper bound must be `23:59:59` and never the next midnight, which would pull the following
+day's first row into this unit (`docs/apis/NUCORE.md` §3.6).
+
+⚠ **The date-echo check below does not catch either mistake.** Every one of those 56 rows
+carries the requested date, so the response looks entirely correct. What protects against it
+is the bound rendering itself, pinned by
+`NucoreRequestAndUnitTests.SettlementPricesAskForAWholeDayAndNotTheMidnightInstant`.
+
+`Validate()` requires the style and the parameter name to agree in both directions: a style
+other than `None` with no parameter emits a bare `From=`, and `None` with a parameter means
+someone added a filter the vendor does not have — which this API accepts, ignores, and
+answers with the latest day rather than an error.
+
 ### The date-echo check
 
 Omitting or misspelling a date parameter returns **HTTP 200 with the latest day's data**, and
@@ -147,7 +196,7 @@ stopped early at a watermark.
 
 ### Duplicate detection on the merge path
 
-For the two endpoints that still have keys, the reader tracks every key it has seen within a
+For the four endpoints that have keys, the reader tracks every key it has seen within a
 unit and throws on a repeat. Within a batch a duplicate key would raise a primary key
 violation anyway; **across** batches it would silently overwrite one row with another. Both
 mean the declared key is wrong, and both are now loud. This guard is what found the unsorted
@@ -205,9 +254,17 @@ The budgets are coupled: `(RetryCount + 1) × HttpTimeoutSeconds` plus backoff m
 |---|---|---|
 | `VarResults` | Merge | natural key, verified over 7 complete days |
 | `Volatilities` | Merge | natural key, verified over 5 complete days (712k rows) |
+| `SettlementPublicationIndexPrices` | Merge | natural key, verified over 5 complete days (7,728 rows) **and their union** |
+| `ProductSpecCurves` | Merge | natural key, verified over 5 complete days (134,750 rows) |
 | `PositionSummary` | ReplaceByDate | `(SystemDate)` |
 | `PnlExplain` | ReplaceByDate | `(CurDate)` |
 | `PositionDetails` | ReplaceByScope | `(TradeMonth, SystemDate)` |
+
+The two keys added on 2026-11-05 were held to the standard the 2026-10-18 failure
+established: complete populations, several periods, compared as SQL will compare, every
+population reconciled against the envelope's own `totalRecords` — and, because a primary key
+spans the whole table rather than one unit, also checked across the union of the sampled
+days.
 
 A replace procedure DELETEs the scopes present in its batch and then INSERTs, inside a
 transaction, so a partial load cannot blank data it was not given.
@@ -271,15 +328,66 @@ Settings live under `Loaders:NUCORE` in `src/DataLoader.Host/appsettings.json`.
 - **Steady state:** 3 hot days × 4 endpoints (~0.5M rows), plus one watermark check per trade
   month returning only the newest system date's rows. Settled units cost nothing.
 
+#### The two endpoints added 2026-11-05
+
+- **`SettlementPublicationIndexPrices`** — ~1,823 rows/day over **every** calendar day
+  (it publishes on weekends), so a 2025-01-01 backfill is ~680 units and ~1.2M rows, each
+  unit a single page in well under a second. Steady state is wider than the others: its
+  25-day hot window re-reads ~25 units (~45,000 rows) per run, which is the price of catching
+  restatements that run 21 days late.
+- **`ProductSpecCurves`** — the heaviest of the seven after `PositionDetails`. Recent days
+  are ~44,000 rows (3 pages, ~90 s each including parse) and the whole history is 10,551,909
+  rows, so a 2025-01-01 backfill is roughly **10M rows over ~480 business-day units**. It is
+  fully resumable — settled units skip before any request — so the backfill can be stopped
+  and resumed freely. Steady state is 3 hot days, ~133,000 rows.
+
 ### Deployment status
 
-**Build-only.** `NUCORE` is not in `Platform:EnabledLoaders`, the SQL has never been run, and
-no `NUCORE` database exists. The read path is live-verified end to end (225,677 rows, zero
-dropped, `docs/apis/NUCORE.md` §7); the **write path has never executed**.
+⚠ **`ARMH-OPSDB01` / `NUCORE` is LIVE** — 16,537,682 rows across the original five tables as
+of 2026-11-05. Treat it as a production database for anything destructive; in particular
+`sql/NUCORE/999` would drop all five loaded tables.
 
-To deploy: run `sql/NUCORE/001` → `002` → `003` against the target server (001 creates the
-database), grant the app-pool service account rights, resolve the API key into `core.Param`,
-then add `NUCORE` to `Platform:EnabledLoaders`.
+The **two new tables do not exist in production yet**. The generated DDL, TVP types and merge
+procedures are parse-checked but unrun.
+
+#### Deploying the two new tables
+
+🔒 This is a WRITE to `ARMH-OPSDB01` — see the standing rule at the top of `CLAUDE.md`. The
+commands below are for a person to run, not for the agent.
+
+Re-running the generated scripts is safe, and that was **verified rather than assumed** on
+2026-11-05:
+
+- `001` and `002` are creation-guarded (`IF OBJECT_ID … IS NULL` / `IF TYPE_ID … IS NULL`),
+  so the five existing tables and their TVP types are skipped untouched.
+- `003` re-`ALTER`s every procedure. All six existing procedure bodies were compared against
+  `sys.sql_modules` on the live server and are **byte-identical** to what the generator emits
+  (only the leading `CREATE` vs `ALTER` verb differs), so the ALTER is a no-op in effect.
+- Regenerating added **318 lines and removed none**, so no existing object's definition moved.
+
+```sql
+-- In SSMS against ARMH-OPSDB01. Each script carries its own USE [NUCORE].
+--   sql\NUCORE\001_CreateNucoreTables.sql      adds dbo.SettlementPublicationIndexPrices, dbo.ProductSpecCurves
+--   sql\NUCORE\002_CreateNucoreTvpTypes.sql    adds the two matching TVP types
+--   sql\NUCORE\003_CreateNucoreProcedures.sql  adds the two merge procs, re-ALTERs the six existing ones unchanged
+```
+
+Then grant the loader's service account `EXECUTE` on the two new types and procs and
+`INSERT`/`UPDATE`/`DELETE`/`SELECT` on the two new tables, matching the existing five.
+
+No `appsettings.json` change is required beyond the two names already added to
+`Loaders:NUCORE:EnabledEndpoints`. To pick up the two months of history before the shipped
+`StartDate` (both endpoints have data from **2024-11-01**), add:
+
+```jsonc
+"StartDateByEndpoint": {
+  "SettlementPublicationIndexPrices": "2024-11-01",
+  "ProductSpecCurves": "2024-11-01"
+}
+```
+
+Settled resume keys do not vary, so adding this later simply loads the extra days on the
+next run and re-reads nothing already stored.
 
 ---
 

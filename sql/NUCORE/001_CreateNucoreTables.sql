@@ -563,3 +563,76 @@ BEGIN
 END
 GO
 
+-- ------------------------------------------------------------------------------------
+-- SettlementPublicationIndexPrices  (20 vendor columns)
+-- ------------------------------------------------------------------------------------
+IF OBJECT_ID(N'[dbo].[SettlementPublicationIndexPrices]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[SettlementPublicationIndexPrices]
+    (
+        [CreatedAt] DATETIMEOFFSET(7) NOT NULL,
+        [ModifiedAt] DATETIMEOFFSET(7) NOT NULL,
+        [CreatedByUser] VARCHAR(50) NULL,
+        [ModifiedByUser] VARCHAR(50) NULL,
+        [SettlementPublicationIndexPriceId] INT NOT NULL,
+        [SettlementPublisherId] INT NOT NULL,
+        [SpSettlementPublicationId] INT NOT NULL,
+        [SpiSettlementPublicationIndexId] INT NOT NULL,
+        [SpifSettlementPublicationIndexFrequencyId] INT NOT NULL,
+        [SettlementPublication] VARCHAR(200) NULL,
+        [SettlementPublicationIndex] VARCHAR(200) NULL,
+        [Frequency] VARCHAR(50) NULL,
+        [LocalTime] DATETIME2(7) NOT NULL,
+        [LocalFlowHour] VARCHAR(50) NULL,
+        [BeginningUtc] DATETIME2(7) NOT NULL,
+        [UtcFlowHour] VARCHAR(50) NULL,
+        [SystemEnergyPrice] DECIMAL(28,12) NOT NULL,
+        [SettlePrice] DECIMAL(28,12) NOT NULL,
+        [CongestionPrice] DECIMAL(28,12) NOT NULL,
+        [MarginalLossPrice] DECIMAL(28,12) NOT NULL,
+        [FileLogId]     BIGINT NULL,
+        [ModifiedAtUtc] DATETIME2(3) NOT NULL CONSTRAINT [DF_SettlementPublicationIndexPrices_ModifiedAtUtc] DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT [PK_SettlementPublicationIndexPrices] PRIMARY KEY CLUSTERED ([LocalTime], [SpiSettlementPublicationIndexId], [SpifSettlementPublicationIndexFrequencyId])
+    );
+END
+GO
+
+-- ------------------------------------------------------------------------------------
+-- ProductSpecCurves  (25 vendor columns)
+-- ------------------------------------------------------------------------------------
+IF OBJECT_ID(N'[dbo].[ProductSpecCurves]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[ProductSpecCurves]
+    (
+        [CreatedAt] DATETIMEOFFSET(7) NOT NULL,
+        [ModifiedAt] DATETIMEOFFSET(7) NOT NULL,
+        [CreatedByUser] VARCHAR(50) NULL,
+        [ModifiedByUser] VARCHAR(50) NULL,
+        [SystemDate] DATETIME2(7) NOT NULL,
+        [PrsSpecId] INT NOT NULL,
+        [ProductSpec] VARCHAR(100) NULL,
+        [RiskType] VARCHAR(100) NULL,
+        [ProductGroup] VARCHAR(100) NULL,
+        [ProductRegion] VARCHAR(50) NULL,
+        [TradeMonth] VARCHAR(50) NOT NULL,
+        [StartFlowDate] DATETIME2(7) NOT NULL,
+        [EndFlowDate] DATETIME2(7) NOT NULL,
+        [LocalStartFlowDate] DATETIME2(7) NOT NULL,
+        [LocalEndFlowDate] DATETIME2(7) NOT NULL,
+        [LocalStartFlowHour] VARCHAR(50) NOT NULL,
+        [LocalEndFlowHour] VARCHAR(50) NULL,
+        [Price] DECIMAL(28,12) NOT NULL,
+        [DlvyPrice] DECIMAL(28,12) NOT NULL,
+        [PriorPrice] DECIMAL(28,12) NOT NULL,
+        [PriorDlvyPrice] DECIMAL(28,12) NOT NULL,
+        [DailyPriceReturn] DECIMAL(28,12) NOT NULL,
+        [DailyDlvyPriceReturn] DECIMAL(28,12) NOT NULL,
+        [Currency] VARCHAR(50) NULL,
+        [UpdatedFlag] BIT NOT NULL,
+        [FileLogId]     BIGINT NULL,
+        [ModifiedAtUtc] DATETIME2(3) NOT NULL CONSTRAINT [DF_ProductSpecCurves_ModifiedAtUtc] DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT [PK_ProductSpecCurves] PRIMARY KEY CLUSTERED ([SystemDate], [PrsSpecId], [TradeMonth], [StartFlowDate], [LocalStartFlowHour])
+    );
+END
+GO
+

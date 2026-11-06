@@ -94,6 +94,23 @@ internal sealed class NucoreSettings : LoaderSettingsBase
     public string StartDate { get; set; } = "2025-01-01";
 
     /// <summary>
+    /// Per-endpoint override of <see cref="StartDate"/>, keyed by endpoint name. An endpoint
+    /// with no entry uses <see cref="StartDate"/>.
+    ///
+    /// <para>
+    /// Ships EMPTY, so every endpoint starts at <see cref="StartDate"/>. It exists because
+    /// the endpoints do not share a first date: <c>SettlementPublicationIndexPrices</c> and
+    /// <c>ProductSpecCurves</c> both have data from <b>2024-11-01</b>, two months before the
+    /// shipped 2025-01-01 floor, so the first two months of each are deliberately not
+    /// loaded. Adding
+    /// <c>"SettlementPublicationIndexPrices": "2024-11-01"</c> here picks them up; because a
+    /// settled unit's resume key does not vary, the new days simply load on the next run and
+    /// nothing already stored is re-read.
+    /// </para>
+    /// </summary>
+    public Dictionary<string, string> StartDateByEndpoint { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Used only when <see cref="StartDate"/> is empty: the window is
     /// <c>[today - DaysBack, today]</c> inclusive.
     /// </summary>
@@ -110,6 +127,13 @@ internal sealed class NucoreSettings : LoaderSettingsBase
     /// width re-pulls more history every run; lowering it to 0 trusts the first read of
     /// every day.
     /// </para>
+    /// <para>
+    /// ⚠ This is a FLOOR-RAISING lever only. An endpoint whose vendor restates it for longer
+    /// declares its own minimum (<c>NucoreEndpoint.MinSettledAfterDays</c>) and the larger of
+    /// the two wins - <c>SettlementPublicationIndexPrices</c> is restated for up to 21 days,
+    /// so it stays hot for 25 regardless of what is set here. Raising this value still widens
+    /// the window for everything.
+    /// </para>
     /// </summary>
     public int SettledAfterDays { get; set; } = 3;
 
@@ -120,10 +144,16 @@ internal sealed class NucoreSettings : LoaderSettingsBase
     /// Skip Saturdays and Sundays when enumerating date work units.
     ///
     /// <para>
-    /// NUCORE publishes on business days only - every weekend sampled returned HTTP 200
-    /// with <c>totalRecords: 0</c>. Leaving this on removes ~29% of the units from a
-    /// full-history backfill at no cost in data. It does NOT skip holidays, which still
+    /// Most NUCORE endpoints publish on business days only - every weekend sampled returned
+    /// HTTP 200 with <c>totalRecords: 0</c>. Leaving this on removes ~29% of the units from
+    /// a full-history backfill at no cost in data. It does NOT skip holidays, which still
     /// come back as legitimate empty reads.
+    /// </para>
+    /// <para>
+    /// ⚠ It does not apply to an endpoint that declares
+    /// <c>NucoreEndpoint.PublishesOnWeekends</c>. <c>SettlementPublicationIndexPrices</c>
+    /// carries a FULL day of prices every Saturday and Sunday, so honouring this setting for
+    /// it would silently discard two days in seven.
     /// </para>
     /// </summary>
     public bool SkipWeekends { get; set; } = true;
@@ -214,6 +244,8 @@ internal sealed class NucoreSettings : LoaderSettingsBase
         NucoreDescriptors.PositionSummary,
         NucoreDescriptors.PnlExplain,
         NucoreDescriptors.PositionDetails,
-        NucoreDescriptors.Volatilities
+        NucoreDescriptors.Volatilities,
+        NucoreDescriptors.SettlementPublicationIndexPrices,
+        NucoreDescriptors.ProductSpecCurves
     };
 }

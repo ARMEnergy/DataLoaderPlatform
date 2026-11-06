@@ -277,14 +277,21 @@ Avoid large inline dumps of code, SQL, or logs.
 ## Build-only loaders
 
 IHSPointLogic, IIR, NGI, ModernCommodities, EvolutionMarkets, Argus, ICE, EOX, CME,
-Genscape, NGX, Marex, OilX, EIA, NUCORE are build-only unless explicitly deployed and run.
+Genscape, NGX, Marex, OilX are build-only unless explicitly deployed and run.
 Do not report data validation as passed when no live loaded database exists.
 
-NUCORE (ARM's own risk system via `NUCORE.IntegrationService`, 5 endpoints, **`dbo` schema**,
+⚠ **EIA and NUCORE are NOT build-only — both are deployed and loaded** (EIA per its own
+paragraph below; NUCORE holds 16.5M rows on `ARMH-OPSDB01`). An earlier version of this line
+listed both as build-only. Their `999` drop scripts are destructive against real data.
+
+NUCORE (ARM's own risk system via `NUCORE.IntegrationService`, **7 endpoints**, **`dbo` schema**,
 DB **`NUCORE`**) is the only loader reading an *internal* ARM API, and the only one whose
 target schema is `dbo` rather than `arm`. Its read path is live-verified end to end (225,677
-rows across all five endpoints, zero dropped); its SQL has **never been deployed** and no
-`NUCORE` database exists. Its 436 columns across 5 tables are **GENERATED** — never hand-edit
+rows across the original five endpoints, zero dropped). ⚠ **`ARMH-OPSDB01`/`NUCORE` IS
+DEPLOYED AND LOADED** — 16,537,682 rows as of 2026-11-05 (`Volatilities` 11.32M,
+`PositionDetails` 2.59M, `PositionSummary` 1.02M, `PnlExplain` 850k, `VarResults` 756k) — so
+treat it as a live database and remember `sql/NUCORE/999` would drop all of it. Its 481 columns
+across 7 tables are **GENERATED** — never hand-edit
 `NucoreColumns.Generated.cs` or `sql/NUCORE/*.sql`; re-run `scripts\Generate-NucoreSchema.ps1`,
 which reads the vendor's **own OpenAPI document** (`docs/apis/NUCORE.openapi.json`, discovered
 via `/swagger/index.js` — it is NOT at any `/swagger/v1/swagger.json` path) plus an observed
@@ -334,6 +341,33 @@ vs 147,908 available) across all 64 days, with nothing failing. **Every request 
 so a residual shortfall fails the unit. Only multi-page units were exposed: `VarResults`
 (9,378/day) and `PositionSummary` (13,555/day) are single-page and verified complete.
 Migration: `sql/NUCORE/hotfixes/2026-10-18_RemoveUntrustworthyKeys.sql`.
+
+⚠ **Two endpoints added 2026-11-05 — `SettlementPublicationIndexPrices` (20 cols, 1,823
+rows/day) and `ProductSpecCurves` (25 cols, ~44,350 rows/day, 10.5M of history).** Both are
+live-verified, both MERGE on keys proven unique over 5 complete days *and their union*
+(SPIP 7,728 rows; PSC 134,750), and both are **the only endpoints taking a From/To pair**
+rather than a single date param — so `NucoreDateParamStyle` now decides the request shape.
+Their tables do **not exist in production yet**; the hand-over commands are in
+`docs/design/NUCORE.md` §6 (001/002 are creation-guarded and 003's six existing procs were
+verified **byte-identical** to prod's `sys.sql_modules`, so re-running is a proven no-op on
+the five live tables). Four things are silent if you get them wrong.
+**A date-only bound on SPIP means the midnight INSTANT, not the day** — `LocalTimeFrom=D&LocalTimeTo=D`
+returns **56** rows where the day holds **1,823**, and every one of them echoes the right
+date, so the date-echo guard does NOT catch it; the bounds must be `T00:00:00`/`T23:59:59`,
+and `LocalTimeTo` is **INCLUSIVE** so the next midnight would swallow the following day's
+first row (verified lossless: 1,823 + 1,823 = the 3,646 the two-day window returns).
+**SPIP publishes SEVEN DAYS A WEEK** — a full 1,823 rows every Saturday and Sunday — so the
+loader-wide `SkipWeekends` must not apply to it or two days in seven vanish silently; it also
+publishes **day-ahead** (tomorrow has rows, `createdAt` up to 14 days before the flow day) and
+is **restated for up to 21 days**, so `SettledAfterDays=3` would freeze it long before the
+vendor stops correcting it. Those three facts live on the descriptor (`PublishesOnWeekends`,
+`DaysAhead`, `MinSettledAfterDays` — a **floor**, not an override, so the global lever can
+only widen). **`ProductSpecCurves` does NOT default to the current system date** when its
+bounds are blank, whatever the vendor spec says — an unfiltered call returns all 10,551,909
+rows. And **PSC reports decimal scales up to 18**, which is `double` round-trip noise, not
+precision — `DECIMAL(28,12)` rounding it is correct and is not a reason to widen the scale.
+Both endpoints have history from **2024-11-01**, two months before the shipped
+`StartDate` of 2025-01-01; `Loaders:NUCORE:StartDateByEndpoint` (ships empty) picks it up.
 
 See `docs/apis/NUCORE.md` and `docs/design/NUCORE.md`.
 

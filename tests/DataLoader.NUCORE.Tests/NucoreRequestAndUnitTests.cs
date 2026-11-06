@@ -94,6 +94,78 @@ public class NucoreRequestAndUnitTests
     /// âš  Not the 500,000 the endpoints were originally specified with: PositionDetails
     /// answers HTTP 504 at that page size, because one unfiltered call is 2,468,453 rows.
     /// </summary>
+    /// <summary>
+    /// ⚠ SettlementPublicationIndexPrices takes a DATETIME range, and the times are what
+    /// make it a day.
+    ///
+    /// <para>
+    /// A date-only bound selects the midnight INSTANT:
+    /// <c>LocalTimeFrom=2026-10-15&amp;LocalTimeTo=2026-10-15</c> returns 56 rows where the
+    /// real day holds 1,823. And <c>LocalTimeTo</c> is INCLUSIVE, so the upper bound must be
+    /// 23:59:59 rather than the next midnight - <c>From=15, To=16</c> returns 1,879 rows
+    /// spanning two days, swallowing day 16's first row into day 15's unit.
+    /// </para>
+    /// <para>
+    /// With these bounds the split is lossless: 1,823 + 1,823 = 3,646, exactly the two-day
+    /// window.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void SettlementPricesAskForAWholeDayAndNotTheMidnightInstant()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+        var uri = Reader(endpoint, Settings())
+            .BuildRequestUri(DateUnit(endpoint, new DateTime(2026, 10, 15)), 1);
+
+        Assert.Contains("/Integration/api/risk/SettlementPublicationIndexPrices/Get", uri);
+        Assert.Contains("LocalTimeFrom=2026-10-15T00:00:00", uri);
+        Assert.Contains("LocalTimeTo=2026-10-15T23:59:59", uri);
+
+        // The next midnight would double-count day 16's first row.
+        Assert.DoesNotContain("LocalTimeTo=2026-10-16", uri);
+
+        // A bare date on either bound is the 56-rows-instead-of-1,823 bug.
+        Assert.DoesNotContain("LocalTimeFrom=2026-10-15&", uri);
+    }
+
+    /// <summary>
+    /// ProductSpecCurves takes a From/To pair over whole dates, both bounds inclusive, and
+    /// one unit asks for exactly one day. Leaving the bounds off does NOT default to the
+    /// current system date as the vendor's spec claims - it returns all 10,551,909 rows.
+    /// </summary>
+    [Fact]
+    public void ProductSpecCurvesBoundsOneSystemDateOnBothEnds()
+    {
+        var endpoint = NucoreDescriptors.Find("ProductSpecCurves")!;
+        var uri = Reader(endpoint, Settings())
+            .BuildRequestUri(DateUnit(endpoint, new DateTime(2026, 10, 15)), 1);
+
+        Assert.Contains("/Integration/api/risk/ProductSpecCurves/Get", uri);
+        Assert.Contains("SystemDateFrom=2026-10-15", uri);
+        Assert.Contains("SystemDateTo=2026-10-15", uri);
+    }
+
+    /// <summary>
+    /// The four endpoints taking a single date must keep taking a single date - rendering
+    /// one of them as a From/To pair would send a parameter the vendor does not know, and
+    /// an unknown filter on this API is ignored rather than rejected.
+    /// </summary>
+    [Fact]
+    public void SingleDateEndpointsSendExactlyOneDateParameter()
+    {
+        foreach (var endpoint in NucoreDescriptors.All)
+        {
+            if (endpoint.DateParamStyle != NucoreDateParamStyle.SingleDate) continue;
+
+            var uri = Reader(endpoint, Settings())
+                .BuildRequestUri(DateUnit(endpoint, new DateTime(2026, 10, 14)), 1);
+
+            Assert.Contains($"{endpoint.DateParam}=2026-10-14", uri);
+            Assert.DoesNotContain($"{endpoint.DateParam}From=", uri);
+            Assert.DoesNotContain($"{endpoint.DateParam}To=", uri);
+        }
+    }
+
     [Fact]
     public void DefaultPageSizeIsWellBelowTheSizeThatTimesOut()
     {
@@ -192,6 +264,141 @@ public class NucoreRequestAndUnitTests
             .GetWorkUnitsAsync(Context());
 
         Assert.Contains(units, u => u.Date!.Value.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday);
+    }
+
+    /// <summary>
+    /// ⚠ The regression guard for a silent two-sevenths data loss.
+    ///
+    /// SettlementPublicationIndexPrices publishes a FULL day of prices on Saturdays and
+    /// Sundays (1,823 rows each, same as a weekday). SkipWeekends is on by default and is
+    /// correct for every other endpoint, so this one has to opt out - and if it ever stops
+    /// opting out, nothing fails: the units simply are not enumerated, no request is made,
+    /// and the missing days look exactly like days the vendor had no data for.
+    /// </summary>
+    [Fact]
+    public async Task WeekendsAreStillEnumeratedForTheEndpointThatPublishesOnThem()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+        var settings = Settings();
+        settings.SkipWeekends = true;                 // the platform default, deliberately on
+        settings.StartDate = NucoreTime.FormatDate(NucoreTime.Today().AddDays(-10));
+
+        var units = await new NucoreWorkUnitProvider(endpoint, settings, NullLogger.Instance)
+            .GetWorkUnitsAsync(Context());
+
+        Assert.Contains(units, u => u.Date!.Value.DayOfWeek is DayOfWeek.Saturday);
+        Assert.Contains(units, u => u.Date!.Value.DayOfWeek is DayOfWeek.Sunday);
+    }
+
+    /// <summary>
+    /// Day-ahead prices mean tomorrow already has rows, so the window must run past today.
+    /// Stopping at today would pick every day up exactly one day late, forever.
+    /// </summary>
+    [Fact]
+    public async Task TheForwardLookingEndpointEnumeratesPastToday()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+        var settings = Settings();
+        settings.StartDate = NucoreTime.FormatDate(NucoreTime.Today().AddDays(-3));
+
+        var units = await new NucoreWorkUnitProvider(endpoint, settings, NullLogger.Instance)
+            .GetWorkUnitsAsync(Context());
+
+        var latest = units.Max(u => u.Date!.Value);
+        Assert.True(latest > NucoreTime.Today(),
+            $"latest unit is {latest:yyyy-MM-dd}, which is not past today.");
+        Assert.Equal(NucoreTime.Today().AddDays(endpoint.DaysAhead), latest);
+    }
+
+    /// <summary>
+    /// Every other endpoint stops at today; only a declared forward-looking one runs past it.
+    /// </summary>
+    [Fact]
+    public async Task EndpointsThatReportOnClosedDaysStopAtToday()
+    {
+        foreach (var endpoint in NucoreDescriptors.All)
+        {
+            if (endpoint.Partition != NucorePartition.Date || endpoint.DaysAhead > 0) continue;
+
+            var settings = Settings();
+            settings.StartDate = NucoreTime.FormatDate(NucoreTime.Today().AddDays(-10));
+
+            var units = await new NucoreWorkUnitProvider(endpoint, settings, NullLogger.Instance)
+                .GetWorkUnitsAsync(Context());
+
+            Assert.All(units, u => Assert.True(u.Date!.Value <= NucoreTime.Today(),
+                $"{endpoint.Name} enumerated {u.Date:yyyy-MM-dd}, past today."));
+        }
+    }
+
+    /// <summary>
+    /// ⚠ SettledAfterDays may be raised by the operator but never lowered past what an
+    /// endpoint's own restatement behaviour requires. Settlement prices are corrected for up
+    /// to 21 days; a settled unit is skipped with no request at all, so an over-eager
+    /// setting here would discard three weeks of corrections silently.
+    /// </summary>
+    [Fact]
+    public async Task AnEndpointsRestatementFloorOverridesATooNarrowGlobalSetting()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+        var settings = Settings();
+        settings.SettledAfterDays = 1;                 // far too narrow for this endpoint
+        settings.StartDate = NucoreTime.FormatDate(NucoreTime.Today().AddDays(-40));
+
+        var units = await new NucoreWorkUnitProvider(endpoint, settings, NullLogger.Instance)
+            .GetWorkUnitsAsync(Context());
+
+        // A day 10 back is well inside the 21-day restatement horizon and must still be hot.
+        var tenDaysBack = units.Single(u => u.Date == NucoreTime.Today().AddDays(-10));
+        Assert.True(tenDaysBack.IsHot,
+            "a day inside the restatement horizon settled because the global setting was lower.");
+
+        // A day well outside it should settle, or every run re-reads unbounded history.
+        var longAgo = units.Single(u => u.Date == NucoreTime.Today().AddDays(-35));
+        Assert.False(longAgo.IsHot);
+    }
+
+    /// <summary>
+    /// The floor only raises. A global setting WIDER than an endpoint's own minimum must
+    /// still win, or raising it would silently do nothing for these endpoints.
+    /// </summary>
+    [Fact]
+    public async Task AWiderGlobalSettingStillWidensTheHotWindow()
+    {
+        var endpoint = NucoreDescriptors.Find("ProductSpecCurves")!;
+        var settings = Settings();
+        settings.SettledAfterDays = 30;
+        settings.StartDate = NucoreTime.FormatDate(NucoreTime.Today().AddDays(-40));
+
+        var units = await new NucoreWorkUnitProvider(endpoint, settings, NullLogger.Instance)
+            .GetWorkUnitsAsync(Context());
+
+        // ProductSpecCurves skips weekends, so "20 days back" must land on a weekday or this
+        // test fails two days in seven (it did on 2026-11-06, when -20 was a Saturday).
+        var target = NucoreTime.Today().AddDays(-20);
+        while (target.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            target = target.AddDays(-1);
+        var twentyBack = units.Single(u => u.Date == target);
+        Assert.True(twentyBack.IsHot);
+    }
+
+    /// <summary>
+    /// A per-endpoint start date overrides the loader-wide one, which is how the two months
+    /// of history before the shipped 2025-01-01 floor can be picked up without disturbing
+    /// the five endpoints that have nothing there.
+    /// </summary>
+    [Fact]
+    public async Task APerEndpointStartDateOverridesTheLoaderWideOne()
+    {
+        var endpoint = NucoreDescriptors.Find("ProductSpecCurves")!;
+        var settings = Settings();
+        settings.StartDate = "2026-10-01";
+        settings.StartDateByEndpoint["ProductSpecCurves"] = "2026-09-20";
+
+        var units = await new NucoreWorkUnitProvider(endpoint, settings, NullLogger.Instance)
+            .GetWorkUnitsAsync(Context());
+
+        Assert.Equal(new DateTime(2026, 9, 21), units.Min(u => u.Date!.Value));  // 9/20 is a Sunday
     }
 
     [Fact]

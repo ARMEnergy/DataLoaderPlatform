@@ -41,7 +41,7 @@ reads it rather than assuming it.
 
 ---
 
-## 2. The five endpoints
+## 2. The seven endpoints
 
 | Endpoint | Date parameter | Rows / day | Columns |
 |---|---|---:|---:|
@@ -50,9 +50,32 @@ reads it rather than assuming it.
 | `/Integration/api/risk/PnlExplain/Get` | **`CurDate`** | 11,364 | 120 |
 | `/Integration/api/risk/PositionDetails/Get` | **none** | 2,468,453 *(all history)* | 165 |
 | `/Integration/api/risk/Volatilities/Get` | `SystemDate` | 147,908 | 15 |
+| `/Integration/api/risk/SettlementPublicationIndexPrices/Get` | **`LocalTimeFrom`/`LocalTimeTo`** | 1,823 | 20 |
+| `/Integration/api/risk/ProductSpecCurves/Get` | **`SystemDateFrom`/`SystemDateTo`** | 44,351 | 25 |
 
 Every endpoint also accepts `Page`, `PageSize` and `SortFields`. Several accept extra
-filters the loader does not use (`TradeStatus`, `Trader`, `ProductSpec`, `InstrumentType`).
+filters the loader does not use (`TradeStatus`, `Trader`, `ProductSpec`, `InstrumentType`,
+`SettlementPublication`, `Frequency`, `ProductGroup`, `ProductRegion`).
+
+### 2.1 The two endpoints added 2026-11-05
+
+Both were live-verified end to end on that date. They are the only two taking a **From/To
+pair** rather than a single date parameter, and the pair is not the same shape in each case.
+
+**`SettlementPublicationIndexPrices`** — published settlement prices per publication index
+(e.g. `ERCOT DA LMP` / `LZ_AEN`), at 15-minute and hourly granularity.
+History begins **2024-11-01**; 1,241,136 rows in total. Its measures are `SettlePrice`,
+`SystemEnergyPrice`, `CongestionPrice` and `MarginalLossPrice` — note the last three were
+**constant 0 across all 56,486 rows profiled**, so only `SettlePrice` currently carries data.
+
+**`ProductSpecCurves`** — the daily forward curve per product spec and trade month, with
+prior-day prices and daily returns alongside. History begins **2024-11-01**; 10,551,909 rows
+in total, and the daily volume has grown sharply (6,933 rows on 2024-12-04 against 44,351 on
+2026-10-15), so a full backfill is ~10M rows.
+
+Neither DTO carries `id`, `guid`, `recordState` or `entityName`, so §3.5 does not apply to
+them. `SettlementPublicationIndexPrices` does expose a real vendor surrogate,
+`settlementPublicationIndexPriceId` — see §5 for why it is still not the key.
 
 ---
 
@@ -132,6 +155,75 @@ On every row of every endpoint, `id` is `0` and `guid` is
 just the DTO class name. **None of these is usable as a key** — a key of `(date, guid)`
 collapses a 9,378-row day to one row.
 
+This applies to the original five endpoints. `SettlementPublicationIndexPrices` and
+`ProductSpecCurves` do not carry these columns at all.
+
+### ⚠ 3.6 A date-only bound on `SettlementPublicationIndexPrices` means MIDNIGHT, not the day (verified 2026-11-05)
+
+`LocalTimeFrom` / `LocalTimeTo` are **datetimes**, not dates. A bare date is parsed as
+midnight, so it selects the midnight *instant*:
+
+| Request for 2026-10-15 | Rows |
+|---|---:|
+| `LocalTimeFrom=2026-10-15&LocalTimeTo=2026-10-15` | **56** |
+| `LocalTimeFrom=2026-10-15T00:00:00&LocalTimeTo=2026-10-15T23:59:59` | **1,823** |
+
+The 56 rows are one per index at hour `0100` — a plausible-looking answer that silently
+drops 97% of the day. Every row echoes the right date, so the date-echo check in §3.3 does
+**not** catch it.
+
+**`LocalTimeTo` is also INCLUSIVE**, which rules out the obvious alternative of bounding
+with the next midnight:
+
+| Request | Rows | Days spanned |
+|---|---:|---:|
+| `From=2026-10-15T00:00:00`, `To=2026-10-16T00:00:00` | 1,879 | 2 |
+| `From=2026-10-15T00:00:00`, `To=2026-10-15T23:59:59` | 1,823 | 1 |
+
+The 1,879 is 1,823 + day 16's own 56 midnight rows, which day 16's unit would then load
+again.
+
+With `00:00:00`/`23:59:59` the split is **lossless**: day 15 (1,823) + day 16 (1,823) =
+3,646, exactly what the two-day window returns. The data is 15-minute granularity (latest
+observed `23:45`), so nothing falls between `23:59:59` and the next midnight.
+
+`ProductSpecCurves`' `SystemDateFrom`/`SystemDateTo` are plain dates and are inclusive on
+both ends; its day split is lossless too (44,351 + 44,388 = 88,739).
+
+### ⚠ 3.7 `SettlementPublicationIndexPrices` publishes on weekends, and up to 21 days late (verified 2026-11-05)
+
+Three calendar facts, each of which quietly loses data if the loader's platform-wide
+defaults are applied to this endpoint:
+
+| Day (2026-10) | Weekday | `SettlementPublicationIndexPrices` | `ProductSpecCurves` |
+|---|---|---:|---:|
+| 16 | Friday | 1,823 | 44,388 |
+| 17 | **Saturday** | **1,823** | 0 |
+| 18 | **Sunday** | **1,823** | 0 |
+| 19 | Monday | 1,823 | 44,425 |
+
+1. **It publishes seven days a week** — power flows every day. The loader ships
+   `SkipWeekends: true`, which is right for the other six endpoints and would discard
+   **two days in every seven** here. An unvisited day produces no error and no gap anyone
+   would notice without counting.
+2. **It publishes into the future.** Rows exist for tomorrow (456 of an eventual 1,823 when
+   measured), and `createdAt` runs up to **14 days before** the flow day — these are
+   day-ahead prices. A window ending at today picks every day up a day late.
+3. **It is restated for up to 21 days.** `modifiedAt` reaches flow day + 21 on 2026-10-15
+   and + 20 on 2026-06-10. `SettledAfterDays: 3` would freeze a day two and a half weeks
+   before the vendor stops correcting it, and a settled unit is skipped *without a request*,
+   so every later correction is lost in silence.
+
+`ProductSpecCurves` has none of these: weekends are genuinely empty, nothing is published
+ahead, and a closed day stops changing within a day or so.
+
+### 3.8 `ProductSpecCurves` does NOT default to the current system date
+
+The vendor's spec says `SystemDateFrom`/`SystemDateTo` "will default to the current system
+date if left blank". They do not — an unfiltered call returns **all 10,551,909 rows** of
+history, and takes ~15 s just to count them. This is harmless given the loader always sends
+both bounds, but it means an exploratory call is far more expensive than the spec implies.
+
 ---
 
 ## 4. Paging
@@ -185,7 +277,7 @@ list makes it genuinely total for this endpoint.
 
 ## 5. Natural keys — and the three endpoints that have none
 
-⚠ **Read this section before giving any NUCORE table a primary key.** Three of the five do
+⚠ **Read this section before giving any NUCORE table a primary key.** Three of the seven do
 not have one, and the first attempt at this loader gave keys to four of them on the strength
 of a single sample each. One of those keys failed in production.
 
@@ -202,16 +294,45 @@ A uniqueness check on this vendor is only meaningful if it is:
 3. **repeated across several periods** — `PnlExplain`'s key is unique on five of the six days
    sampled and not on the sixth.
 
-### The two keys that survived
+### The four keys that survived
 
 | Table | Key | Verified over |
 |---|---|---|
 | `VarResults` | `VarDate, VarBucket, LegalEntity, ConfidenceLevelId, HoldingPeriod, TradeBook, TradeMonth, ProductSpec` | 7 complete days, 2025-10 → 2026-10 |
 | `Volatilities` | `SystemDate, ProductSpec, InstrumentType, StartTradeMonth, EndTradeMonth, PutCallFlag, StrikeType, StrikePrice` | 5 complete days, 712,004 rows |
+| `SettlementPublicationIndexPrices` | `LocalTime, SpiSettlementPublicationIndexId, SpifSettlementPublicationIndexFrequencyId` | 5 complete days, 7,728 rows, 2024-12 → 2026-10 |
+| `ProductSpecCurves` | `SystemDate, PrsSpecId, TradeMonth, StartFlowDate, LocalStartFlowHour` | 5 complete days, 134,750 rows, 2024-12 → 2026-10 |
 
 `ProductGroup` is deliberately **not** in `VarResults`' key — the key is already unique
 without it, and it is a 100-character space-padded column that would cost 400 bytes of index
 for nothing.
+
+### The two keys added 2026-11-05
+
+Both were checked day-by-day **and across the five days combined**, since a table-wide
+primary key has to survive the union, not just each day. Every day also reconciled against
+the envelope's own `totalRecords`, so each population really was complete:
+
+- `SettlementPublicationIndexPrices` — 1,823 / 1,821 / 1,820 / 1,804 / 460 rows, zero
+  duplicates at every stage.
+- `ProductSpecCurves` — 44,351 / 41,861 / 33,921 / 7,684 / 6,933 rows, zero duplicates.
+
+Two choices in those keys are deliberate:
+
+**`SettlementPublicationIndexPriceId` is NOT the key**, although it is a genuine vendor
+surrogate (unlike `id`, §3.5) and was equally unique over the same population. It carries no
+business meaning, it would not group a day together in the clustered index, and a vendor-side
+re-issue would silently append rather than update. The id-based natural key costs 16 bytes;
+the equivalent text key (`SettlementPublication + Index + Frequency + LocalTime`, also
+verified unique) costs ~460.
+
+**`ProductSpecCurves` needs the flow-date pair.** The obvious coarser key
+`(SystemDate, PrsSpecId, TradeMonth)` leaves **33,734 duplicates** in a 44,351-row day — one
+spec/month holds many flow periods. `RiskType` is *not* needed; the key is already unique
+without it.
+
+Both keys **lead with the date column**, matching `VarResults` and `Volatilities`, so the
+clustered index groups a day together.
 
 ### `PositionSummary` — no key
 
@@ -280,14 +401,20 @@ at all. See `docs/design/NUCORE.md` §5.
   `originalModifiedAt` is usually the sentinel `0001-01-01T00:00:00+00:00`.
 - **Numbers are `double` in the spec, `DECIMAL(28,12)` in the database.** These are money and
   risk values that get `SUM`med downstream, where binary floating point drifts. The widest
-  scale in live data is **10** (the option greeks: `priorDelta -0.9094652105`,
+  scale of *meaningful* data is **10** (the option greeks: `priorDelta -0.9094652105`,
   `gamma 0.4483348049`); the largest magnitude is ~3.57e6. `(28,12)` keeps every observed
   digit with 16 integer digits of headroom. Values are rounded in C# before they reach the
   server, so an over-precise value is a visible decision rather than a silent truncation.
-- **Business days only.** A 14-day census found data on every weekday and `totalRecords: 0`
-  on every Saturday and Sunday. Holidays behave the same way but are not predictable, so the
-  loader skips weekends by configuration and treats everything else as a legitimate empty
-  read.
+  ⚠ `ProductSpecCurves` reports scales up to **18** (`dailyPriceReturn`, `price`), but that
+  is binary floating-point noise from the vendor's `double` round-trip — the same artefact
+  ICE shows as `78.01000000000001` — not real precision. Rounding it to 12 is correct; it is
+  not a reason to widen the declared scale.
+- **Business days only — for five of the seven endpoints.** A 14-day census found data on
+  every weekday and `totalRecords: 0` on every Saturday and Sunday. Holidays behave the same
+  way but are not predictable, so the loader skips weekends by configuration and treats
+  everything else as a legitimate empty read.
+  ⚠ `SettlementPublicationIndexPrices` is the exception and carries a **full day of prices
+  every Saturday and Sunday** — see §3.7. It opts out of the weekend skip in its descriptor.
 
 ---
 
@@ -309,8 +436,32 @@ All 436 columns converted; every row produced a full value array. A negative con
 deliberately wrong parameter name confirmed the date-echo guard fires rather than storing the
 latest day.
 
-**The SQL has never been deployed** — no `NUCORE` database exists yet, so nothing has been
-merged and no data-quality validation against a loaded database has been done.
+### 7.1 The two endpoints added 2026-11-05
+
+Verified directly against the live API, paging each unit to completion and reconciling every
+read against the envelope's own `totalRecords`:
+
+| Endpoint | Units read | Rows | Reconciled | Notes |
+|---|---|---:|---|---|
+| `SettlementPublicationIndexPrices` | 5 complete days + one full month | 7,728 + 56,486 | 5/5 and 1/1 exact | key unique per day and combined |
+| `ProductSpecCurves` | 5 complete days | 134,750 | 5/5 exact | key unique per day |
+
+Also confirmed live: day-slicing is lossless for both (§3.6); a garbage date returns **500**
+for both, matching §3.4 and the existing retry predicate; an unknown `SortFields` value
+returns **400**; the key columns are accepted as sort fields in camelCase; and pages 1 and 2
+of a day under the shipping sort overlap by **0** rows.
+
+### 7.2 Deployment status (2026-11-05)
+
+`ARMH-OPSDB01` / `NUCORE` **is deployed and loaded** — 16,537,682 rows across the original
+five tables (`Volatilities` 11,323,594; `PositionDetails` 2,588,859; `PositionSummary`
+1,020,052; `PnlExplain` 849,663; `VarResults` 755,514). *(An earlier version of this
+document said the SQL had never been deployed; that has not been true since the first
+production run.)*
+
+The **two new tables do not exist in production yet**. Their DDL, TVP types and merge procs
+are generated and parse-checked but unrun — see `docs/design/NUCORE.md` for the exact
+hand-over commands.
 
 ---
 

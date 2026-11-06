@@ -480,3 +480,60 @@ IF TYPE_ID(N'[dbo].[VolatilitiesType]') IS NULL
     );
 GO
 
+IF TYPE_ID(N'[dbo].[SettlementPublicationIndexPricesType]') IS NULL
+    CREATE TYPE [dbo].[SettlementPublicationIndexPricesType] AS TABLE
+    (
+        [CreatedAt] DATETIMEOFFSET(7) NOT NULL,
+        [ModifiedAt] DATETIMEOFFSET(7) NOT NULL,
+        [CreatedByUser] VARCHAR(50) NULL,
+        [ModifiedByUser] VARCHAR(50) NULL,
+        [SettlementPublicationIndexPriceId] INT NOT NULL,
+        [SettlementPublisherId] INT NOT NULL,
+        [SpSettlementPublicationId] INT NOT NULL,
+        [SpiSettlementPublicationIndexId] INT NOT NULL,
+        [SpifSettlementPublicationIndexFrequencyId] INT NOT NULL,
+        [SettlementPublication] VARCHAR(200) NULL,
+        [SettlementPublicationIndex] VARCHAR(200) NULL,
+        [Frequency] VARCHAR(50) NULL,
+        [LocalTime] DATETIME2(7) NOT NULL,
+        [LocalFlowHour] VARCHAR(50) NULL,
+        [BeginningUtc] DATETIME2(7) NOT NULL,
+        [UtcFlowHour] VARCHAR(50) NULL,
+        [SystemEnergyPrice] DECIMAL(28,12) NOT NULL,
+        [SettlePrice] DECIMAL(28,12) NOT NULL,
+        [CongestionPrice] DECIMAL(28,12) NOT NULL,
+        [MarginalLossPrice] DECIMAL(28,12) NOT NULL
+    );
+GO
+
+IF TYPE_ID(N'[dbo].[ProductSpecCurvesType]') IS NULL
+    CREATE TYPE [dbo].[ProductSpecCurvesType] AS TABLE
+    (
+        [CreatedAt] DATETIMEOFFSET(7) NOT NULL,
+        [ModifiedAt] DATETIMEOFFSET(7) NOT NULL,
+        [CreatedByUser] VARCHAR(50) NULL,
+        [ModifiedByUser] VARCHAR(50) NULL,
+        [SystemDate] DATETIME2(7) NOT NULL,
+        [PrsSpecId] INT NOT NULL,
+        [ProductSpec] VARCHAR(100) NULL,
+        [RiskType] VARCHAR(100) NULL,
+        [ProductGroup] VARCHAR(100) NULL,
+        [ProductRegion] VARCHAR(50) NULL,
+        [TradeMonth] VARCHAR(50) NOT NULL,
+        [StartFlowDate] DATETIME2(7) NOT NULL,
+        [EndFlowDate] DATETIME2(7) NOT NULL,
+        [LocalStartFlowDate] DATETIME2(7) NOT NULL,
+        [LocalEndFlowDate] DATETIME2(7) NOT NULL,
+        [LocalStartFlowHour] VARCHAR(50) NOT NULL,
+        [LocalEndFlowHour] VARCHAR(50) NULL,
+        [Price] DECIMAL(28,12) NOT NULL,
+        [DlvyPrice] DECIMAL(28,12) NOT NULL,
+        [PriorPrice] DECIMAL(28,12) NOT NULL,
+        [PriorDlvyPrice] DECIMAL(28,12) NOT NULL,
+        [DailyPriceReturn] DECIMAL(28,12) NOT NULL,
+        [DailyDlvyPriceReturn] DECIMAL(28,12) NOT NULL,
+        [Currency] VARCHAR(50) NULL,
+        [UpdatedFlag] BIT NOT NULL
+    );
+GO
+
