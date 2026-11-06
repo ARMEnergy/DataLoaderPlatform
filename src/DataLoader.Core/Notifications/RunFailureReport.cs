@@ -122,6 +122,18 @@ public sealed class RunFailureReport : INotificationPayload
         if (failures.Count == 1)
         {
             var f = failures[0];
+
+            // ⚠ A loader can fail with ZERO failed units: a feed that could not even
+            // enumerate its work units contributes no units at all, so neither its
+            // failure nor its units show up in the counts. The unit ratio then reads
+            // "0/98 units failed", which is what the 2026-11-06 Criterion alert said
+            // while a whole 304-unit feed had been lost. Show the loader's own reason.
+            //
+            // Known gap, accepted: when the same run ALSO has failed units, the ratio is
+            // shown and the lost feed is named only in the body.
+            if (f.WorkUnitsFailed == 0)
+                return $"FAILED: {f.LoaderId} on {HostName} — {SubjectReason(f)}";
+
             return $"FAILED: {f.LoaderId} on {HostName} " +
                    $"({f.WorkUnitsFailed}/{f.WorkUnitsTotal} units failed)";
         }
@@ -132,6 +144,38 @@ public sealed class RunFailureReport : INotificationPayload
 
         // Nothing failed now, so the only reason we are here is orphaned rows.
         return $"WARNING: {StaleRowsClosed} orphaned load-log row(s) on {HostName}";
+    }
+
+    /// <summary>Longest reason a subject line carries; the body has the full text.</summary>
+    private const int MaxSubjectReasonChars = 150;
+
+    /// <summary>
+    /// A loader's error message reduced to something that fits in a subject line:
+    /// redacted (🔒 vendor text — see <see cref="ErrorTextRedactor"/>), first NON-BLANK
+    /// line only (a header cannot carry CR/LF), whitespace collapsed, cut at
+    /// <see cref="MaxSubjectReasonChars"/> with an ellipsis. Not
+    /// <see cref="ErrorTextRedactor.Clean"/>, whose "[truncated, N chars total]" marker
+    /// is written for a body, not a subject.
+    ///
+    /// <para>With no message, "failed before any work unit ran" is claimed only when no
+    /// unit succeeded or skipped either — otherwise it would be false.</para>
+    /// </summary>
+    private static string SubjectReason(LoaderRunResult result)
+    {
+        var text = ErrorTextRedactor.Redact(result.ErrorMessage)
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? string.Empty;
+        text = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+        if (text.Length == 0)
+            return result.WorkUnitsSucceeded + result.WorkUnitsSkipped == 0
+                ? "failed before any work unit ran"
+                : "failed (no error message recorded)";
+        if (text.Length <= MaxSubjectReasonChars) return text;
+
+        var cut = MaxSubjectReasonChars;
+        if (char.IsHighSurrogate(text[cut - 1])) cut--;
+        return text[..cut] + "…";
     }
 
     private string BuildBody()

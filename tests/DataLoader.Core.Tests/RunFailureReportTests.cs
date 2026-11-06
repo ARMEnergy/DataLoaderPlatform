@@ -99,6 +99,77 @@ public class RunFailureReportTests
     }
 
     [Fact]
+    public void Subject_LoaderFailedWithZeroFailedUnits_ShowsItsReasonNotAUnitRatio()
+    {
+        // The 2026-11-06 Criterion alert: FinancialSeriesData could not enumerate, so
+        // its 304 units never existed and the other feeds' 98 were all skipped. The old
+        // subject read "(0/98 units failed)" for a run that had lost a whole feed.
+        var result = new LoaderRunResult
+        {
+            LoaderId = "Criterion", Success = false,
+            WorkUnitsTotal = 98, WorkUnitsSkipped = 98, WorkUnitsFailed = 0,
+            ErrorMessage = "Failed feed(s): FinancialSeriesData (The operation has timed out)"
+        };
+
+        var subject = Report(new[] { result }).BuildMessage().Subject;
+
+        Assert.Equal(
+            "FAILED: Criterion on ARMH-OPSDB01 — Failed feed(s): FinancialSeriesData (The operation has timed out)",
+            subject);
+        Assert.DoesNotContain("units failed", subject);
+    }
+
+    [Fact]
+    public void Subject_ZeroFailedUnitsAndNoMessage_SaysItFailedBeforeAnyUnitRan()
+    {
+        var result = new LoaderRunResult { LoaderId = "Vulcan", Success = false };
+
+        var subject = Report(new[] { result }).BuildMessage().Subject;
+
+        Assert.Equal("FAILED: Vulcan on ARMH-OPSDB01 — failed before any work unit ran", subject);
+    }
+
+    [Fact]
+    public void Subject_ZeroFailedUnitsNoMessageButUnitsRan_DoesNotClaimNothingRan()
+    {
+        var result = new LoaderRunResult
+        {
+            LoaderId = "Vulcan", Success = false, WorkUnitsTotal = 5, WorkUnitsSucceeded = 5
+        };
+
+        var subject = Report(new[] { result }).BuildMessage().Subject;
+
+        Assert.Equal("FAILED: Vulcan on ARMH-OPSDB01 — failed (no error message recorded)", subject);
+    }
+
+    [Fact]
+    public void Subject_Reason_SkipsLeadingBlankLines()
+    {
+        var result = new LoaderRunResult { LoaderId = "EOX", Success = false, ErrorMessage = "\r\n  \nreal reason\nmore" };
+
+        var subject = Report(new[] { result }).BuildMessage().Subject;
+
+        Assert.Equal("FAILED: EOX on ARMH-OPSDB01 — real reason", subject);
+    }
+
+    [Fact]
+    public void Subject_Reason_IsFirstLineOnly_Capped_AndRedacted()
+    {
+        // 🔒 A subject is vendor text leaving the box just like the body; and a header
+        // cannot carry a newline or an unbounded length.
+        var message = "api_key=SECRET123456 rejected " + new string('x', 400) + "\nsecond line";
+        var result = new LoaderRunResult { LoaderId = "OilX", Success = false, ErrorMessage = message };
+
+        var subject = Report(new[] { result }).BuildMessage().Subject;
+
+        Assert.DoesNotContain("SECRET123456", subject);
+        Assert.DoesNotContain("second line", subject);
+        Assert.DoesNotContain("\n", subject);
+        Assert.EndsWith("…", subject);
+        Assert.True(subject.Length < 220, $"subject was {subject.Length} chars");
+    }
+
+    [Fact]
     public void Subject_SeveralFailingLoaders_CountsThem()
     {
         var subject = Report(new[] { Bad("Platts", "a"), Bad("Vulcan", "b"), Ok("CWG") })
