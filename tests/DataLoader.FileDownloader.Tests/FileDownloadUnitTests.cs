@@ -52,17 +52,40 @@ public sealed class FileDownloadUnitTests
     }
 
     [Fact]
-    public void Link_keys_separate_by_info_date_and_filename()
+    public void Link_keys_separate_by_info_and_filename()
     {
         var baseline = Link(1, new DateTime(2026, 11, 3), "a.zip").Key;
 
         Assert.NotEqual(baseline, Link(2, new DateTime(2026, 11, 3), "a.zip").Key);
-        Assert.NotEqual(baseline, Link(1, new DateTime(2026, 11, 4), "a.zip").Key);
-
-        // The legacy download.FileDownloader_Document cannot hold two files for one
-        // (FD_Info_Id, FileDate) — its unique constraint forbids it. The work-unit key
-        // deliberately can, which is one reason the manifest is a new table.
         Assert.NotEqual(baseline, Link(1, new DateTime(2026, 11, 3), "b.zip").Key);
+    }
+
+    [Fact]
+    public void Link_key_ignores_FileDate_because_the_queue_cannot_supply_one()
+    {
+        // ⚠ All 17 download.v_*_Not_Downloaded views expose only Id, Value and FileName
+        // (verified 2026-11-06), so LinkWorkUnitProvider always sets FileDate = null.
+        // A key that varied with FileDate would therefore read 'date=' on every real row
+        // and silently re-key every unit — re-downloading the entire back catalogue —
+        // the day anyone started populating it. The date is still present: each view
+        // composes it into FileName from FileDownloader_Info.DocumentName.
+        var withDate = Link(1, new DateTime(2026, 11, 3), "a.zip").Key;
+        var withOther = Link(1, new DateTime(2020, 1, 1), "a.zip").Key;
+
+        var withNone = new FileDownloadUnit
+        {
+            Mode = FileAcquisitionMode.Link,
+            SourceName = "ERCOT Documents",
+            RemoteLocator = "https://example.invalid/report",
+            DestinationPath = @"\\arm.local\data\AssetRisk\Models\ERCOT Reports",
+            FileName = "a.zip",
+            InfoId = 1,
+            FileDate = null
+        }.Key;
+
+        Assert.Equal(withDate, withOther);
+        Assert.Equal(withDate, withNone);
+        Assert.DoesNotContain("date=", withDate);
     }
 
     [Fact]

@@ -89,13 +89,21 @@ public sealed class FileDownloadUnit : WorkUnit
     /// the run into the key precisely so a key can never recur. Adding a run token here
     /// would re-download the whole back catalogue on every run.</para>
     ///
-    /// <para>Link units key on <c>(InfoId, FileDate)</c> — the grain the existing
-    /// <c>UK_FileDownloader_Document_FileDate</c> constraint already enforces — plus the
-    /// file name, so a source that publishes two files for one date is representable
-    /// here even though the legacy table cannot hold both.</para>
+    /// <para>Link units key on <c>(InfoId, FileName)</c>. ⚠ NOT on <see cref="FileDate"/>,
+    /// even though the legacy <c>UK_FileDownloader_Document_FileDate</c> constraint uses
+    /// that grain: the queue views expose only <c>Id</c>, <c>Value</c> and
+    /// <c>FileName</c> (verified against all 17 on 2026-11-06), so a Link unit can never
+    /// carry a date. Keying on a field the provider cannot populate would read as
+    /// <c>date=</c> on every row today and silently re-key — re-downloading everything —
+    /// the day anyone started populating it. The date is not lost: each view composes it
+    /// into <c>FileName</c> from <c>FileDownloader_Info.DocumentName</c>, so the name is
+    /// already date-bearing and unique per source.</para>
+    ///
+    /// <para>Non-Link units key on the remote locator, which for a listing-driven feed
+    /// is the remote path.</para>
     /// </summary>
     public override string Key => Mode == FileAcquisitionMode.Link
-        ? $"link:info={InfoId};date={FileDate:yyyy-MM-dd};file={FileName}"
+        ? $"link:info={InfoId};file={FileName}"
         : $"{Mode.ToString().ToLowerInvariant()}:{SourceName}:{RemoteLocator}";
 
     public override string DisplayName => $"{SourceName} [{Mode}] {FileName}";
