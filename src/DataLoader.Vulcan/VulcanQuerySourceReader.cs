@@ -67,7 +67,7 @@ public sealed class VulcanQuerySourceReader<TRow> : HttpJsonSourceReaderBase<Vul
                     $"Vulcan {unit.TableId}: exceeded MaxPages={_settings.MaxPages} at offset={offset}; aborting to avoid infinite paging.");
 
             var sql = VulcanQueryBuilder.BuildPage(unit.Spec, unit.Watermark, offset, _settings.PageSize);
-            var rows = await PostQueryAsync(sql, cancellationToken).ConfigureAwait(false);
+            var rows = await PostQueryAsync(sql, unit.TableId, offset, cancellationToken).ConfigureAwait(false);
 
             Logger.LogInformation("[{Table}] page {Page} offset {Offset}: {Count} rows",
                 unit.TableId, page, offset, rows.Count);
@@ -85,20 +85,63 @@ public sealed class VulcanQuerySourceReader<TRow> : HttpJsonSourceReaderBase<Vul
         return all;
     }
 
+    /// <summary>Backoff wait; replaceable so tests do not sleep.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> Delay { get; set; } = Task.Delay;
+
     /// <summary>
     /// POSTs one SQL query string to query_datalinks (one SendAsync = one timeout/retry scope)
     /// and returns the parsed rows.
+    ///
+    /// <para>
+    /// ⚠ A 200 whose body does not parse is re-POSTed up to
+    /// <see cref="VulcanSettings.MalformedBodyRetryCount"/> times. The endpoint streams NDJSON,
+    /// so a server-side fault after the status line arrives as a body that simply ends early
+    /// (2026-11-06: "Expected end of string, but instead reached end of data"), which the
+    /// HTTP retry policy cannot see. Only <see cref="JsonException"/> is retried here; HTTP
+    /// failures keep their own policy and cancellation is never retried.
+    /// </para>
+    /// <para>
+    /// Known gap: a body cut exactly at a line boundary parses cleanly with fewer rows and is
+    /// indistinguishable from a genuine short final page. Nothing in the response tells them
+    /// apart.
+    /// </para>
     /// </summary>
-    private async Task<IReadOnlyList<TRow>> PostQueryAsync(string sql, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<TRow>> PostQueryAsync(
+        string sql, string tableId, int offset, CancellationToken cancellationToken)
     {
-        Logger.LogDebug("POST {Endpoint}", _settings.QueryEndpoint);
-        using var request = new HttpRequestMessage(HttpMethod.Post, _settings.QueryEndpoint)
+        var attempts = 1 + Math.Max(0, _settings.MalformedBodyRetryCount);
+        var wait = TimeSpan.FromSeconds(Math.Max(0, _settings.MalformedBodyRetryDelaySeconds));
+
+        for (var attempt = 1; ; attempt++)
         {
-            Content = JsonContent.Create(new { query = sql })
-        };
-        using var response = await HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        return await DeserializeAsync(response, cancellationToken).ConfigureAwait(false);
+            Logger.LogDebug("POST {Endpoint}", _settings.QueryEndpoint);
+            using var request = new HttpRequestMessage(HttpMethod.Post, _settings.QueryEndpoint)
+            {
+                Content = JsonContent.Create(new { query = sql })
+            };
+            using var response = await HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            try
+            {
+                return await DeserializeAsync(response, cancellationToken).ConfigureAwait(false);
+            }
+            catch (JsonException ex) when (attempt < attempts && !cancellationToken.IsCancellationRequested)
+            {
+                Logger.LogWarning(
+                    "[{Table}] offset {Offset}: HTTP 200 body did not parse (attempt {Attempt}/{Attempts}: {Error}); " +
+                    "the stream likely ended early. Retrying the page in {Wait}s",
+                    tableId, offset, attempt, attempts, ex.Message, wait.TotalSeconds);
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Vulcan {tableId}: the HTTP 200 response for offset {offset} was truncated or malformed " +
+                    $"on all {attempts} attempt(s); last parse error: {ex.Message}", ex);
+            }
+
+            await Delay(wait, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     protected override async Task<IReadOnlyList<TRow>> DeserializeAsync(HttpResponseMessage response, CancellationToken ct)

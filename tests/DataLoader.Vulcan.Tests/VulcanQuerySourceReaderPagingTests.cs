@@ -49,12 +49,27 @@ public class VulcanQuerySourceReaderPagingTests
         }
     }
 
-    private static VulcanQuerySourceReader<ProjectRankingRow> BuildReader(ScriptedHandler handler, int pageSize, int maxPages = 10000)
+    private static VulcanQuerySourceReader<ProjectRankingRow> BuildReader(
+        ScriptedHandler handler, int pageSize, int maxPages = 10000,
+        int malformedRetries = 2, List<TimeSpan>? waits = null)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri("https://vulcan.test") };
-        var settings = Options.Create(new VulcanSettings { PageSize = pageSize, MaxPages = maxPages });
-        return new VulcanQuerySourceReader<ProjectRankingRow>(http, settings, NullLogger.Instance);
+        var settings = Options.Create(new VulcanSettings
+        {
+            PageSize = pageSize,
+            MaxPages = maxPages,
+            MalformedBodyRetryCount = malformedRetries,
+            MalformedBodyRetryDelaySeconds = 10
+        });
+        return new VulcanQuerySourceReader<ProjectRankingRow>(http, settings, NullLogger.Instance)
+        {
+            Delay = (wait, _) => { waits?.Add(wait); return Task.CompletedTask; }
+        };
     }
+
+    // The 2026-11-06 production shape: a full first row, then a second row cut off
+    // mid-string with no closing quote or brace.
+    private const string TruncatedPage = "{ \"synmax_id\": \"R0\" }\n{ \"synmax_id\": \"R1";
 
     private static VulcanWorkUnit WorkUnit() => new()
     {
@@ -148,5 +163,60 @@ public class VulcanQuerySourceReaderPagingTests
 
         Assert.Equal("SOLO", Assert.Single(rows).SynmaxId);
         Assert.Equal(1, handler.CallCount);
+    }
+
+    // ------------------------------------------------ truncated 200 bodies (2026-11-06)
+
+    [Fact]
+    public async Task ReadAsync_TruncatedPage_IsRePostedWithTheSameOffset_AndTheRetryWins()
+    {
+        // page 0 full, page 1 truncated, page 1 again complete and short -> stop.
+        var waits = new List<TimeSpan>();
+        var handler = new ScriptedHandler(new[] { Page(2), TruncatedPage, Page(1) });
+        var reader = BuildReader(handler, pageSize: 2, waits: waits);
+
+        var rows = await reader.ReadAsync(WorkUnit(), CancellationToken.None);
+
+        Assert.Equal(3, rows.Count); // no rows from the truncated attempt leak in
+        Assert.Equal(3, handler.CallCount);
+        Assert.Contains("OFFSET 2 ROWS", handler.CapturedSql[1]);
+        Assert.Equal(handler.CapturedSql[1], handler.CapturedSql[2]); // same page, re-asked
+        Assert.Equal(new[] { TimeSpan.FromSeconds(10) }, waits);
+    }
+
+    [Fact]
+    public async Task ReadAsync_PersistentlyTruncatedPage_FailsWithAPlainMessageAfterAllAttempts()
+    {
+        var handler = ScriptedHandler.AlwaysReturns(TruncatedPage);
+        var reader = BuildReader(handler, pageSize: 2, malformedRetries: 2);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => reader.ReadAsync(WorkUnit(), CancellationToken.None));
+
+        Assert.Equal(3, handler.CallCount);
+        Assert.Contains("truncated or malformed", ex.Message);
+        Assert.Contains("offset 0", ex.Message);
+        Assert.Contains("3 attempt(s)", ex.Message);
+        Assert.IsAssignableFrom<System.Text.Json.JsonException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task ReadAsync_ZeroMalformedRetries_FailsOnTheFirstBadBody()
+    {
+        var handler = ScriptedHandler.AlwaysReturns(TruncatedPage);
+        var reader = BuildReader(handler, pageSize: 2, malformedRetries: 0);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => reader.ReadAsync(WorkUnit(), CancellationToken.None));
+
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public void MalformedBodyRetry_Defaults_AreTwoRetriesTenSecondsApart()
+    {
+        var s = new VulcanSettings();
+        Assert.Equal(2, s.MalformedBodyRetryCount);
+        Assert.Equal(10, s.MalformedBodyRetryDelaySeconds);
     }
 }
