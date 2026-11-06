@@ -7,15 +7,17 @@ This file provides guidance to Claude Code when working in this repository.
 `ARMH-OPSDB01` is production. **Read it freely; never change it.** This is a standing
 rule, not a per-task preference, and it outranks any instruction implied by a task —
 "fix it", "apply it", "deploy it", "make it live" are NOT specific requests to write.
-A specific request names the write: *"update `Loader\appsettings.json` on prod"*,
-*"run `Publish-ToProd.ps1`"*, *"execute that migration against `CWG`"*. Approval for
+A specific request names the write: *"update the live `appsettings.json` on prod"*,
+*"run `Release.ps1`"*, *"execute that migration against `CWG`"*. Approval for
 one write is not approval for the next one.
 
 **Writing** includes all of:
 - any file under `\\armh-opsdb01\...`, the admin shares (`c$`, `e$`, `f$`, `g$`), or
   `C:\ETL_Tools\DataLoaderPlatform\**` — including *backups and `.bak` copies*, which
   are still writes to production
-- `scripts\Publish-ToProd.ps1`, `-p:DeployToProd=true`, `/publish-to-prod`
+- `scripts\Release.ps1` (except `-DryRun`/`-SelfTest`), `scripts\Deploy-Release.ps1`,
+  `scripts\Migrate-ToReleases.ps1`, and the legacy `scripts\Publish-ToProd.ps1` /
+  `-p:DeployToProd=true` / `/publish-to-prod`
 - any SQL that is not a `SELECT`: `INSERT`/`UPDATE`/`DELETE`/`MERGE`, any DDL, and
   **`EXEC` of a proc that mutates** (a stored-procedure call is easy to mistake for a
   read — `core.usp_RunAdditionalProcesses` and every `Mako.DLP.merge_*` write data)
@@ -187,72 +189,82 @@ Use relevant skills on demand; do not load unrelated guidance.
 
 ## Deploying to production
 
-`scripts\Publish-ToProd.ps1` is the single source of truth. Build + test gates,
-`dotnet publish`, archive the target's current contents into
-`\\armh-opsdb01\DataLoaderPlatform\Old\yyyy_MM_dd_HH_mm_ss`, copy, verify.
+**`scripts\Release.ps1` is how production is deployed** (added 2026-10-28/29). It runs on a dev
+machine and drives `scripts\Deploy-Release.ps1` **on `ARMH-OPSDB01`** over PowerShell remoting,
+under the caller's own Windows identity (no stored credential). The full procedure, the
+one-time migration, and the failure playbook are in **`docs/runbooks/deployment.md`**.
 
 ```powershell
-.\scripts\Publish-ToProd.ps1                 # full pipeline
-.\scripts\Publish-ToProd.ps1 -DryRun         # show what would happen
-.\scripts\Publish-ToProd.ps1 -KeepProdSettings   # deploy binaries, keep prod's appsettings.json
+.\scripts\Release.ps1 -DryRun      # preflight + build + test + publish for real; no remote write
+.\scripts\Release.ps1              # full pipeline, one confirmation prompt
+.\scripts\Release.ps1 -Force       # same, no prompt
+.\scripts\Release.ps1 -Rollback    # flip current.txt back to previous.txt; builds nothing
+.\scripts\Release.ps1 -SelfTest    # its own tests against throwaway temp state
 ```
 
-Also reachable two other ways, both delegating to that script:
-- `dotnet publish src/DataLoader.Host/DataLoader.Host.csproj -c Release -o publish -p:DeployToProd=true`
-  (MSBuild target in `DataLoader.Host.csproj`; opt-in — a plain `dotnet publish` never deploys)
-- `/publish-to-prod` (`.claude/commands/`)
+The steps are: **preflight**, **build**, **test**, **publish** to `.\publish-staging`, **sync**
+the whole `scripts\` folder to the server, **copy** the build to `<PlatformRoot>\_staging`,
+**confirm**, run `Deploy-Release.ps1` remotely, then **verify** that `current.txt` moved.
+Preflight checks four things:
+- the branch is `master`;
+- local `master` matches `origin/master` (it runs a `git fetch`);
+- there are no uncommitted source changes;
+- the server is reachable and already migrated.
 
-Four deliberate fail-closed gates, all checked before anything is moved or copied:
-no write access to the share; red tests; `appsettings.json` differing from production's
-(pass `-KeepProdSettings` or `-OverwriteSettings`); a locked file during the archive.
+**So everything you want deployed must be committed AND pushed first.**
+`Deploy-Release.ps1` copies the build into a new `Releases\<yyyy_MM_dd_HH_mm_ss>\` folder. It
+smoke-tests that folder with `DataLoader.Host.exe --watchdog` before it goes live. It then
+atomically flips `current.txt`, writing `previous.txt` in the same step, and prunes old
+releases (keeping 5, plus current and previous). Each release goes into a new folder rather
+than over the old one, so **a loader mid-run is never killed by a deploy**. The old
+copy-over-`Loader\` process killed runs on 2026-10-13 and 2026-10-27.
 
-🔒 Deploying is a WRITE to `ARMH-OPSDB01` — see the standing rule at the top of this
-file. Never run this script, or edit anything under `C:\ETL_Tools\DataLoaderPlatform\`,
-unless the user specifically asked for that write. Hand over the command instead.
-
-⚠⚠ **PUBLISHING TO THE SHARE IS NOT DEPLOYING — verified 2026-10-20.** This answers the
-"whether the daily jobs run from this share is still unverified" question that stood here
-before: **they do not.** `\\armh-opsdb01\DataLoaderPlatform` maps to
-`C:\ETL_Tools\DataLoaderPlatform\Src` (confirmed via `Win32_Share`), which is only the
-publish **drop**. The real layout on `ARMH-OPSDB01`:
+Layout on `ARMH-OPSDB01`:
 
 ```
 C:\ETL_Tools\DataLoaderPlatform\
-    <Loader>.cmd      one launcher per loader (Platts.cmd, CWG.cmd, …)
-    Loader\           WHERE THE JOBS ACTUALLY RUN  <- the appsettings.json in force
-    Src\              = the \\armh-opsdb01\DataLoaderPlatform share (publish drop)
-    Log\<Loader>.log  per-loader stdout, appended forever, nothing rotates it
+    current.txt       one line: the active Releases\ folder name  <- WHAT ACTUALLY RUNS
+    previous.txt      the release before the last deploy (the -Rollback target)
+    Releases\<ts>\    one folder per release, each with its OWN appsettings.json
+    _staging\         Release.ps1's copy target
+    scripts\          synced from the repo on every Release.ps1 run
+    <Loader>.cmd      generated from scripts\templates\Launcher.cmd.template; reads current.txt
+    Watchdog.cmd      the same template under another name (passes --watchdog)
+    Log\<Loader>.log  per-loader stdout, the ONLY place stack traces exist
+    files\            ICE's download cache, shared across releases
+    Loader\           LEGACY: no launcher uses it since the migration (fallback only)
+    Src\              LEGACY: the \\armh-opsdb01\DataLoaderPlatform share, Publish-ToProd's drop
 ```
 
-So `Publish-ToProd.ps1` updates `Src\` and **changes nothing about what runs** until someone
-copies `Src` → `Loader`. The two can and do sit at different versions. Both keep their own
-`Old\<timestamp>\` archives (5 on `Src`, more on `Loader`); only `Loader\Old\` reflects what
-actually ran, and it is how the 2026-10-12 timeout revert was proved.
+⚠ **There is NO `appsettings.json` gate any more.** Each release takes the repo's
+`appsettings.json` exactly as committed. `Deploy-Release.ps1` only **warns**, naming the
+differing keys without their values. **A config change goes live with the release.** For
+example, enabling a new endpoint in config takes effect immediately, so any SQL it depends
+on must be deployed **before** the release. The live config is
+`Releases\<current.txt>\appsettings.json`, not `Loader\`'s. `Platform:*` settings are read at
+startup, so each loader's next scheduled run picks up the new release with no restart.
 
-Scheduled tasks live under **`\DLP\`** in Task Scheduler on `ARMH-OPSDB01` (the older
-`\CDT\<Name> Loader` tasks are **Disabled**), each running
-`cmd.exe /C "%DataLoaderPlatform%\<Loader>.cmd"` where `%DataLoaderPlatform%` is a machine
-env var = `C:\ETL_Tools\DataLoaderPlatform`. Each `.cmd` does `cd /d "%~dp0Loader"` then
-`DataLoader.Host.exe "<LoaderName>" >> "%~dp0Log\<LoaderName>.log" 2>&1`. There is **no SQL
-Agent job** — `msdb` has none. Each run passes ONE loader as argv, so a run row can name a
-single loader regardless of `Platform:EnabledLoaders`. Logging is console-only
-(`Program.cs`), so `Log\<Loader>.log` is the ONLY place stack traces exist.
+🔒 Deploying is a WRITE to `ARMH-OPSDB01`: see the standing rule at the top of this file.
+That covers `Release.ps1` (except `-DryRun` and `-SelfTest`), `Deploy-Release.ps1`, and
+`Migrate-ToReleases.ps1`. It also covers `Generate-Launchers.ps1` against the real platform
+root and any edit under `C:\ETL_Tools\DataLoaderPlatform\`. Never run any of them unless the
+user specifically asked for that write. Hand over the command instead.
 
-**Config drift — re-measured 2026-10-20** (this supersedes the earlier "differs in 18 keys"
-note, which described the state before production's config was refreshed on 2026-10-16; the
-claim that `Platform:RunAdditionalProcesses` and `Platform:AdditionalProcessesTimeoutSeconds`
-exist only in the repo is **false** — production has both). The repo's `appsettings.json` and
-production's running `Loader\appsettings.json` are now **identical except for
-`Platform:AdditionalProcessesTimeoutSeconds`** (repo 1800, prod still 600 — see below), and
-`Src\appsettings.json` is byte-identical to `Loader\`'s. The config gate will still stop a
-plain deploy over that one key; `-OverwriteSettings` is now the correct flag, not
-`-KeepProdSettings`, because keeping prod's copy is what reintroduces the bug.
+**`scripts\Publish-ToProd.ps1` is legacy.** It updates only the `Src\` drop on the share, and
+**changes nothing about what runs**. Its appsettings gate
+(`-KeepProdSettings`/`-OverwriteSettings`) compares against a copy nothing reads. It also
+remains reachable via `-p:DeployToProd=true` and `/publish-to-prod`, and it is still a
+production write. Don't recommend it for deploying.
 
-⚠ **A full `Publish-ToProd.ps1` run today also ships binaries, not just config** — the working
-tree carries the EIA and NUCORE host wiring. Changing config alone means editing the key in
-`Loader\appsettings.json` (and `Src\`'s copy); `Platform:*` settings are read at startup, so
-the next scheduled run picks it up with no restart or redeploy. 🔒 That is a production write
-— prepare the command and hand it to the user; do not run it unless specifically asked.
+Scheduled tasks live under **`\DLP\`** in Task Scheduler on `ARMH-OPSDB01`; the older
+`\CDT\<Name> Loader` tasks are **Disabled**. Each task runs
+`cmd.exe /C "%DataLoaderPlatform%\<Loader>.cmd"`, where `%DataLoaderPlatform%` is a machine
+env var set to `C:\ETL_Tools\DataLoaderPlatform`. The launcher resolves `current.txt`,
+refuses to run if it is missing or names a folder without the exe, then runs
+`cd /d Releases\<release>` and `.\DataLoader.Host.exe <LoaderName> >> Log\<LoaderName>.log 2>&1`.
+There is **no SQL Agent job**; `msdb` has none. Each run passes ONE loader as argv, so a run
+row can name a single loader regardless of `Platform:EnabledLoaders`. Logging is
+console-only (`Program.cs`).
 
 ## Workflows
 
