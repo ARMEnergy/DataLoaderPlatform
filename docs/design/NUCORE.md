@@ -254,7 +254,7 @@ The budgets are coupled: `(RetryCount + 1) × HttpTimeoutSeconds` plus backoff m
 |---|---|---|
 | `VarResults` | Merge | natural key, verified over 7 complete days |
 | `Volatilities` | Merge | natural key, verified over 5 complete days (712k rows) |
-| `SettlementPublicationIndexPrices` | Merge | natural key, verified over 5 complete days (7,728 rows) **and their union** |
+| `SettlementPublicationIndexPrices` | Merge | natural key `(LocalTime, BeginningUtc, Spi, Spif)` — `BeginningUtc` added 2026-11-09 because `LocalTime` repeats on a DST fall-back day; verified over 9 complete days incl. every DST day **and their union** |
 | `ProductSpecCurves` | Merge | natural key, verified over 5 complete days (134,750 rows) |
 | `PositionSummary` | ReplaceByDate | `(SystemDate)` |
 | `PnlExplain` | ReplaceByDate | `(CurDate)` |
@@ -364,6 +364,22 @@ Re-running the generated scripts is safe, and that was **verified rather than as
   `sys.sql_modules` on the live server and are **byte-identical** to what the generator emits
   (only the leading `CREATE` vs `ALTER` verb differs), so the ALTER is a no-op in effect.
 - Regenerating added **318 lines and removed none**, so no existing object's definition moved.
+
+**2026-11-09 key fix (DST fall-back).** These tables now exist in production. To deploy the
+`BeginningUtc` key change, run **the SQL first, then the release**:
+
+```sql
+-- In SSMS against ARMH-OPSDB01.
+--   sql\NUCORE\hotfixes\2026-11-09_SpipKeyAddBeginningUtc.sql   swaps the PK in place, no data change
+--   sql\NUCORE\003_CreateNucoreProcedures.sql                    only the SPIP merge proc differs from prod
+```
+
+then `scripts\Release.ps1`. The old release against the new schema behaves exactly as before
+(2026-11-01 still refused by the C# guard, every other day merges identically, because the
+new key is a superset). The new release against the old schema would MERGE the repeated hour
+on the old key and fail. No `core.LoadLog` cleanup is needed: the failed unit retries by itself.
+
+The original first-deploy commands follow.
 
 ```sql
 -- In SSMS against ARMH-OPSDB01. Each script carries its own USE [NUCORE].

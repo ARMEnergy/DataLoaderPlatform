@@ -384,7 +384,9 @@ internal static class NucoreDescriptors
             WriteMode:  NucoreWriteMode.Merge,
             Columns:    NucoreColumns.SettlementPublicationIndexPrices,
             ScopeColumns: Array.Empty<string>(),
-            SortFields: "localTime,spiSettlementPublicationIndexId,spifSettlementPublicationIndexFrequencyId",
+            // Sorted on the full key: on a DST fall-back day localTime repeats, so a sort
+            // without beginningUtc leaves ties whose order can differ between pages.
+            SortFields: "localTime,beginningUtc,spiSettlementPublicationIndexId,spifSettlementPublicationIndexFrequencyId",
             DateParamStyle: NucoreDateParamStyle.DateTimeRange,
             // ⚠ Power flows on weekends and so do these prices: Saturday and Sunday each
             // carry a full 1,823 rows. The platform-wide weekend skip must not apply.

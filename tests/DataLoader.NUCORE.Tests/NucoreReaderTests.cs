@@ -369,6 +369,104 @@ public class NucoreReaderTests
         Assert.Contains("declared primary key", ex.Message);
     }
 
+    private static string SpipRow(string localTime, string beginningUtc, int spiId = 5072, int spifId = 43,
+                                  string localFlowHour = "0200", string settle = "1.25") =>
+        $$"""
+        {"createdAt":"2026-11-02T06:04:40.596871+00:00","modifiedAt":"2026-11-02T06:04:40.596871+00:00",
+         "createdByUser":"SYS","modifiedByUser":"SYS","settlementPublicationIndexPriceId":{{spiId * 10 + beginningUtc.Length}},
+         "settlementPublisherId":1,"spSettlementPublicationId":2,
+         "spiSettlementPublicationIndexId":{{spiId}},"spifSettlementPublicationIndexFrequencyId":{{spifId}},
+         "settlementPublication":"ERCOT","settlementPublicationIndex":"HB_HOUSTON","frequency":"Hourly",
+         "localTime":"{{localTime}}","localFlowHour":"{{localFlowHour}}","beginningUtc":"{{beginningUtc}}",
+         "utcFlowHour":"0700","systemEnergyPrice":0,"settlePrice":{{settle}},"congestionPrice":0,"marginalLossPrice":0}
+        """;
+
+    /// <summary>
+    /// Regression for the 2026-11-01 production failure. On a DST fall-back day the
+    /// Central wall-clock hour 01:00 occurs twice, so the vendor returns two rows with the
+    /// SAME localTime and index, told apart only by beginningUtc (06:00Z vs 07:00Z). Under
+    /// the old key (localTime, spiId, spifId) the duplicate guard refused the whole day on
+    /// every run. Both rows are real prices and must both be loaded.
+    /// </summary>
+    [Fact]
+    public async Task ADstFallBackDayRepeatedLocalHourIsNotADuplicateKey()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+        var settings = Settings(pageSize: 10, batchSize: 1000);
+        var rows = new List<NucoreRow>();
+
+        var (reader, _) = Build(endpoint, settings, _ =>
+            (HttpStatusCode.OK, Envelope(string.Join(",", new[]
+            {
+                SpipRow("2026-11-01T01:00:00", "2026-11-01T06:00:00", settle: "1.25"),   // 01:00 CDT
+                SpipRow("2026-11-01T01:00:00", "2026-11-01T07:00:00", settle: "0.82")    // 01:00 CST
+            }), 2, 2)));
+
+        var unit = new NucoreWorkUnit
+        {
+            Endpoint = endpoint, Date = new DateTime(2026, 11, 1), IsHot = true, ResumeKey = "k"
+        };
+
+        await reader.ReadAsync(unit, null, Collect(rows), CancellationToken.None);
+
+        Assert.Equal(2, rows.Count);
+    }
+
+    /// <summary>
+    /// The other half of the same fix: on 2024-11-03 and 2025-11-02 the vendor maps local
+    /// 00:00 AND 01:00 of some indexes to the SAME beginningUtc, so beginningUtc cannot
+    /// replace localTime in the key - only the pair is unique. A key of beginningUtc alone
+    /// would refuse this day.
+    /// </summary>
+    [Fact]
+    public async Task TwoLocalHoursSharingABeginningUtcAreNotADuplicateKey()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+        var settings = Settings(pageSize: 10, batchSize: 1000);
+        var rows = new List<NucoreRow>();
+
+        var (reader, _) = Build(endpoint, settings, _ =>
+            (HttpStatusCode.OK, Envelope(string.Join(",", new[]
+            {
+                SpipRow("2025-11-02T00:00:00", "2025-11-02T06:00:00", localFlowHour: "0100", settle: "0.48"),
+                SpipRow("2025-11-02T01:00:00", "2025-11-02T06:00:00", localFlowHour: "0200", settle: "1.25")
+            }), 2, 2)));
+
+        var unit = new NucoreWorkUnit
+        {
+            Endpoint = endpoint, Date = new DateTime(2025, 11, 2), IsHot = true, ResumeKey = "k"
+        };
+
+        await reader.ReadAsync(unit, null, Collect(rows), CancellationToken.None);
+
+        Assert.Equal(2, rows.Count);
+    }
+
+    /// <summary>The guard still bites on SPIP when the WHOLE new key repeats.</summary>
+    [Fact]
+    public async Task ASpipRowRepeatedOnTheFullKeyIsStillRefused()
+    {
+        var endpoint = NucoreDescriptors.Find("SettlementPublicationIndexPrices")!;
+        var settings = Settings(pageSize: 10, batchSize: 1000);
+
+        var (reader, _) = Build(endpoint, settings, _ =>
+            (HttpStatusCode.OK, Envelope(string.Join(",", new[]
+            {
+                SpipRow("2026-11-01T01:00:00", "2026-11-01T06:00:00"),
+                SpipRow("2026-11-01T01:00:00", "2026-11-01T06:00:00")
+            }), 2, 2)));
+
+        var unit = new NucoreWorkUnit
+        {
+            Endpoint = endpoint, Date = new DateTime(2026, 11, 1), IsHot = true, ResumeKey = "k"
+        };
+
+        var ex = await Assert.ThrowsAsync<NucoreContractException>(
+            () => reader.ReadAsync(unit, null, Collect(new List<NucoreRow>()), CancellationToken.None));
+
+        Assert.Contains("declared primary key", ex.Message);
+    }
+
     [Fact]
     public async Task ANullWatermarkReadsTheWholeTradeMonth()
     {

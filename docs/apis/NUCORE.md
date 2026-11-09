@@ -224,6 +224,29 @@ date if left blank". They do not — an unfiltered call returns **all 10,551,909
 history, and takes ~15 s just to count them. This is harmless given the loader always sends
 both bounds, but it means an exploratory call is far more expensive than the spec implies.
 
+### ⚠ 3.9 `SettlementPublicationIndexPrices`' `localTime` repeats on a DST fall-back day (found 2026-11-09)
+
+`localTime` is Central **wall-clock with no offset**. On the fall-back day the 01:00–01:45
+hour happens twice, so two rows carry the same `localTime` and index and differ only in
+`beginningUtc`:
+
+| Day | Rows | Collisions on `(localTime, spi, spif)` | on `(beginningUtc, spi, spif)` | on `(localTime, beginningUtc, spi, spif)` |
+|---|---:|---:|---:|---:|
+| 2024-11-03 (fall-back) | 475 | 19 | **19** | 0 |
+| 2025-11-02 (fall-back) | 1,529 | 61 | **5** | 0 |
+| 2026-11-01 (fall-back) | **1,900** | **75** | 0 | 0 |
+| 2025-03-09, 2026-03-08 (spring-forward) | 1,729 / 1,731 | 0 | 0 | 0 |
+
+The original key `(localTime, spi, spif)` had been verified over five days with no
+fall-back day among them, so on 2026-11-01 the loader's duplicate guard refused the unit on
+**every run from 2026-11-07** and that day was never loaded.
+
+`beginningUtc` alone is **not** a fix: on the two older fall-back days the vendor maps local
+00:00 **and** local 01:00 of some hourly indexes to the **same** `06:00Z` (00:00 CDT is
+really 05:00Z), so it collides there instead. Only the pair is unique, and that is the key
+now. A day's row count also changes on DST days (1,900 on fall-back), so 1,823 is not an
+invariant.
+
 ---
 
 ## 4. Paging
@@ -300,7 +323,7 @@ A uniqueness check on this vendor is only meaningful if it is:
 |---|---|---|
 | `VarResults` | `VarDate, VarBucket, LegalEntity, ConfidenceLevelId, HoldingPeriod, TradeBook, TradeMonth, ProductSpec` | 7 complete days, 2025-10 → 2026-10 |
 | `Volatilities` | `SystemDate, ProductSpec, InstrumentType, StartTradeMonth, EndTradeMonth, PutCallFlag, StrikeType, StrikePrice` | 5 complete days, 712,004 rows |
-| `SettlementPublicationIndexPrices` | `LocalTime, SpiSettlementPublicationIndexId, SpifSettlementPublicationIndexFrequencyId` | 5 complete days, 7,728 rows, 2024-12 → 2026-10 |
+| `SettlementPublicationIndexPrices` | `LocalTime, BeginningUtc, SpiSettlementPublicationIndexId, SpifSettlementPublicationIndexFrequencyId` | 9 complete days incl. **every DST change day** since 2024-11, 14,637-row union (2026-11-09) — see §3.9 |
 | `ProductSpecCurves` | `SystemDate, PrsSpecId, TradeMonth, StartFlowDate, LocalStartFlowHour` | 5 complete days, 134,750 rows, 2024-12 → 2026-10 |
 
 `ProductGroup` is deliberately **not** in `VarResults`' key — the key is already unique

@@ -272,6 +272,7 @@ BEGIN
     MERGE [dbo].[SettlementPublicationIndexPrices] AS t
     USING @Records AS s
        ON t.[LocalTime] = s.[LocalTime]
+     AND t.[BeginningUtc] = s.[BeginningUtc]
      AND t.[SpiSettlementPublicationIndexId] = s.[SpiSettlementPublicationIndexId]
      AND t.[SpifSettlementPublicationIndexFrequencyId] = s.[SpifSettlementPublicationIndexFrequencyId]
     WHEN MATCHED AND EXISTS (
@@ -279,9 +280,9 @@ BEGIN
              -- values genuinely differ and ModifiedAtUtc tracks real change. A plain
              -- "t.col <> s.col OR ..." chain is UNKNOWN wherever either side is NULL,
              -- which silently stops detecting changes into and out of NULL.
-             SELECT t.[CreatedAt], t.[ModifiedAt], t.[CreatedByUser], t.[ModifiedByUser], t.[SettlementPublicationIndexPriceId], t.[SettlementPublisherId], t.[SpSettlementPublicationId], t.[SettlementPublication], t.[SettlementPublicationIndex], t.[Frequency], t.[LocalFlowHour], t.[BeginningUtc], t.[UtcFlowHour], t.[SystemEnergyPrice], t.[SettlePrice], t.[CongestionPrice], t.[MarginalLossPrice]
+             SELECT t.[CreatedAt], t.[ModifiedAt], t.[CreatedByUser], t.[ModifiedByUser], t.[SettlementPublicationIndexPriceId], t.[SettlementPublisherId], t.[SpSettlementPublicationId], t.[SettlementPublication], t.[SettlementPublicationIndex], t.[Frequency], t.[LocalFlowHour], t.[UtcFlowHour], t.[SystemEnergyPrice], t.[SettlePrice], t.[CongestionPrice], t.[MarginalLossPrice]
              EXCEPT
-             SELECT s.[CreatedAt], s.[ModifiedAt], s.[CreatedByUser], s.[ModifiedByUser], s.[SettlementPublicationIndexPriceId], s.[SettlementPublisherId], s.[SpSettlementPublicationId], s.[SettlementPublication], s.[SettlementPublicationIndex], s.[Frequency], s.[LocalFlowHour], s.[BeginningUtc], s.[UtcFlowHour], s.[SystemEnergyPrice], s.[SettlePrice], s.[CongestionPrice], s.[MarginalLossPrice]
+             SELECT s.[CreatedAt], s.[ModifiedAt], s.[CreatedByUser], s.[ModifiedByUser], s.[SettlementPublicationIndexPriceId], s.[SettlementPublisherId], s.[SpSettlementPublicationId], s.[SettlementPublication], s.[SettlementPublicationIndex], s.[Frequency], s.[LocalFlowHour], s.[UtcFlowHour], s.[SystemEnergyPrice], s.[SettlePrice], s.[CongestionPrice], s.[MarginalLossPrice]
          )
     THEN UPDATE SET
              t.[CreatedAt] = s.[CreatedAt],
@@ -295,7 +296,6 @@ BEGIN
              t.[SettlementPublicationIndex] = s.[SettlementPublicationIndex],
              t.[Frequency] = s.[Frequency],
              t.[LocalFlowHour] = s.[LocalFlowHour],
-             t.[BeginningUtc] = s.[BeginningUtc],
              t.[UtcFlowHour] = s.[UtcFlowHour],
              t.[SystemEnergyPrice] = s.[SystemEnergyPrice],
              t.[SettlePrice] = s.[SettlePrice],

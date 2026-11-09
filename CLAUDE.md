@@ -380,6 +380,13 @@ rows. And **PSC reports decimal scales up to 18**, which is `double` round-trip 
 precision — `DECIMAL(28,12)` rounding it is correct and is not a reason to widen the scale.
 Both endpoints have history from **2024-11-01**, two months before the shipped
 `StartDate` of 2025-01-01; `Loaders:NUCORE:StartDateByEndpoint` (ships empty) picks it up.
+⚠ **SPIP's `LocalTime` is wall-clock and REPEATS on a DST fall-back day** — 2026-11-01 has
+1,900 rows and 75 collisions on the original key, so that unit failed every run from
+2026-11-07 (the tables went live with the 2026-11-06 release). The key is now
+`(LocalTime, BeginningUtc, Spi, Spif)`; `BeginningUtc` alone also collides, because on older
+fall-back days the vendor maps local 00:00 and 01:00 to the same UTC. Migration:
+`sql/NUCORE/hotfixes/2026-11-09_SpipKeyAddBeginningUtc.sql`, then 003, then the release.
+A key verified without a DST day in the sample is not verified for a local-time column.
 
 See `docs/apis/NUCORE.md` and `docs/design/NUCORE.md`.
 

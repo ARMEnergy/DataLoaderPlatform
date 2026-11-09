@@ -592,7 +592,7 @@ BEGIN
         [MarginalLossPrice] DECIMAL(28,12) NOT NULL,
         [FileLogId]     BIGINT NULL,
         [ModifiedAtUtc] DATETIME2(3) NOT NULL CONSTRAINT [DF_SettlementPublicationIndexPrices_ModifiedAtUtc] DEFAULT (SYSUTCDATETIME()),
-        CONSTRAINT [PK_SettlementPublicationIndexPrices] PRIMARY KEY CLUSTERED ([LocalTime], [SpiSettlementPublicationIndexId], [SpifSettlementPublicationIndexFrequencyId])
+        CONSTRAINT [PK_SettlementPublicationIndexPrices] PRIMARY KEY CLUSTERED ([LocalTime], [BeginningUtc], [SpiSettlementPublicationIndexId], [SpifSettlementPublicationIndexFrequencyId])
     );
 END
 GO

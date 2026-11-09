@@ -183,10 +183,26 @@ $Endpoints = @(
         DateColumn    = 'LocalTime'
         Partition     = 'Date'
         WriteMode     = 'Merge'
-        # Verified UNIQUE over FIVE complete days (1,823 / 1,821 / 1,820 / 1,804 / 460 rows,
-        # 7,728 total) spanning 2024-12 to 2026-10, each reconciling against the envelope's
-        # own totalRecords - and also unique across the five days COMBINED, which is what
-        # matters for a table-wide primary key.
+        # ⚠ beginningUtc IS IN THE KEY BECAUSE localTime IS AMBIGUOUS ON A DST FALL-BACK DAY.
+        # localTime is Central wall-clock with no offset, so on fall-back 01:00-01:45 occurs
+        # TWICE. 2026-11-01 returns 1,900 rows (not 1,823) and 75 groups collide on
+        # (localTime, spiId, spifId); the loader's duplicate guard failed that unit on every
+        # run from 2026-11-07. The five-day verification below held no fall-back day.
+        #
+        # beginningUtc ALONE is not the answer either - the vendor's UTC mapping is wrong on
+        # older fall-back days: on 2024-11-03 and 2025-11-02 some indexes put local 00:00
+        # AND local 01:00 both at 06:00Z (19 and 5 colliding groups on
+        # (beginningUtc, spiId, spifId)). Only the pair disambiguates every case.
+        #
+        # (localTime, beginningUtc, spiId, spifId) verified UNIQUE 2026-11-09 against the
+        # live API over 9 complete days - every fall-back (2024-11-03, 2025-11-02,
+        # 2026-11-01) and spring-forward (2025-03-09, 2026-03-08) day since history starts,
+        # plus 2025-06-15, 2026-10-15, 2026-10-31, 2026-11-02 - and over their 14,637-row
+        # UNION. It is a strict superset of the previous key, so every row already stored
+        # under that key stays unique (168,338 in production on 2026-11-09).
+        #
+        # Earlier verification (previous key): UNIQUE over FIVE complete days (1,823 / 1,821
+        # / 1,820 / 1,804 / 460 rows, 7,728 total) spanning 2024-12 to 2026-10.
         #
         # Keyed on the ids rather than the text (settlementPublication + index + frequency +
         # localTime is equally unique but costs ~460 bytes of index instead of 16), and led
@@ -196,7 +212,7 @@ $Endpoints = @(
         # over the same population. It is deliberately NOT the key: it carries no business
         # meaning, it would not group a day together, and a vendor-side re-issue would append
         # rather than update.
-        KeyColumns    = @('localTime','spiSettlementPublicationIndexId','spifSettlementPublicationIndexFrequencyId')
+        KeyColumns    = @('localTime','beginningUtc','spiSettlementPublicationIndexId','spifSettlementPublicationIndexFrequencyId')
         ScopeColumns  = @()
         ClusterColumns = @()
     },

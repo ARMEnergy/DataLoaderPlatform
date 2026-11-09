@@ -127,14 +127,16 @@ public class NucoreDescriptorTests
     [Theory]
     [InlineData("VarResults",   new[] { "VarDate", "VarBucket", "LegalEntity", "ConfidenceLevelId", "HoldingPeriod", "TradeBook", "TradeMonth", "ProductSpec" })]
     [InlineData("Volatilities", new[] { "SystemDate", "ProductSpec", "InstrumentType", "StartTradeMonth", "EndTradeMonth", "PutCallFlag", "StrikeType", "StrikePrice" })]
-    [InlineData("SettlementPublicationIndexPrices", new[] { "LocalTime", "SpiSettlementPublicationIndexId", "SpifSettlementPublicationIndexFrequencyId" })]
+    // BeginningUtc is load-bearing: LocalTime repeats on a DST fall-back day (2026-11-01).
+    [InlineData("SettlementPublicationIndexPrices", new[] { "LocalTime", "BeginningUtc", "SpiSettlementPublicationIndexId", "SpifSettlementPublicationIndexFrequencyId" })]
     [InlineData("ProductSpecCurves", new[] { "SystemDate", "PrsSpecId", "TradeMonth", "StartFlowDate", "LocalStartFlowHour" })]
     public void OnlyKeysVerifiedOverCompletePopulationsSurvive(string endpointName, string[] expected)
     {
         // Re-verified over COMPLETE days, not samples:
         //   VarResults    7 days: 9,378 / 9,684 / 9,666 / 10,350 / 10,170 / 6,714 / 6,948
         //   Volatilities  5 days: 147,908 / 147,770 / 144,878 / 139,860 / 132,588
-        //   SPIP          5 days: 1,823 / 1,821 / 1,820 / 1,804 / 460  (7,728 total)
+        //   SPIP          9 days incl. every DST day 2024-11 -> 2026-11 (14,637-row union,
+        //                 2026-11-09); the earlier 5-day check (7,728) held no fall-back day
         //   ProductSpecCurves 5 days: 44,351 / 41,861 / 33,921 / 7,684 / 6,933 (134,750)
         // Each day reconciled against the envelope's own totalRecords, and the two new keys
         // were re-checked across the five days COMBINED, which is what a table-wide primary
