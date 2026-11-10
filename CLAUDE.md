@@ -471,12 +471,19 @@ and use unique URLs so the cache cannot flatter the result.
 wide as the window: the FINAL tile of every axis ends in the future and never settles, so
 each annual series was re-reading **25 years daily** for the current year.
 `NarrowHotWindowReads` (default on) starts a hot read at
-`max(WindowStart, today − SettledAfterDays)`. ⚠ The key is built from `WindowStart`, NEVER
+`max(WindowStart, min(today − SettledAfterDays, currentPeriod − RevisionLookbackPeriods))`. ⚠ The key is built from `WindowStart`, NEVER
 `ReadStart`, so narrowing changes no identity and re-downloads nothing. It narrows only a
 window that has **completed at least once before** (`EiaLoadHistory`, one read of
 `core.LoadLog` per run, empty-on-failure so it disables itself rather than guessing) —
 narrowing a never-fully-read window would skip its older half today, again tomorrow under
 a fresh token, and it would settle having never loaded it.
+⚠⚠ **`SettledAfterDays` counts from a period's START, not its publication** — EIA
+publishes monthly data 2–3 months late, so until 2026-11-10 the narrowed read
+(`today − 45d`) never re-asked for a month published after that, and 38 of 47 monthly
+series sat a month behind with every run green (`poe2` 2026-08 missing, 2026-07 at
+285/390). `RevisionLookbackPeriods` (`monthly 24`, `quarterly 8`, `annual 3`) now
+widens BOTH the narrowed read start and the settle rule; frequencies without an entry
+are unchanged.
 ⚠ `WindowSteps` and `MaxBackfillDaysByFrequency` are COUPLED — 1-hour tiles over the full
 2019-onward hourly axis would be 70,080 units — and a test fails if a window is narrowed
 past ~5,000 implied units without a matching cap. `MaxBackfillDaysByFrequency` ships

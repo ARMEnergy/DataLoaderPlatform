@@ -349,6 +349,21 @@ settled key.
   which disables narrowing entirely rather than guessing;
 * the computed start must fall inside the window, and never past its end.
 
+⚠⚠ **That assumption WAS wrong for the sparse frequencies — fixed 2026-11-10.**
+`SettledAfterDays` counts from a period's START, but EIA *publishes* monthly data 2–3
+months after the month ends. `natural-gas/move/poe2` 2026-08 (381 rows) appeared in late
+October, when its start was already ~70 days old, so the narrowed read (from 2026-09)
+never asked for it, and 2026-07 stayed at the 285 rows first loaded while the API grew to
+390. **38 of 47 monthly series** were a month behind, with every run succeeding and
+changing 0 rows. The settle rule has the same flaw at a window's far end: a window would
+settle 45 days after its last month began, before that month was published.
+`RevisionLookbackPeriods` (`monthly: 24`, `quarterly: 8`, `annual: 3`) fixes both. A window
+now settles only once its last period is older than `SettledAfterDays` **and** that many
+of its own periods. A narrowed read starts at the **earlier** of the two cutoffs.
+Frequencies without an entry (daily, hourly, weekly) behave exactly as before. Neither
+change enters a key. A previously settled window that turns hot again has no `;run=`
+history, so its first hot read is full.
+
 `EiaLoadHistory` reads the PLATFORM database rather than `EIAv2`, so it carries its own
 connection string from `Platform:LoadLogConnectionString`. The alternative — a method on
 `ILoadLogRepository` — would have meant a new procedure in the shared, deployed

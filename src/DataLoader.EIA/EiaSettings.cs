@@ -353,12 +353,55 @@ public sealed class EiaSettings : LoaderSettingsBase
     /// </summary>
     public int SettledAfterDays { get; set; } = 45;
 
+    /// <summary>
+    /// For the sparse frequencies, how many of the frequency's OWN periods behind the
+    /// current one are still revisable. Widens — never narrows — both the settle rule
+    /// and the narrowed hot read (<see cref="NarrowHotWindowReads"/>): a window settles
+    /// only once its last period is older than <b>both</b> <see cref="SettledAfterDays"/>
+    /// and this many periods, and a narrowed read starts at whichever of the two is
+    /// EARLIER. A frequency absent from the map, or mapped to 0, uses
+    /// <see cref="SettledAfterDays"/> alone.
+    ///
+    /// <para>
+    /// ⚠ <b>Why days alone are wrong for these frequencies.</b>
+    /// <see cref="SettledAfterDays"/> is measured from a period's START, but EIA
+    /// PUBLISHES monthly data 2–3 months after the month ends. Measured 2026-11-10:
+    /// <c>natural-gas/move/poe2</c> 2026-08 (381 rows) was published in late October,
+    /// when its start was already 70 days old, so a hot read starting at
+    /// today − 45 days (2026-09) never asked for it; 2026-07 stayed at the 285 rows
+    /// first loaded while the API grew to 390. <b>38 of 47 monthly series</b> were a
+    /// month behind, every run reporting success with 0 rows changed. The settle rule
+    /// had the same flaw at a window's far end: a 60-month window would settle 45 days
+    /// after its last month began — before that month was ever published — and lose
+    /// it for good.
+    /// </para>
+    /// <para>
+    /// The defaults cover EIA's annual finalisation cycle (a year's monthly data is
+    /// final the following autumn, ~22 months on) with margin. They are NOT free: a
+    /// monthly hot read becomes 24+ months instead of ~2 (against windows of 60), and
+    /// <c>international</c> annual — tiled one year per window — keeps its last three
+    /// years HOT and re-read in full every run (~55,711 rows each, ~167k/run), because
+    /// a one-period window cannot be narrowed. That is the price of catching restated
+    /// years; set the frequency to 0 to opt out.
+    /// Neither the settle rule nor the read start enters a resume key, so changing a
+    /// value re-downloads nothing that is already settled.
+    /// </para>
+    /// </summary>
+    public Dictionary<string, int> RevisionLookbackPeriods { get; set; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["monthly"]   = 24,
+        ["quarterly"] = 8,
+        ["annual"]    = 3
+    };
+
     /// <summary>How a hot window's key varies between runs.</summary>
     public EiaHotKeyStrategy HotKeyStrategy { get; set; } = EiaHotKeyStrategy.RunDate;
 
     /// <summary>
-    /// On a HOT window that has already been read in full, re-read only the last
-    /// <see cref="SettledAfterDays"/> days instead of the whole window.
+    /// On a HOT window that has already been read in full, re-read only its revisable
+    /// tail — the last <see cref="SettledAfterDays"/> days, widened to
+    /// <see cref="RevisionLookbackPeriods"/> for the sparse frequencies — instead of
+    /// the whole window.
     ///
     /// <para>
     /// ⚠ <b>What this fixes.</b> The sparse frequencies use wide windows — <c>annual</c>

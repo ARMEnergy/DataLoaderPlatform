@@ -260,7 +260,7 @@ internal sealed class EiaWorkUnitProvider : IWorkUnitProvider<EiaWorkUnit>
                     }
 
                     var settled = !forceHot &&
-                                  windowEnd.DaysBefore(asOfUtc) > Math.Max(0, _settings.SettledAfterDays);
+                                  IsSettled(_settings, frequency.FrequencyId, windowEnd, mask, asOfUtc);
 
                     var readStart = settled
                         ? windowStart
@@ -304,8 +304,9 @@ internal sealed class EiaWorkUnitProvider : IWorkUnitProvider<EiaWorkUnit>
 
         if (narrowed > 0)
             _logger.LogInformation(
-                "EIA: {Narrowed} of {Hot} hot window(s) narrowed to the last {Days} day(s) — they have " +
-                "been read in full before, so only the revisable tail is re-fetched",
+                "EIA: {Narrowed} of {Hot} hot window(s) narrowed to their revisable tail (the last {Days} " +
+                "day(s), or RevisionLookbackPeriods for the sparse frequencies) — they have been read in " +
+                "full before, so only that tail is re-fetched",
                 narrowed, hot, _settings.SettledAfterDays);
         else if (_settings.NarrowHotWindowReads && hot > 0)
             _logger.LogInformation(
@@ -457,16 +458,92 @@ internal sealed class EiaWorkUnitProvider : IWorkUnitProvider<EiaWorkUnit>
 
         if (!EiaLoadHistory.HasEverCompleted(completed, baseKey)) return windowStart;
 
-        var cutoffInstant = asOfUtc.Date.AddDays(-Math.Max(0, _settings.SettledAfterDays));
+        return NarrowReadStart(_settings, frequency.FrequencyId, windowStart, windowEnd, mask, asOfUtc);
+    }
+
+    /// <summary>
+    /// The pure part of <see cref="ResolveHotReadStart"/>, for a window already known to
+    /// have been read in full: the start of the revisable tail, or
+    /// <paramref name="windowStart"/> when that tail does not fall strictly inside the
+    /// window.
+    ///
+    /// <para>
+    /// The tail starts at the EARLIER of the day cutoff
+    /// (<see cref="EiaSettings.SettledAfterDays"/>, truncated down to the mask) and the
+    /// period cutoff (<see cref="EiaSettings.RevisionLookbackPeriods"/>). With no period
+    /// lookback for the frequency it is the day cutoff alone — the behaviour before
+    /// 2026-11-10.
+    /// </para>
+    /// </summary>
+    internal static EiaPeriod NarrowReadStart(
+        EiaSettings settings,
+        string frequencyId,
+        EiaPeriod windowStart,
+        EiaPeriod windowEnd,
+        EiaPeriodMask mask,
+        DateTime asOfUtc)
+    {
+        var cutoffInstant = asOfUtc.Date.AddDays(-Math.Max(0, settings.SettledAfterDays));
         if (!EiaPeriod.TryParse(cutoffInstant.ToString("yyyy-MM-dd'T'HH", CultureInfo.InvariantCulture),
                                 mask, out var cutoff))
             return windowStart;
+
+        var lookbackStart = RevisionLookbackStart(settings, frequencyId, mask, asOfUtc);
+        if (lookbackStart is { } lb && lb.IsBefore(cutoff)) cutoff = lb;
 
         // Nothing to gain, and never move the start PAST the window's own end.
         if (!windowStart.IsBefore(cutoff)) return windowStart;
         if (!cutoff.IsAtOrBefore(windowEnd)) return windowStart;
 
         return cutoff;
+    }
+
+    /// <summary>
+    /// Whether a window is SETTLED — loaded once under a stable key and never re-read.
+    ///
+    /// <para>
+    /// Its last period must be older than <see cref="EiaSettings.SettledAfterDays"/>
+    /// (the original rule, unchanged) <b>and</b> fall before the period lookback in
+    /// <see cref="EiaSettings.RevisionLookbackPeriods"/>. The second condition can only
+    /// keep a window hot longer; with no lookback for the frequency the result is
+    /// exactly the original rule. It ignores <c>ReloadAll</c>/<c>AllowIncremental</c>;
+    /// the caller applies those.
+    /// </para>
+    /// </summary>
+    internal static bool IsSettled(
+        EiaSettings settings,
+        string frequencyId,
+        EiaPeriod windowEnd,
+        EiaPeriodMask mask,
+        DateTime asOfUtc)
+    {
+        if (!(windowEnd.DaysBefore(asOfUtc) > Math.Max(0, settings.SettledAfterDays))) return false;
+
+        var lookbackStart = RevisionLookbackStart(settings, frequencyId, mask, asOfUtc);
+        return lookbackStart is not { } lb || windowEnd.IsBefore(lb);
+    }
+
+    /// <summary>
+    /// The first still-revisable period under <see cref="EiaSettings.RevisionLookbackPeriods"/>:
+    /// the period containing <paramref name="asOfUtc"/>, moved back that many steps.
+    /// Null when the frequency has no lookback (absent, or ≤ 0).
+    /// </summary>
+    internal static EiaPeriod? RevisionLookbackStart(
+        EiaSettings settings,
+        string frequencyId,
+        EiaPeriodMask mask,
+        DateTime asOfUtc)
+    {
+        if (settings.RevisionLookbackPeriods is null ||
+            !settings.RevisionLookbackPeriods.TryGetValue(frequencyId, out var periods) ||
+            periods <= 0)
+            return null;
+
+        if (!EiaPeriod.TryParse(asOfUtc.ToString("yyyy-MM-dd'T'HH", CultureInfo.InvariantCulture),
+                                mask, out var current))
+            return null;
+
+        return current.AddSteps(-periods);
     }
 
     /// <summary>
