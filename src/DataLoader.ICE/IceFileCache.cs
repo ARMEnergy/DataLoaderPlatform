@@ -56,6 +56,13 @@ public sealed class IceFileCache
         Path.Combine(Root, feed.FeedId, feed.FileNameFor(tradeDate));
 
     /// <summary>
+    /// The sidecar holding the version (<see cref="IceFileVersion.Format"/>) a cached
+    /// file was downloaded as. Same folder and last-write time as the file, so the
+    /// retention sweep ages the pair out together.
+    /// </summary>
+    internal static string VersionPathFor(string cachedFilePath) => cachedFilePath + ".version";
+
+    /// <summary>
     /// Cached bytes, or null when there is no usable copy.
     ///
     /// <para>
@@ -64,7 +71,19 @@ public sealed class IceFileCache
     /// <c>Malformed</c> forever.
     /// </para>
     /// </summary>
-    public async Task<byte[]?> TryReadAsync(IceFeedDescriptor feed, DateOnly tradeDate, CancellationToken cancellationToken)
+    public Task<byte[]?> TryReadAsync(IceFeedDescriptor feed, DateOnly tradeDate, CancellationToken cancellationToken) =>
+        TryReadAsync(feed, tradeDate, expectedVersion: null, cancellationToken);
+
+    /// <summary>
+    /// Cached bytes, or null when there is no usable copy. With an
+    /// <paramref name="expectedVersion"/>, a copy is usable only when its
+    /// <see cref="VersionPathFor">version sidecar</see> holds exactly that version —
+    /// a missing sidecar (a file cached before versions were tracked, or a crash
+    /// between writing the file and its sidecar) counts as a mismatch, so the worst
+    /// case is one extra download, never a stale file merged as if it were current.
+    /// </summary>
+    public async Task<byte[]?> TryReadAsync(
+        IceFeedDescriptor feed, DateOnly tradeDate, string? expectedVersion, CancellationToken cancellationToken)
     {
         if (_settings.ForceDownload) return null;
 
@@ -74,6 +93,22 @@ public sealed class IceFileCache
         {
             if (!File.Exists(path)) return null;
             if (new FileInfo(path).Length == 0) return null;
+
+            if (expectedVersion is not null)
+            {
+                var versionPath = VersionPathFor(path);
+                var cachedVersion = File.Exists(versionPath)
+                    ? (await File.ReadAllTextAsync(versionPath, cancellationToken).ConfigureAwait(false)).Trim()
+                    : null;
+
+                if (!string.Equals(cachedVersion, expectedVersion, StringComparison.Ordinal))
+                {
+                    _logger.LogInformation(
+                        "ICE {Feed} {Date}: cached copy is version {Cached}, ICE has {Expected} — re-downloading",
+                        feed.FeedId, IceTime.Iso(tradeDate), cachedVersion ?? "(untracked)", expectedVersion);
+                    return null;
+                }
+            }
 
             return await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
         }
@@ -95,19 +130,44 @@ public sealed class IceFileCache
     /// and swallowed, because the bytes are already in hand and the work unit can
     /// complete without them ever reaching disk.
     /// </summary>
-    public async Task SaveAsync(IceFeedDescriptor feed, DateOnly tradeDate, byte[] content, CancellationToken cancellationToken)
+    public Task SaveAsync(IceFeedDescriptor feed, DateOnly tradeDate, byte[] content, CancellationToken cancellationToken) =>
+        SaveAsync(feed, tradeDate, content, version: null, cancellationToken);
+
+    /// <summary>
+    /// Write a downloaded body and, when known, the version ICE served it as.
+    ///
+    /// <para>
+    /// The OLD sidecar is deleted BEFORE the new body is moved into place, and the new
+    /// one written only after. So whatever a crash interrupts, the file on disk is
+    /// never paired with a sidecar naming a version it is not — at worst it has no
+    /// sidecar, which <see cref="TryReadAsync(IceFeedDescriptor, DateOnly, string?, CancellationToken)"/>
+    /// treats as a mismatch.
+    /// </para>
+    /// </summary>
+    public async Task SaveAsync(
+        IceFeedDescriptor feed, DateOnly tradeDate, byte[] content, string? version, CancellationToken cancellationToken)
     {
         var path = PathFor(feed, tradeDate);
+        var versionPath = VersionPathFor(path);
 
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+            if (File.Exists(versionPath)) File.Delete(versionPath);
 
             // Write to a temp name and move into place so a crash mid-write cannot
             // leave a truncated file that later looks like a valid cache hit.
             var temp = path + ".tmp";
             await File.WriteAllBytesAsync(temp, content, cancellationToken).ConfigureAwait(false);
             File.Move(temp, path, overwrite: true);
+
+            if (version is not null)
+            {
+                var versionTemp = versionPath + ".tmp";
+                await File.WriteAllTextAsync(versionTemp, version, cancellationToken).ConfigureAwait(false);
+                File.Move(versionTemp, versionPath, overwrite: true);
+            }
         }
         catch (OperationCanceledException)
         {

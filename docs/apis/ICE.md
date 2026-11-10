@@ -105,6 +105,37 @@ data rows — on a day the index window is closed. That is `Success` with 0 reco
 
 ---
 
+## 2b. `HEAD` and `Last-Modified` — the only cheap change check
+
+Verified live 2026-11-10 on all four URL families the loader uses
+(`Settlement_Reports_CSV/*.dat`, `Crude_Index/*.csv`, `ICEF_options_greeks/*.dat`,
+and both XLSX sets — `Settlement_Reports/Environmentals`, `FixedIncome_Settlements`):
+
+| Request | Answer |
+|---|---|
+| `HEAD` on a published file | `200`, **`Last-Modified`**, `Content-Disposition: attachment; filename=…`, no body |
+| `HEAD` on an unpublished file (today before ~17:00 ET, 11-08 a Sunday) | `200 text/html`, **no `Last-Modified`**, no `Content-Disposition` |
+| `HEAD` with a garbage `iceSsoCookie` | `302` → `sso.ice.com/appUserLogin…` (a redirect-following client lands on the sign-on host — the "200 login page" of §2) |
+| `GET` with `If-Modified-Since` later than the file | **full `200` body** — the header is ignored, so there is no conditional `GET` |
+| Directory index (`…/Gas/` or `/api/icedownloadsservice/v1/…/Gas/`) | `200`, "No Files Available" — the loader's account **cannot** list a directory, though a browser session can |
+
+So a file's version costs one `HEAD` — one request of the §2a budget, the same as a
+download — and there is no way to get the whole directory's timestamps in one call.
+
+⚠ **`Last-Modified` is labelled `GMT` but is US Eastern wall-clock.** The gas file for
+2026-11-09 answers `Last-Modified: Mon, 09 Nov 2026 17:05:04 GMT`, and the browser
+listing shows it at `2026-11-09 17:05` under a column headed **`Last Modified (ET)`**.
+Use it only as an opaque version stamp compared for equality; never compare it with
+a clock.
+
+**ICE does re-publish files, days later.** Comparing `Last-Modified` with the loader's
+cached copies (2026-11-10): `icecleared_gas_2026_09_30.dat` was replaced on
+**2026-10-08 10:48**, and `…_2026_10_02.dat` on **2026-10-07 10:35** — 8 and 5 days
+after the trade date. Every other gas file in the window carried its trade date's
+~17:00 stamp. Publication times on the trade date itself range 17:01–17:53 ET.
+
+---
+
 ## 2a. Rate limit — 30 requests per minute (hard)
 
 Measured live 2026-09-01. ICE states the limit in the **body** of its own `429`:

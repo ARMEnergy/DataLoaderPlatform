@@ -24,7 +24,30 @@ public enum IceHotKeyStrategy
     RunHour,
 
     /// <summary>Suffix with the run id → <b>every</b> invocation re-pulls (diagnostics / a forced re-pull).</summary>
-    RunId
+    RunId,
+
+    /// <summary>
+    /// Suffix with the FILE's own version, read from a <c>HEAD</c>'s <c>Last-Modified</c>
+    /// → a date is re-pulled exactly when ICE publishes or re-publishes its file, and
+    /// skipped (no download) otherwise. <b>What production ships</b> (since 2026-11-10).
+    ///
+    /// <para>
+    /// The other three strategies re-pull on a CLOCK, which has two costs this one
+    /// avoids. A run that reaches today's file before ICE publishes it (~17:00 ET)
+    /// records it done with 0 rows, and under <see cref="RunDate"/> nothing asks again
+    /// until the UTC date rolls at 18:00 Central — so a file published at 16:05
+    /// Central loaded at 18:33. And a clock-driven re-pull is served from the local
+    /// cache, so a file ICE corrects days later (observed: the 09-30 gas file was
+    /// replaced on 10-08) was never actually re-downloaded.
+    /// </para>
+    /// <para>
+    /// Each <c>HEAD</c> costs one request of ICE's 30/minute budget, so only the
+    /// <see cref="IceSettings.VersionCheckDaysBack"/> most recent days are checked on
+    /// an ordinary run, and the whole window on a run starting in one of
+    /// <see cref="IceSettings.FullVersionCheckHoursCentral"/>.
+    /// </para>
+    /// </summary>
+    LastModified
 }
 
 /// <summary>
@@ -124,6 +147,47 @@ public sealed class IceSettings : LoaderSettingsBase
 
     /// <summary>How a hot date's key varies between runs. See <see cref="IceHotKeyStrategy"/>.</summary>
     public IceHotKeyStrategy HotKeyStrategy { get; set; } = IceHotKeyStrategy.RunDate;
+
+    /// <summary>
+    /// <see cref="IceHotKeyStrategy.LastModified"/> only: on an ORDINARY run, the
+    /// version of every hot date in <c>[today - VersionCheckDaysBack, today]</c>
+    /// (US Central) is checked with a <c>HEAD</c>; older hot dates are not enumerated
+    /// at all and wait for the next full check.
+    ///
+    /// <para>
+    /// Ships <b>3</b>: four dates per feed, 84 requests (~3.5 min at 25/min) — cheap
+    /// enough for a 30-minute schedule. Three, not one, so that a MONDAY run still
+    /// reaches back to Friday and catches a Friday file corrected over the weekend.
+    /// Clamped to <c>[0, DaysBack]</c>.
+    /// </para>
+    /// </summary>
+    public int VersionCheckDaysBack { get; set; } = 3;
+
+    /// <summary>
+    /// <see cref="IceHotKeyStrategy.LastModified"/> only: a run whose start falls in
+    /// one of these US Central clock hours (0–23) checks the version of EVERY hot date
+    /// in the <see cref="DaysBack"/> window — 651 <c>HEAD</c>s, ~26 min at 25/min.
+    ///
+    /// <para>
+    /// Ships <b>[21]</b>, matching the daily 21:30 Central run, which has nothing
+    /// scheduled after it until 15:03 the next afternoon. This is what catches a file
+    /// ICE re-publishes days after its trade date (the 09-30 and 10-02 gas files were
+    /// replaced 8 and 5 days later). An EMPTY list means no run ever looks past
+    /// <see cref="VersionCheckDaysBack"/>, which is warned about at startup.
+    /// </para>
+    /// <para>
+    /// Central, not UTC: this is an operator-facing schedule matched against the Task
+    /// Scheduler trigger, not a resume key, so the fall-back-night ambiguity that keeps
+    /// key tokens in UTC does not apply — at worst one run's check is widened.
+    /// </para>
+    /// <para>
+    /// ⚠ <b>The class default is deliberately EMPTY</b>; the <c>[21]</c> lives in
+    /// <c>appsettings.json</c>. The configuration binder APPENDS to a list that already
+    /// has elements, so a non-empty initializer would turn a configured <c>[20]</c>
+    /// into <c>[21, 20]</c> and make <c>[]</c> impossible to express.
+    /// </para>
+    /// </summary>
+    public List<int> FullVersionCheckHoursCentral { get; set; } = new();
 
     // ---------------------------------------------------------------- file cache
 

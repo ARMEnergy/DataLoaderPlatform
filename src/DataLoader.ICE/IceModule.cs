@@ -127,12 +127,15 @@ public sealed class IceModule : ILoaderModule
         var cache = sp.GetRequiredService<IceFileCache>();
         var fileLog = sp.GetRequiredService<IIceFileLog>();
 
+        // Same paced client as the downloads: a HEAD spends the same 30/minute budget.
+        var probe = new IceHeadVersionProbe(http, auth, options, loggerFactory.CreateLogger("ICE.VersionProbe"));
+
         var pipelines = new List<IIcePipeline>(IceDescriptors.All.Count);
 
         foreach (var feed in IceDescriptors.All)
         {
             var provider = new IceWorkUnitProvider(
-                feed, options.Value, loggerFactory.CreateLogger($"ICE.{feed.FeedId}.Units"));
+                feed, options.Value, probe, loggerFactory.CreateLogger($"ICE.{feed.FeedId}.Units"));
 
             var source = new IceSourceReader(
                 feed, http, auth, cache, fileLog, options,
@@ -175,20 +178,38 @@ public sealed class IceModule : ILoaderModule
             return new LoaderRunResult { LoaderId = Id, Success = true, Duration = TimeSpan.Zero };
         }
 
-        // Worst case is a cold cache: every feed × every date is a real request. The
-        // estimate is logged because at 25 requests/minute a first run legitimately
-        // takes ~20 minutes, and an operator who does not expect that will assume the
+        // The estimate is logged because at 25 requests/minute a full pass legitimately
+        // takes ~26 minutes, and an operator who does not expect that will assume the
         // loader has hung.
-        var worstCaseRequests = enabled.Count * (Math.Max(0, settings.DaysBack) + 1);
-        var pacedMinutes = settings.RequestsPerMinute > 0
-            ? worstCaseRequests / (double)settings.RequestsPerMinute
-            : 0;
+        if (settings.HotKeyStrategy == IceHotKeyStrategy.LastModified)
+        {
+            // Every checked date costs a HEAD; a download is added only for a date that
+            // is new, changed, or not yet confirmed missing.
+            var full = IceWorkUnitProvider.IsFullVersionCheck(settings, context.StartedAtUtc);
+            var checkDays = IceWorkUnitProvider.VersionCheckDays(settings, context.StartedAtUtc);
+            var heads = enabled.Count * (checkDays + 1);
 
-        logger.LogInformation(
-            "ICE: running {Count} of {Total} feed(s) over {DaysBack} day(s) = up to {Requests} request(s); " +
-            "paced at {Rpm}/min (ICE allows 30/min) -> ~{Minutes:N0} min on a cold cache; cache {Root}",
-            enabled.Count, pipelines.Count, settings.DaysBack, worstCaseRequests,
-            settings.RequestsPerMinute, pacedMinutes, cache.Root);
+            logger.LogInformation(
+                "ICE: running {Count} of {Total} feed(s); {Mode} version check over {CheckDays} day(s) = {Heads} HEAD(s) " +
+                "(~{Minutes:N0} min at {Rpm}/min; ICE allows 30/min) plus one download per new or changed file; cache {Root}",
+                enabled.Count, pipelines.Count, full ? "FULL" : "recent", checkDays, heads,
+                settings.RequestsPerMinute > 0 ? heads / (double)settings.RequestsPerMinute : 0,
+                settings.RequestsPerMinute, cache.Root);
+        }
+        else
+        {
+            // Worst case is a cold cache: every feed × every date is a real request.
+            var worstCaseRequests = enabled.Count * (Math.Max(0, settings.DaysBack) + 1);
+            var pacedMinutes = settings.RequestsPerMinute > 0
+                ? worstCaseRequests / (double)settings.RequestsPerMinute
+                : 0;
+
+            logger.LogInformation(
+                "ICE: running {Count} of {Total} feed(s) over {DaysBack} day(s) = up to {Requests} request(s); " +
+                "paced at {Rpm}/min (ICE allows 30/min) -> ~{Minutes:N0} min on a cold cache; cache {Root}",
+                enabled.Count, pipelines.Count, settings.DaysBack, worstCaseRequests,
+                settings.RequestsPerMinute, pacedMinutes, cache.Root);
+        }
 
         var results = new List<LoaderRunResult>();
         var failures = new List<string>();
@@ -273,6 +294,28 @@ public sealed class IceModule : ILoaderModule
                 "{Retention} day(s) are re-downloaded each run rather than served from the local cache " +
                 "(a bandwidth/disk trade-off, not a correctness issue)",
                 settings.FileRetentionDays, daysBack, settings.FileRetentionDays);
+
+        if (settings.HotKeyStrategy == IceHotKeyStrategy.LastModified)
+        {
+            var hours = settings.FullVersionCheckHoursCentral ?? new List<int>();
+
+            if (hours.Count == 0)
+                logger.LogWarning(
+                    "ICE HotKeyStrategy=LastModified with an EMPTY FullVersionCheckHoursCentral: no run ever checks " +
+                    "past VersionCheckDaysBack={Recent}, so a file ICE re-publishes later than that is never " +
+                    "re-pulled (ICE replaced the 09-30 gas file 8 days later). Ship at least one hour, e.g. [21]",
+                    settings.VersionCheckDaysBack);
+
+            foreach (var hour in hours.Where(h => h is < 0 or > 23))
+                logger.LogWarning(
+                    "ICE FullVersionCheckHoursCentral contains {Hour}, which is not a clock hour (0-23) — it never matches",
+                    hour);
+
+            if (settings.VersionCheckDaysBack < 0 || settings.VersionCheckDaysBack > daysBack)
+                logger.LogWarning(
+                    "ICE VersionCheckDaysBack={Recent} is outside [0, DaysBack={DaysBack}] and is clamped",
+                    settings.VersionCheckDaysBack, daysBack);
+        }
 
         if (settings.ForceDownload)
             logger.LogWarning(

@@ -54,6 +54,10 @@ internal static class IceTime
             ? utcNow
             : TimeZoneInfo.ConvertTimeFromUtc(utcNow, CentralTz));
 
+    /// <summary>The US Central clock hour (0–23) of a UTC instant (UTC's own if the zone is unavailable).</summary>
+    public static int CentralHour(DateTime utcNow) =>
+        (CentralTz is null ? utcNow : TimeZoneInfo.ConvertTimeFromUtc(utcNow, CentralTz)).Hour;
+
     /// <summary>
     /// A date rendered <c>yyyy-MM-dd</c> under the INVARIANT culture — for resume
     /// keys, display names persisted into <c>core.LoadLog</c>, and log messages.

@@ -145,11 +145,93 @@ loader reported clean runs.
 warning at startup, because it is almost always a misconfiguration rather than an
 intent.
 
-Hot key default is `RunDate` (UTC `yyyyMMdd`) → one re-pull per UTC day; a second
-run the same day idempotently skips. `RunHour` and `RunId` are available for
+The class-default hot key is `RunDate` (UTC `yyyyMMdd`) → one re-pull per UTC day; a
+second run the same day idempotently skips. `RunHour` and `RunId` are available for
 several-times-a-day schedules and forced re-pulls. UTC, not local: `01:00` Central
 occurs twice on a fall-back night, so a local hour token would repeat and a
 recorded success would suppress a legitimate re-pull.
+
+**Production ships `LastModified` instead (since 2026-11-10) — see §3.2.**
+
+### 3.2 `LastModified`: key on the file's own version (2026-11-10)
+
+**Why the clock strategies were wrong for this source.** Two faults, both silent:
+
+1. *Late loads.* The schedule is every 30 minutes from 15:03 Central plus 21:30; ICE
+   publishes ~17:00–17:50 **ET** (16:00–16:50 Central). The 15:03 run reached the new
+   trade date first, found no file, and recorded `NotAvailable` — 0 rows, success —
+   under `run=<UTC date>`. Every later run that UTC day skipped it, so the file only
+   loaded on the first run after **00:00 UTC = 18:00 Central** (2026-11-09: published
+   16:05, loaded 18:33). Same pattern on every weekday checked.
+2. *Revisions never re-downloaded.* A clock re-pull reached `IceFileCache`, which
+   served the on-disk copy regardless of age (§4). ICE re-published the 09-30 and
+   10-02 gas files 8 and 5 days later (`docs/apis/ICE.md` §2b); had those landed after
+   caching, the "hot" re-reads would have re-merged the stale bytes forever.
+
+**The key.** Each hot date costs one `HEAD` (`IceHeadVersionProbe`), and the key carries
+what it found:
+
+| `HEAD` result | Key suffix | Effect |
+|---|---|---|
+| `Last-Modified` present | `:lm={yyyyMMddHHmmss}` | this version loaded once; skipped until ICE changes it. The unit's `ExpectedVersion` refuses a cached copy of any other version |
+| no `Last-Modified` (not published) | `:lm=none` | **stable**: the first run's `GET` confirms `NotAvailable` through the classifier; later runs skip on the `HEAD` alone, and the day a version appears the key changes |
+| `HEAD` failed / still bounced to sign-on after one refresh | `:lm=unknown:run={RunId}` | always downloads — a `HEAD` problem can never hide a file behind a completed key |
+
+**The check window.** At 25 requests/min a `HEAD` of the whole window is 21 × 31 = 651
+requests ≈ 26 min — the whole 30-minute interval. So:
+
+* an **ordinary run** checks `[today − VersionCheckDaysBack, today]` (ships **3**: 84
+  `HEAD`s ≈ 3.5 min; a Monday reaches back to Friday). Older hot dates are **not
+  enumerated** that run;
+* a run starting in a **Central** hour listed in `FullVersionCheckHoursCentral` (ships
+  **[21]**, the daily 21:30 run, which nothing follows until 15:03) checks the whole
+  `DaysBack` window, catching late re-publications.
+
+Settled dates (only when `SettledAfterDays < DaysBack`) keep their stable key, are
+enumerated every run and are never probed.
+
+**Guards (from review, 2026-11-10).**
+* A `:lm={version}` unit whose `GET` answers "No Files Available" **fails** rather than
+  recording a 0-row success — the `HEAD` said that version exists, and a completed key
+  would hide it forever. The same key retries next run; if ICE really withdrew the
+  file, the next `HEAD` says `Absent`.
+* `:lm=unknown` units also **bypass the cache** (`BypassCache`), so a failed `HEAD` can
+  never merge a cached copy ICE has since replaced.
+* `Absent` is inferred narrowly: no `Last-Modified` header at all **and** no
+  `Content-Disposition`. A file-shaped answer with a missing/unparseable
+  `Last-Modified` is `Unknown`.
+* Each `HEAD` is bounded at **30 s** (the client's 300 s is sized for downloads); after
+  **5 consecutive** `Unknown`s the probe stops sending `HEAD`s for the rest of the run
+  and every remaining hot date downloads unconditionally — the old behaviour, without
+  paying a timeout per date first.
+* A **sign-on failure propagates** (the feed fails) instead of becoming `Unknown` —
+  swallowed, it would retry the SSO login once per date, 651 times in a full run.
+
+**Open trade-off: the full check is a single run.** Hot dates older than 3 days are
+enumerated only by a run starting at 21:xx Central. If that run is overlap-skipped,
+starts late, or the host is down, that day gets no full check; and a 4–30-day-old unit
+that *fails* in it is not retried until the next evening (under `RunDate` a failed unit
+was retried 30 minutes later). A date that fails at age 30 then ages out of the window.
+Mitigations if this bites: add a second hour (e.g. `[21, 2]` with a matching trigger),
+or make the full check state-based ("none completed in the last ~20 h").
+
+**Residual gaps, accepted.**
+* A **corrected** file older than 3 days is picked up at 21:30, not within 30 minutes.
+* An **expired** (not garbage) token that made a `HEAD` answer `200` HTML on the
+  downloads host *without* redirecting would read as `Absent`. For a date whose
+  `:lm=none` key is already complete, that run skips it; the next run (a new process,
+  a fresh sign-on) sees the version. Each run is a separate process that signs on at
+  first use, so a mid-run expiry is rare and costs one 30-minute cycle.
+* ICE can publish between a unit's `HEAD` and its `GET`. The `GET` then serves the
+  newer bytes under the older key; the cache sidecar records the version actually
+  **served** (the `GET`'s own `Last-Modified`), so the next run's new key is satisfied
+  from cache and nothing is downloaded twice.
+
+**One-off cost of switching.** Every existing key is a `:run=` key and no cached file has
+a version sidecar, so the first `LastModified` runs re-download what they check: the
+first afternoon run ~84 files, the first 21:30 run the rest of the window (~650 `HEAD`s
+plus ~460 downloads, ~45 min). That is the same total work as a post-deploy cold cache
+used to be.
 
 ---
 
@@ -163,6 +245,14 @@ The user-specified download folder is a genuine cache, not a scratch dir.
   unless `ForceDownload = true`. With an all-hot 30-day window this is what keeps
   a daily run from re-pulling ~100 MB × 31 days; only genuinely new dates and
   files aged past retention are fetched.
+* ⚠ **Version sidecar (2026-11-10).** Each cached file may have a `<file>.version`
+  holding the `Last-Modified` it was served as. A unit with an `ExpectedVersion`
+  (`LastModified` strategy, §3.2) uses the cached copy **only** when the sidecar
+  matches; no sidecar counts as a mismatch. The old sidecar is deleted before a new
+  body is moved in and the new one written after, so a crash leaves a file with no
+  sidecar (one extra download), never a file paired with the wrong version. Before
+  this, a cached file was reused for its whole retention period whatever ICE had
+  published since — the clock strategies still behave that way.
 * HTML sentinel bodies are **never written to disk** — caching a login page would
   poison every later run for that date.
 * `FileRetentionDays` (default 7) sweeps once per run, before enumeration, deleting

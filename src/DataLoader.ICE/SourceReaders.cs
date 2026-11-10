@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace DataLoader.ICE;
 
 /// <summary>
-/// Reads one ICE file for one (feed, trade date): fetch → classify → parse → map.
+/// Reads one ICE file for one (feed, trade date): fetch â†’ classify â†’ parse â†’ map.
 ///
 /// <para>
 /// The order matters. <b>Classification happens before any parsing</b>, because
@@ -16,7 +16,7 @@ namespace DataLoader.ICE;
 /// as rows or, worse, record a clean zero-row success for an auth failure.
 /// </para>
 /// <para>
-/// Every outcome — including the non-error <c>NotAvailable</c> — writes an
+/// Every outcome â€” including the non-error <c>NotAvailable</c> â€” writes an
 /// <c>arm.FileLog</c> row before the reader returns or throws.
 /// </para>
 /// </summary>
@@ -75,10 +75,23 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
 
         switch (kind)
         {
+            case IceResponseKind.NotAvailable when unit.ExpectedVersion is not null:
+                // âš  The HEAD just said this file EXISTS at this version. Recording the
+                // key `:lm={version}` as a clean 0-row success would hide that version
+                // for good â€” every later HEAD reports the same version and skips. So
+                // this is a FAILURE: the same key is retried next run, and if ICE really
+                // withdrew the file, the next HEAD reports Absent and keys it `lm=none`.
+                await TryLogAsync(fileContext, "Failed", 0, 0,
+                    $"HEAD reported version {unit.ExpectedVersion} but the download answered 'No Files Available'",
+                    cancellationToken).ConfigureAwait(false);
+                throw new InvalidOperationException(
+                    $"ICE {_feed.FeedId} {IceTime.Iso(unit.TradeDate)}: HEAD reported version {unit.ExpectedVersion} " +
+                    "but the download answered 'No Files Available' â€” not recording an empty load for a published file.");
+
             case IceResponseKind.NotAvailable:
                 // A weekend, a holiday, a future date, or a feed that did not exist
                 // yet. NOT an error: zero rows, the unit succeeds, the run continues.
-                _logger.LogDebug("ICE {Feed} {Date}: no file published — {Detail}",
+                _logger.LogDebug("ICE {Feed} {Date}: no file published â€” {Detail}",
                     _feed.FeedId, IceTime.Iso(unit.TradeDate), detail);
 
                 await TryLogAsync(fileContext, "NotAvailable", 0, 0, detail, cancellationToken).ConfigureAwait(false);
@@ -87,7 +100,7 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
             case IceResponseKind.AuthExpired:
                 await TryLogAsync(fileContext, "AuthExpired", 0, 0, detail, cancellationToken).ConfigureAwait(false);
                 throw new InvalidOperationException(
-                    $"ICE {_feed.FeedId} {IceTime.Iso(unit.TradeDate)}: authentication still rejected after refresh — {detail}");
+                    $"ICE {_feed.FeedId} {IceTime.Iso(unit.TradeDate)}: authentication still rejected after refresh â€” {detail}");
 
             case IceResponseKind.Malformed:
                 await TryLogAsync(fileContext, "Malformed", 0, 0, detail, cancellationToken).ConfigureAwait(false);
@@ -116,8 +129,7 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
     /// <summary>Absolute URL for one trade date. The SSO token is never part of it.</summary>
     internal string BuildUrl(DateOnly tradeDate)
     {
-        var baseUrl = _settings.DownloadBaseUrl.TrimEnd('/');
-        return $"{baseUrl}/{_feed.PathFor(tradeDate)}";
+        return IceUrls.For(_settings, _feed, tradeDate);
     }
 
     /// <summary>
@@ -133,7 +145,12 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
     private async Task<(byte[]? Content, IceResponseKind Kind, string Detail)> FetchAsync(
         IceWorkUnit unit, string url, CancellationToken cancellationToken)
     {
-        var cached = await _cache.TryReadAsync(_feed, unit.TradeDate, cancellationToken).ConfigureAwait(false);
+        // A unit whose HEAD failed must not be satisfied from cache: the cached copy may
+        // be a version ICE has since replaced, and nothing here can tell.
+        var cached = unit.BypassCache
+            ? null
+            : await _cache.TryReadAsync(_feed, unit.TradeDate, unit.ExpectedVersion, cancellationToken)
+                .ConfigureAwait(false);
         if (cached is not null)
         {
             var cachedKind = IceResponseClassifier.Classify(cached, _feed, out var cachedDetail);
@@ -144,51 +161,75 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
                 return (cached, cachedKind, cachedDetail);
             }
 
-            _logger.LogWarning("ICE {Feed} {Date}: cached file is {Kind} ({Detail}) — re-downloading",
+            _logger.LogWarning("ICE {Feed} {Date}: cached file is {Kind} ({Detail}) â€” re-downloading",
                 _feed.FeedId, IceTime.Iso(unit.TradeDate), cachedKind, cachedDetail);
         }
 
         var token = await _auth.GetTokenAsync(cancellationToken).ConfigureAwait(false);
-        var content = await DownloadAsync(url, token, cancellationToken).ConfigureAwait(false);
+        var (content, servedVersion) = await DownloadAsync(url, token, cancellationToken).ConfigureAwait(false);
         var kind = IceResponseClassifier.Classify(content, _feed, out var detail);
 
         // One re-auth and retry. The token embeds its own issue time and ICE
         // publishes no TTL, so expiry is detected rather than predicted.
         if (kind == IceResponseKind.AuthExpired)
         {
-            _logger.LogInformation("ICE {Feed} {Date}: token rejected — refreshing and retrying once",
+            _logger.LogInformation("ICE {Feed} {Date}: token rejected â€” refreshing and retrying once",
                 _feed.FeedId, IceTime.Iso(unit.TradeDate));
 
             var fresh = await _auth.RefreshAsync(token, cancellationToken).ConfigureAwait(false);
-            content = await DownloadAsync(url, fresh, cancellationToken).ConfigureAwait(false);
+            (content, servedVersion) = await DownloadAsync(url, fresh, cancellationToken).ConfigureAwait(false);
             kind = IceResponseClassifier.Classify(content, _feed, out detail);
         }
 
-        // ⚠ Only real data is cached. Writing a sentinel page to disk under the data
+        // âš  Only real data is cached. Writing a sentinel page to disk under the data
         // file's name would poison that date for every later run.
         if (kind == IceResponseKind.Data)
-            await _cache.SaveAsync(_feed, unit.TradeDate, content, cancellationToken).ConfigureAwait(false);
+        {
+            // ICE may publish between this unit's HEAD and its GET. The sidecar records
+            // what was actually SERVED, so the next run's HEAD (which will report the
+            // newer version â†’ a new key) is satisfied from this cached copy rather than
+            // downloading the same bytes twice.
+            if (unit.ExpectedVersion is not null && servedVersion is not null &&
+                !string.Equals(unit.ExpectedVersion, servedVersion, StringComparison.Ordinal))
+            {
+                _logger.LogInformation(
+                    "ICE {Feed} {Date}: HEAD reported version {Expected} but ICE served {Served} â€” the file changed in between",
+                    _feed.FeedId, IceTime.Iso(unit.TradeDate), unit.ExpectedVersion, servedVersion);
+            }
+
+            await _cache.SaveAsync(_feed, unit.TradeDate, content, servedVersion ?? unit.ExpectedVersion, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return (content, kind, detail);
     }
 
-    private async Task<byte[]> DownloadAsync(string url, string token, CancellationToken cancellationToken)
+    /// <summary>
+    /// GET one file. Returns the body and the version ICE served it as
+    /// (<see cref="IceFileVersion.Format"/> of <c>Last-Modified</c>), or a null
+    /// version when the response carries none â€” every sentinel page, for instance.
+    /// </summary>
+    private async Task<(byte[] Content, string? Version)> DownloadAsync(string url, string token, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
         // The SSO Set-Cookie is scoped to .sso.theice.com and is NOT sent to
-        // downloads.ice.com automatically — different registrable domains. Setting
+        // downloads.ice.com automatically â€” different registrable domains. Setting
         // the header explicitly is the whole auth mechanism for downloads.
         request.Headers.TryAddWithoutValidation("Cookie", $"iceSsoCookie={token}");
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
             .ConfigureAwait(false);
 
-        // A non-200 is genuinely exceptional here — ICE uses 200 for data, missing
+        // A non-200 is genuinely exceptional here â€” ICE uses 200 for data, missing
         // files AND auth failures alike, so anything else is infrastructure.
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        var version = response.Content.Headers.LastModified is { } lastModified
+            ? IceFileVersion.Format(lastModified)
+            : null;
+
+        return (await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false), version);
     }
 
     // ------------------------------------------------------------------ parsing
@@ -273,7 +314,7 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
     /// <para>
     /// Throws when the table declares the column but the feed does not supply a
     /// value. That combination would write a blank into a PRIMARY-KEY column, so the
-    /// two feeds sharing <c>arm.PhysEnvFutures</c> would collapse into each other —
+    /// two feeds sharing <c>arm.PhysEnvFutures</c> would collapse into each other â€”
     /// exactly the silent corruption the discriminator exists to prevent. Failing
     /// here makes a mis-wired descriptor a loud, first-file error.
     /// </para>
@@ -301,7 +342,7 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
     /// <c>Hub</c> and <c>Contract</c> and corrupt the primary key of every row.
     /// </para>
     /// <para>
-    /// A missing REQUIRED header throws — but in practice the classifier has already
+    /// A missing REQUIRED header throws â€” but in practice the classifier has already
     /// rejected such a file as <c>Malformed</c>, so this is the backstop. A missing
     /// OPTIONAL header loads NULL and warns, since it means the feed changed shape.
     /// </para>
@@ -331,7 +372,7 @@ public sealed class IceSourceReader : ISourceReader<IceWorkUnit, IceRow>
                         $"[{string.Join(", ", column.SourceHeaders)}].");
 
                 _logger.LogWarning(
-                    "ICE {Feed}: optional column {Column} not found under [{Headers}] — loading NULL",
+                    "ICE {Feed}: optional column {Column} not found under [{Headers}] â€” loading NULL",
                     _feed.FeedId, column.Name, string.Join(", ", column.SourceHeaders));
             }
 

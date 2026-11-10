@@ -535,6 +535,23 @@ for these three feeds is **verified against real files but never downloaded by t
 URL template and the entitlement are unexercised. Its SQL has never been deployed.
 See `docs/apis/ICE.md` §4A.
 
+⚠ **ICE ships `HotKeyStrategy=LastModified` (2026-11-10): a hot date is keyed on its
+file's `Last-Modified`, read by a `HEAD`** (`:lm={yyyyMMddHHmmss}`, `:lm=none` when no
+file, `:lm=unknown:run={RunId}` when the `HEAD` failed). The old UTC `RunDate` key let
+the 15:03 run record today's not-yet-published file as done with 0 rows, so nothing
+re-asked until 00:00 UTC — files ICE published at ~16:05 Central loaded at 18:33. And
+the file cache served any cached copy regardless of age, so a re-published file
+(ICE replaced the 09-30 gas file on 10-08) was never re-downloaded; cached files now
+carry a `.version` sidecar that must match. Ordinary runs `HEAD` only
+`[today−3, today]` (`VersionCheckDaysBack`); a run starting in a **Central** hour in
+`FullVersionCheckHoursCentral` (`[21]`, the 21:30 run) checks all 30 days — a `HEAD`
+costs one of the 30/min requests, and 651 of them take ~26 min. Three facts are silent
+if you get them wrong: `Last-Modified` says **GMT but is Eastern** (an opaque token
+only); `If-Modified-Since` is **ignored** (no conditional GET); and the loader's account
+**cannot list a directory** ("No Files Available"), so there is no one-call alternative.
+The hour list's class default is EMPTY because the config binder APPENDS to a
+pre-populated list. See `docs/apis/ICE.md` §2b and `docs/design/ICE.md` §3.2.
+
 Criterion is the only loader with a **relational (PostgreSQL) source**. Its read path is verified
 against live production.
 
