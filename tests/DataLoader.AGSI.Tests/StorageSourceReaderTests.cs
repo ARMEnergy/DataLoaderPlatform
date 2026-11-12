@@ -16,7 +16,10 @@ public class StorageSourceReaderTests
 {
     private const string ApiKey = "SECRET-XKEY-123";
 
-    private static AgsiSettings Settings() => new() { BaseUrl = "https://agsi.gie.eu", ApiKey = ApiKey };
+    // TransientBodyRetryDelayMs = 0: the transient-body retry path must not add real
+    // seconds of Task.Delay to a unit test. The retry COUNT keeps its shipped default (2).
+    private static AgsiSettings Settings() =>
+        new() { BaseUrl = "https://agsi.gie.eu", ApiKey = ApiKey, TransientBodyRetryDelayMs = 0 };
 
     private static AgsiStorageWorkUnit Unit(string body = "de", DateOnly? date = null)
     {
@@ -272,22 +275,35 @@ public class StorageSourceReaderTests
     }
 
     [Fact]
-    public async Task Read_ForeignCodeOnly_NeverAttributedToRequestingEntity_ZeroRows_NotAvailable()
+    public async Task Read_ForeignCodeOnly_NeverAttributedToRequestingEntity_RetriedThenFails()
     {
         // A response carrying only some OTHER entity's record must NOT be stored under
         // the requesting entity — that is exactly how `eu` acquired Non-EU's numbers.
+        // Since 2026-11-11 it is also not a no-data day: the vendor answered a different
+        // request, so it is re-requested and, if it never comes right, fails the unit
+        // LOUDLY (it used to write NotAvailable and silently succeed).
         var handler = StubHttpMessageHandler.Respond(HttpStatusCode.OK, Samples.StorageSingleRecordForeignCode);
         var fileLog = new FakeAgsiFileLog();
         var logger = new ListLogger();
-        var reader = Reader(handler, fileLog, logger);
+        var settings = Settings();
+        var reader = new AgsiStorageSourceReader(handler.NewClient(), settings, fileLog, logger);
 
-        var rows = await reader.ReadAsync(Unit(), CancellationToken.None); // requests "de", body carries "UA"
+        // requests "de" (EntityId 7), body carries "UA" every time
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => reader.ReadAsync(Unit(), CancellationToken.None));
 
-        Assert.Empty(rows);
+        Assert.Contains("every record returned belongs to another entity", ex.Message);
+        Assert.Contains("UA", ex.Message);
+        Assert.Contains($"after {1 + settings.TransientBodyRetryCount} attempt(s)", ex.Message);
+        Assert.Equal(1 + settings.TransientBodyRetryCount, handler.Requests.Count);
+
+        // No row was ever produced, so EntityId 7 was never stamped on UA's numbers; the
+        // only FileLog write is the single Failed row (no NotAvailable, no Success).
         var call = Assert.Single(fileLog.Calls);
-        Assert.Equal("NotAvailable", call.Status);
+        Assert.Equal("Failed", call.Status);
+        Assert.Equal(200, call.HttpStatus);
         Assert.Equal(0, call.RowCount);
-        Assert.NotEmpty(logger.OfLevel(LogLevel.Warning));   // unexpected — must not be silent
+        Assert.Equal(settings.TransientBodyRetryCount, logger.OfLevel(LogLevel.Warning).Count()); // one per retry — not silent
     }
 
     [Fact]

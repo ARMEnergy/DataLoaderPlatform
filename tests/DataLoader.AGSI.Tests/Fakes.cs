@@ -36,6 +36,27 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
             Content = new StringContent(body, Encoding.UTF8, "application/json")
         });
 
+    /// <summary>
+    /// Returns the scripted responses in order, one per request; the LAST one repeats for
+    /// every request beyond the script. A fresh <see cref="HttpResponseMessage"/> is built per
+    /// call because the reader disposes each response it receives.
+    /// </summary>
+    public static StubHttpMessageHandler Sequence(params (HttpStatusCode Status, string Body)[] responses)
+    {
+        if (responses.Length == 0)
+            throw new ArgumentException("At least one response is required.", nameof(responses));
+        var index = 0;
+        return new(_ =>
+        {
+            var (status, body) = responses[Math.Min(index, responses.Length - 1)];
+            index++;
+            return new HttpResponseMessage(status)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            };
+        });
+    }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(request.RequestUri!);

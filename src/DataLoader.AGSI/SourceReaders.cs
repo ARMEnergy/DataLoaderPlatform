@@ -161,6 +161,18 @@ public sealed class AgsiEntitiesSourceReader : ISourceReader<AgsiEntitiesWorkUni
 }
 
 /// <summary>
+/// A response that is wrong in a way re-requesting fixes: AGSI's <c>Try/Catch error</c>
+/// body, or a body that answers a different request. Retried inside
+/// <see cref="AgsiStorageSourceReader.ReadAsync"/>; it never escapes that method — once the
+/// attempts are exhausted it is re-thrown as a plain <see cref="InvalidOperationException"/>.
+/// Its message is built only from redacted fields.
+/// </summary>
+internal sealed class AgsiTransientResponseException : Exception
+{
+    public AgsiTransientResponseException(string message) : base(message) { }
+}
+
+/// <summary>
 /// Endpoint 2 — <c>GET /api?country=&amp;date=</c> with header <c>x-key</c>. 404 /
 /// empty <c>data[]</c> / a lone <c>status:"N"</c> record → NotAvailable (0 rows, no
 /// unit failure); 401/403 → throw (bad/absent key); 429/5xx after retries → throw
@@ -188,39 +200,66 @@ public sealed class AgsiStorageSourceReader : ISourceReader<AgsiStorageWorkUnit,
         var requestUri = new Uri($"{_settings.BaseUrl.TrimEnd('/')}{relativePath}", UriKind.Absolute);
         var file = new AgsiFileContext("Storage", unit.CountryCode, unit.Date, relativePath);
 
+        // Body-level vendor faults arrive as HTTP 200, so the HTTP retry policy never sees
+        // them. They are retried HERE, and only the transient kinds (see
+        // AgsiTransientResponseException); a bad key or any other body error fails at once.
+        var maxAttempts = 1 + Math.Max(0, _settings.TransientBodyRetryCount);
+
         int? httpStatus = null;
         try
         {
-            _logger.LogDebug("[AGSI Storage] GET {Path}", relativePath); // sanitized — the x-key is a header, never logged
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-            request.Headers.Add("x-key", _settings.ApiKey); // per-request header; NEVER on the shared client's defaults
-            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            httpStatus = (int)response.StatusCode;
-
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            for (var attempt = 1; ; attempt++)
             {
-                _logger.LogDebug("[AGSI Storage] 404 not available: {Path}", relativePath);
-                await _fileLog.UpsertAsync(file, "NotAvailable", httpStatus, relativePath, 0, cancellationToken).ConfigureAwait(false);
-                return Array.Empty<GasStorageRow>();
+                _logger.LogDebug("[AGSI Storage] GET {Path}", relativePath); // sanitized — the x-key is a header, never logged
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+                request.Headers.Add("x-key", _settings.ApiKey); // per-request header; NEVER on the shared client's defaults
+                using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                httpStatus = (int)response.StatusCode;
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    _logger.LogDebug("[AGSI Storage] 404 not available: {Path}", relativePath);
+                    await _fileLog.UpsertAsync(file, "NotAvailable", httpStatus, relativePath, 0, cancellationToken).ConfigureAwait(false);
+                    return Array.Empty<GasStorageRow>();
+                }
+
+                if (!response.IsSuccessStatusCode)
+                    // 401/403 (bad/absent x-key) or 429/5xx after retries — loud.
+                    throw new HttpRequestException($"[AGSI Storage] {relativePath} returned HTTP {httpStatus}");
+
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                List<GasStorageRow> rows;
+                try
+                {
+                    rows = ParseStorage(unit, body);
+                }
+                catch (AgsiTransientResponseException ex)
+                {
+                    // ex.Message is built from redacted fields only — safe to log and to store.
+                    if (attempt >= maxAttempts)
+                        throw new InvalidOperationException(
+                            $"{ex.Message} — still failing after {attempt} attempt(s)", ex);
+
+                    var delay = TimeSpan.FromMilliseconds((double)Math.Max(0, _settings.TransientBodyRetryDelayMs) * attempt);
+                    _logger.LogWarning(
+                        "{Reason} — transient vendor fault, retrying (attempt {Attempt} of {Max}) in {Delay:0.#}s",
+                        ex.Message, attempt + 1, maxAttempts, delay.TotalSeconds);
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                var status = rows.Count == 0 ? "NotAvailable" : "Success";
+                var fileLogId = await _fileLog.UpsertAsync(file, status, httpStatus, relativePath, rows.Count, cancellationToken).ConfigureAwait(false);
+
+                if (rows.Count == 0)
+                    return Array.Empty<GasStorageRow>();
+
+                foreach (var r in rows) r.FileLogId = fileLogId;
+                _logger.LogDebug("[AGSI Storage] {Path} → {Rows} row(s) (FileLog #{Id})", relativePath, rows.Count, fileLogId);
+                return rows;
             }
-
-            if (!response.IsSuccessStatusCode)
-                // 401/403 (bad/absent x-key) or 429/5xx after retries — loud.
-                throw new HttpRequestException($"[AGSI Storage] {relativePath} returned HTTP {httpStatus}");
-
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var rows = ParseStorage(unit, body);
-
-            var status = rows.Count == 0 ? "NotAvailable" : "Success";
-            var fileLogId = await _fileLog.UpsertAsync(file, status, httpStatus, relativePath, rows.Count, cancellationToken).ConfigureAwait(false);
-
-            if (rows.Count == 0)
-                return Array.Empty<GasStorageRow>();
-
-            foreach (var r in rows) r.FileLogId = fileLogId;
-            _logger.LogDebug("[AGSI Storage] {Path} → {Rows} row(s) (FileLog #{Id})", relativePath, rows.Count, fileLogId);
-            return rows;
         }
         catch (OperationCanceledException)
         {
@@ -262,11 +301,22 @@ public sealed class AgsiStorageSourceReader : ISourceReader<AgsiStorageWorkUnit,
         // `dataset` are quoted, and both are redacted defensively in case the vendor ever
         // moves the echo into another field.
         if (!string.IsNullOrWhiteSpace(env.Error))
-            throw new InvalidOperationException(
+        {
+            var text =
                 $"[AGSI Storage] {unit.RequestPath}: HTTP 200 but the body reports error " +
                 $"'{Redact(env.Error.Trim())}' (dataset: '{Redact(env.Dataset?.Trim())}'; " +
                 "message suppressed — the vendor echoes the API key in it) " +
-                "— failing the unit rather than recording it as no-data");
+                "— failing the unit rather than recording it as no-data";
+
+            // 'Try/Catch error' is AGSI's transient server fault: measured 2026-10-06..11-11 on
+            // ~1% of requests, each taking 30–58s (vs a 5s average), and EVERY one succeeded
+            // when re-requested hours later (156/156). Only that exact error is retried; an
+            // 'access denied' (bad key) or anything unrecognised still fails at once.
+            if (string.Equals(env.Error.Trim(), TransientVendorError, StringComparison.OrdinalIgnoreCase))
+                throw new AgsiTransientResponseException(text);
+
+            throw new InvalidOperationException(text);
+        }
 
         // No-data tolerance (design §4.2): total==0 / empty data[] both mean "nothing to load".
         if (env.Total == 0 || env.Data is null || env.Data.Count == 0)
@@ -286,7 +336,7 @@ public sealed class AgsiStorageSourceReader : ISourceReader<AgsiStorageWorkUnit,
             _logger.LogWarning(
                 "[AGSI Storage] {Path}: requested code '{Requested}' but the response carried {Count} record(s) [{Codes}]; keeping only the requested one",
                 unit.RequestPath, unit.CountryCode, env.Data.Count,
-                string.Join(", ", env.Data.Select(d => string.IsNullOrWhiteSpace(d.Code) ? "(no code)" : d.Code!.Trim())));
+                DescribeCodes(env.Data));
 
         var gasDay = AgsiParse.Date(env.GasDay);
         var foreignRecords = 0;
@@ -352,17 +402,27 @@ public sealed class AgsiStorageSourceReader : ISourceReader<AgsiStorageWorkUnit,
             });
         }
 
-        // A single-record response that describes someone else is NOT a no-data day — it is
-        // an attribution failure that would otherwise be invisible (0 rows → NotAvailable →
-        // unit success). The multi-record case is already warned about above, so this only
-        // fires for the lone-foreign-record shape and never duplicates that warning.
-        if (foreignRecords > 0 && env.Data.Count == 1)
-            _logger.LogWarning(
-                "[AGSI Storage] {Path}: requested code '{Requested}' but the only record returned was '{Returned}'; storing no row for this entity",
-                unit.RequestPath, unit.CountryCode, env.Data[0].Code?.Trim());
+        // A response in which EVERY record describes someone else is not a no-data day — the
+        // vendor answered a DIFFERENT request. Observed 2026-11: `?country=it` (and bg, es,
+        // de, ie, … — 120 times, scattered at random) answered with the eu/ne aggregate body.
+        // Recording it as no-data would write NotAvailable and SUCCEED the unit, silently,
+        // so it is treated as the transient fault it is and re-requested.
+        if (foreignRecords > 0 && foreignRecords == env.Data.Count)
+            throw new AgsiTransientResponseException(
+                $"[AGSI Storage] {unit.RequestPath}: requested code '{unit.CountryCode}' but every record " +
+                $"returned belongs to another entity [{DescribeCodes(env.Data)}] " +
+                "— the vendor answered a different request");
 
         return rows;
     }
+
+    /// <summary>The records' own codes for a log line or exception — redacted, like every quoted body field.</summary>
+    private string DescribeCodes(IEnumerable<AgsiStorageRecord> records) =>
+        string.Join(", ", records.Select(d =>
+            string.IsNullOrWhiteSpace(d.Code) ? "(no code)" : Redact(d.Code.Trim())));
+
+    /// <summary>The body-level <c>error</c> AGSI uses for a transient server fault.</summary>
+    internal const string TransientVendorError = "Try/Catch error";
 
     /// <summary>
     /// Replaces the configured <c>x-key</c> with <c>***</c> anywhere it appears in vendor

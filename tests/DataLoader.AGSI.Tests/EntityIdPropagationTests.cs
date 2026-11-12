@@ -24,7 +24,7 @@ public class EntityIdPropagationTests
     // stray value landing in the EntityId column would be unmistakable.
     private const int SentinelEntityId = 987654;
 
-    private static AgsiSettings Settings() => new() { BaseUrl = "https://agsi.gie.eu", ApiKey = "SECRET-XKEY" };
+    private static AgsiSettings Settings() => new() { BaseUrl = "https://agsi.gie.eu", ApiKey = "SECRET-XKEY", TransientBodyRetryDelayMs = 0 };
 
     private static AgsiStorageWorkUnit Unit() => new()
     {

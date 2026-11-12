@@ -385,6 +385,26 @@ The corresponding TVP carries **22** columns — these 21 business columns plus 
     "message":"API key: <YOUR x-key, VERBATIM>","data":[]}
    ```
 
+   ⚠ **Measured again 2026-11-11: this is now a DAILY ~1% of requests, and it is
+   transient.** From 2026-10-06 on, 2–10 storage units per day hit `Try/Catch error`, which
+   turned the 12:00 run red every day. Each one took **30–58s**, against a 5s average for
+   a successful unit, which looks like a GIE-side backend timeout. **All 156 in 30 days
+   succeeded when the 15:30 run re-requested them.** Because the status is 200, the HTTP
+   retry policy never sees these responses. The loader therefore re-requests `Try/Catch
+   error` itself (`TransientBodyRetryCount`, default 2), and fails the unit only after
+   those retries run out. Every other `error` value is still a hard failure on the first
+   attempt. That includes `access denied` (a bad key), which must never be retried into
+   looking like a success.
+
+   **The vendor also sometimes answers a DIFFERENT request.** `?country=it` (and bg, es,
+   de, ie, … — 120 occurrences, scattered at random) has come back with the eu/ne
+   aggregate body `[eu, ne]`. Dropping those foreign records left zero rows, so the unit
+   was recorded as NotAvailable and *succeeded*. It self-healed only because the 21-day
+   hot window re-reads every day. A response in which **every** record belongs to another
+   entity is now treated as transient: the loader re-requests it, and fails the unit
+   only after the retries run out. The legitimate `eu`/`ne` case is unaffected, because
+   their own record is always in the pair.
+
 7. 🔒 ⚠ **THE VENDOR ECHOES YOUR SECRET `x-key` BACK IN `message`.** See the body above —
    `message` is literally `"API key: "` followed by the key in clear text. **Never log,
    quote, wrap or re-throw `message`.** Doing so writes the credential into run logs and

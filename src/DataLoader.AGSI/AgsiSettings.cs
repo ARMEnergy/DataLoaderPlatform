@@ -63,4 +63,28 @@ public sealed class AgsiSettings : LoaderSettingsBase
     /// GIE publishes no hard number — pace gently and back off on 429 (design §9 / API doc). Default 1.
     /// </summary>
     public double? RequestsPerSecond { get; set; } = 1;
+
+    /// <summary>
+    /// Extra attempts for a storage request whose HTTP 200 body is a TRANSIENT vendor fault:
+    /// <c>error:'Try/Catch error'</c>, or records that all belong to another entity (the
+    /// vendor answered a different request). The HTTP retry policy never sees these — the
+    /// status is 200 — so before 2026-11-11 each one failed its unit on the first try and
+    /// turned the 12:00 run red every day, although all 156 such failures in 30 days
+    /// succeeded when the 15:30 run re-asked. 0 restores the old fail-at-once behaviour.
+    /// Any other body error (a bad key's <c>access denied</c>) is never retried.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Coupled to <c>WorkUnitTimeoutSeconds</c>. Each body attempt is a WHOLE HTTP
+    /// operation, which the Polly policy may itself retry (<c>RetryCount</c> ×
+    /// <c>HttpTimeoutSeconds</c> plus backoff), so the strict worst case is
+    /// <c>(TransientBodyRetryCount + 1) × (RetryCount + 1) × HttpTimeoutSeconds</c> plus all
+    /// delays — far above any sane unit timeout. Size for the REALISTIC case instead: a
+    /// Try/Catch answer takes 30–58s, so 3 attempts × 58s + 5s + 10s ≈ 189s fits the shipped
+    /// 240s. When an HTTP-level timeout stacks on top, the unit is cut off and recorded as a
+    /// unit timeout (no Failed FileLog row); the next run re-asks it as before.
+    /// </remarks>
+    public int TransientBodyRetryCount { get; set; } = 2;
+
+    /// <summary>Base delay before a transient-body retry; attempt N waits N × this.</summary>
+    public int TransientBodyRetryDelayMs { get; set; } = 5000;
 }
