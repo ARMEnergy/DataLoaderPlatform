@@ -94,7 +94,7 @@ public static class WatchdogFailureResolver
                 // (or 1, if even that is 0, so the run still surfaces as unresolved).
                 : Math.Max(c.UnitsFailed, 1);
 
-            var failure = new RecentFailure(c.LoaderName, c.StartTimeCentral, c.UnitsFailed, c.UnitsTotal, unresolvedUnits);
+            var failure = new RecentFailure(c.RunId, c.LoaderName, c.StartTimeCentral, c.UnitsFailed, c.UnitsTotal, unresolvedUnits);
             (unresolvedUnits > 0 ? reported : suppressed).Add(failure);
         }
 

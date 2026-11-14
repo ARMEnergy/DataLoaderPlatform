@@ -85,6 +85,25 @@ public sealed class WatchdogSettings
     public bool SkipAlertIfResolved { get; set; } = true;
 
     /// <summary>
+    /// Record each pass and its findings in <c>core.WatchdogPass</c> /
+    /// <c>core.WatchdogFinding</c> via <c>core.usp_RecordWatchdogPass</c>
+    /// (<c>sql/Core/007</c>). Set false to switch the sink off without a redeploy —
+    /// detection and email are unaffected either way.
+    ///
+    /// <para>⚠ Requires <c>007_CreateWatchdogFindings.sql</c> deployed FIRST. Without
+    /// it every pass logs a persistence failure and adds a "NOT persisted" line to the
+    /// email (when one is sent) — noisy, never harmful.</para>
+    /// </summary>
+    public bool PersistFindings { get; set; } = true;
+
+    /// <summary>
+    /// Total budget for one pass's persistence (read open findings, resolve FAILED
+    /// hints, call the proc). Persistence runs BEFORE the email so the email can say
+    /// whether it worked, so this is also the most it can delay an alert.
+    /// </summary>
+    public int PersistTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
     /// Per-loader expectations. A loader absent from here is never reported,
     /// which is what keeps build-only loaders that were run by hand once from
     /// alerting forever.

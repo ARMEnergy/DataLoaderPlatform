@@ -9,9 +9,10 @@ namespace DataLoader.Core.Watchdog;
 /// Reads <c>core.LoaderRun_Summary</c> and <c>core.LoaderRun</c>.
 ///
 /// <para>⚠ Inline SELECTs rather than stored procedures, unlike the rest of
-/// this platform. The design commits to adding NO SQL objects to production,
-/// because <c>core.LoaderRun_Summary</c> already carries exactly the per-loader
-/// outcomes the watchdog needs. Everything here is read-only and parameterised.</para>
+/// this platform. The READ side adds no SQL objects, because
+/// <c>core.LoaderRun_Summary</c> already carries exactly the per-loader outcomes
+/// the watchdog needs. Everything here is read-only and parameterised; the
+/// watchdog's one write lives in <see cref="SqlWatchdogFindingSink"/>.</para>
 ///
 /// <para>⚠ The two tables disagree about time zones.
 /// <c>LoaderRun_Summary.StartTime</c> is already CENTRAL (production's
@@ -116,7 +117,7 @@ ORDER BY StartedAtUtc;";
             // nothing was evaluated — "unresolved" here means "not checked", never
             // "confirmed still broken".
             var asIs = candidates
-                .Select(c => new RecentFailure(c.LoaderName, c.StartTimeCentral, c.UnitsFailed, c.UnitsTotal, c.UnitsFailed))
+                .Select(c => new RecentFailure(c.RunId, c.LoaderName, c.StartTimeCentral, c.UnitsFailed, c.UnitsTotal, c.UnitsFailed))
                 .ToList();
             return new RecentFailuresResult(asIs, Array.Empty<RecentFailure>());
         }
@@ -126,6 +127,48 @@ ORDER BY StartedAtUtc;";
 
         // The actual matching rule — (LoaderId, WorkUnitDisplay), never WorkUnitKey — lives
         // in WatchdogFailureResolver, not here, so it is unit-testable without a database.
+        return WatchdogFailureResolver.Resolve(candidates, failedUnits, laterSuccesses);
+    }
+
+    public async Task<RecentFailuresResult> ResolveFailuresByRunIdAsync(
+        IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken)
+    {
+        if (runIds.Count == 0)
+            return new RecentFailuresResult(Array.Empty<RecentFailure>(), Array.Empty<RecentFailure>());
+
+        // Same shape as GetFailedRunCandidatesAsync, keyed on RunId instead of the
+        // look-back window. Only the handful of currently-open FAILED findings ever
+        // reach here, so one IN list is fine.
+        var ids = runIds.Distinct().ToList();
+        var paramNames = ids.Select((_, i) => $"@r{i}").ToArray();
+        var sql = @"
+SELECT lr.RunId, frs.LoaderName, frs.StartTime, ISNULL(frs.UnitsFail, 0), ISNULL(frs.UnitsTotal, 0)
+FROM core.LoaderRun_Summary frs
+JOIN core.LoaderRun lr ON lr.LoaderRunId = frs.LoaderRunId
+WHERE frs.Success = 0
+  AND frs.LoaderName IS NOT NULL AND LTRIM(RTRIM(frs.LoaderName)) <> ''
+  AND lr.RunId IN (" + string.Join(",", paramNames) + ");";
+
+        var candidates = new List<FailedRunCandidate>();
+        await using (var conn = new SqlConnection(_settings.LoadLogConnectionString))
+        {
+            await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = Command(conn, sql);
+            for (var i = 0; i < ids.Count; i++)
+                cmd.Parameters.AddWithValue(paramNames[i], ids[i]);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                candidates.Add(new FailedRunCandidate(
+                    reader.GetGuid(0), reader.GetString(1), reader.GetDateTime(2), reader.GetInt32(3), reader.GetInt32(4)));
+            }
+        }
+
+        if (candidates.Count == 0)
+            return new RecentFailuresResult(Array.Empty<RecentFailure>(), Array.Empty<RecentFailure>());
+
+        var failedUnits = await GetFailedWorkUnitsAsync(candidates, cancellationToken).ConfigureAwait(false);
+        var laterSuccesses = await GetLaterSuccessesAsync(failedUnits, cancellationToken).ConfigureAwait(false);
         return WatchdogFailureResolver.Resolve(candidates, failedUnits, laterSuccesses);
     }
 

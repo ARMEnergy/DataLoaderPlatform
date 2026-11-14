@@ -21,19 +21,28 @@ public sealed class WatchdogRunner
     /// name and a short, redacted slice of the message, not a full dump.</summary>
     private const int MaxDegradedReasonChars = 200;
 
+    /// <summary>Floor on any persistence budget, so a typo of 0 cannot make it always time out.</summary>
+    internal const int MinPersistBudgetSeconds = 2;
+
+    /// <summary>Cap on persistence when the history read already failed — the DB-down alert waits on it.</summary>
+    internal const int HistoryFailurePersistBudgetSeconds = 15;
+
     private readonly IWatchdogRepository _repository;
     private readonly IFailureNotifier _notifier;
+    private readonly IWatchdogFindingSink _findingSink;
     private readonly WatchdogSettings _settings;
     private readonly ILogger<WatchdogRunner> _logger;
 
     public WatchdogRunner(
         IWatchdogRepository repository,
         IFailureNotifier notifier,
+        IWatchdogFindingSink findingSink,
         IOptions<WatchdogSettings> settings,
         ILogger<WatchdogRunner> logger)
     {
         _repository = repository;
         _notifier = notifier;
+        _findingSink = findingSink;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -47,6 +56,7 @@ public sealed class WatchdogRunner
     /// </summary>
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
+        var startedAtUtc = DateTime.UtcNow;
         var nowCentral = CentralNow();
 
         // GetLastRunsAsync is the one query the overdue calculation needs, and
@@ -61,7 +71,32 @@ public sealed class WatchdogRunner
         catch (Exception ex)
         {
             _logger.LogError(ex, "Watchdog could not read run history");
-            await NotifyDatabaseReadFailureAsync(ex).ConfigureAwait(false);
+
+            // Best effort, and almost certainly failing too when the platform DB is the
+            // thing that is down — but when only the history query broke, this is what
+            // makes the heartbeat show the pass happened. Nothing is checked, so nothing
+            // closes (see WatchdogFindingMapper.ComputeSignals).
+            //
+            // ⚠ Shorter budget than a normal pass: the DB-down alert is waiting behind this,
+            // and the database is probably the very thing that is unreachable.
+            var footnote = await PersistAsync(
+                () =>
+                {
+                    var historyCheck = DegradedReason(WatchdogDegradedCodes.HistoryQuery, "run history", ex);
+                    var (noneChecked, allDegraded) = WatchdogFindingMapper.ComputeSignals(new[] { historyCheck.Code });
+                    return new WatchdogPassRecord(
+                        startedAtUtc,
+                        Environment.MachineName,
+                        WatchdogPassStatus.Failed,
+                        noneChecked,
+                        allDegraded,
+                        new[] { WatchdogFindingMapper.DegradedRow(historyCheck) },
+                        WatchdogFindingMapper.AppVersionFromBaseDirectory(AppContext.BaseDirectory));
+                },
+                Math.Min(HistoryFailurePersistBudgetSeconds, _settings.PersistTimeoutSeconds),
+                cancellationToken).ConfigureAwait(false);
+
+            await NotifyDatabaseReadFailureAsync(ex, footnote).ConfigureAwait(false);
             return 1;
         }
 
@@ -70,7 +105,7 @@ public sealed class WatchdogRunner
         // persistent one (e.g. schema drift breaking just this query) must not
         // mask overdue reporting behind a generic error forever — see
         // WatchdogReport.Degraded.
-        var degraded = new List<string>();
+        var degraded = new List<DegradedCheck>();
 
         // A watchdog monitoring zero loaders reports "all healthy" forever,
         // which is indistinguishable from a working platform — exactly the
@@ -87,7 +122,7 @@ public sealed class WatchdogRunner
                 "no loaders are configured for monitoring (Platform:Watchdog:Loaders is empty or " +
                 "failed to bind) — this pass can detect nothing";
             _logger.LogWarning(reason);
-            degraded.Add(reason);
+            degraded.Add(new DegradedCheck(WatchdogDegradedCodes.NoLoadersConfigured, reason, reason));
         }
 
         IReadOnlyList<StuckRun> stuck;
@@ -108,7 +143,7 @@ public sealed class WatchdogRunner
         catch (Exception ex)
         {
             _logger.LogError(ex, "Watchdog could not check for stuck runs; continuing with the rest of the pass");
-            degraded.Add(DegradedReason("stuck runs", ex));
+            degraded.Add(DegradedReason(WatchdogDegradedCodes.StuckQuery, "stuck runs", ex));
             stuck = Array.Empty<StuckRun>();
         }
 
@@ -123,7 +158,7 @@ public sealed class WatchdogRunner
         catch (Exception ex)
         {
             _logger.LogError(ex, "Watchdog could not check for recent failures; continuing with the rest of the pass");
-            degraded.Add(DegradedReason("recent failures", ex));
+            degraded.Add(DegradedReason(WatchdogDegradedCodes.FailuresQuery, "recent failures", ex));
             failuresResult = new RecentFailuresResult(Array.Empty<RecentFailure>(), Array.Empty<RecentFailure>());
         }
 
@@ -162,13 +197,39 @@ public sealed class WatchdogRunner
         // hostName is supplied rather than read inside the report, so
         // WatchdogReport.BuildMessage() stays pure and testable.
         var report = WatchdogEvaluator.Evaluate(
-            lastRuns, stuck, failures, _settings, Environment.MachineName, nowCentral, degraded);
+            lastRuns, stuck, failures, _settings, Environment.MachineName, nowCentral,
+            degraded.Select(d => d.EmailLine).ToList());
 
         _logger.LogInformation(
             "Watchdog: {Overdue} overdue, {Stuck} stuck, {Failures} recent failures, " +
             "{Suppressed} suppressed as resolved, {Misconfigured} misconfigured, {Degraded} degraded",
             report.Overdue.Count, report.Stuck.Count, report.RecentFailures.Count,
             failuresResult.Suppressed.Count, report.Misconfigured.Count, report.Degraded.Count);
+
+        // Persist BEFORE notifying, so the email can say if it did not work. Fed from the
+        // same report the email is built from; it changes nothing that is detected or sent.
+        // Built lazily INSIDE PersistAsync's guard: a mapping bug must never cost the email,
+        // and with PersistFindings off nothing here runs at all.
+        var reportForPersistence = report;
+        var persistenceWarning = await PersistAsync(
+            () =>
+            {
+                var (signalsChecked, signalsDegraded) =
+                    WatchdogFindingMapper.ComputeSignals(degraded.Select(d => d.Code));
+                return new WatchdogPassRecord(
+                    startedAtUtc,
+                    Environment.MachineName,
+                    degraded.Count > 0 ? WatchdogPassStatus.Degraded : WatchdogPassStatus.Complete,
+                    signalsChecked,
+                    signalsDegraded,
+                    WatchdogFindingMapper.BuildFindings(reportForPersistence, failuresResult.Suppressed, degraded, _settings),
+                    WatchdogFindingMapper.AppVersionFromBaseDirectory(AppContext.BaseDirectory));
+            },
+            _settings.PersistTimeoutSeconds,
+            cancellationToken).ConfigureAwait(false);
+
+        if (persistenceWarning is not null)
+            report = report.WithPersistenceWarning(persistenceWarning);
 
         NotificationOutcome outcome;
         try
@@ -198,7 +259,7 @@ public sealed class WatchdogRunner
     /// itself failed. An unreachable platform DB is itself worth an alert, and
     /// no loader run can report it — none of them got far enough to try.
     /// </summary>
-    private async Task NotifyDatabaseReadFailureAsync(Exception ex)
+    private async Task NotifyDatabaseReadFailureAsync(Exception ex, string? footnote)
     {
         // One clock read for both fields, not two — see RunFailureReport's
         // Run id/Duration omission, which keys off StartedAtUtc and
@@ -212,7 +273,8 @@ public sealed class WatchdogRunner
             StartedAtUtc = now,
             CompletedAtUtc = now,
             Exception = ex,
-            FailedStage = "Watchdog"
+            FailedStage = "Watchdog",
+            Footnote = footnote
         };
 
         try
@@ -241,8 +303,72 @@ public sealed class WatchdogRunner
     /// an email and redacted the same way every other piece of exception text
     /// reaching a notification is — see <see cref="ErrorTextRedactor"/>.
     /// </summary>
-    private static string DegradedReason(string signal, Exception ex) =>
-        $"{signal} ({ex.GetType().Name}: {ErrorTextRedactor.Clean(ex.Message, MaxDegradedReasonChars)})";
+    private static DegradedCheck DegradedReason(string code, string signal, Exception ex)
+    {
+        var reason = $"{ex.GetType().Name}: {ErrorTextRedactor.Clean(ex.Message, MaxDegradedReasonChars)}";
+        return new DegradedCheck(code, $"{signal} ({reason})", reason);
+    }
+
+    /// <summary>
+    /// Records the pass through <see cref="IWatchdogFindingSink"/>. Returns null on
+    /// success (or when <see cref="WatchdogSettings.PersistFindings"/> is off), else the
+    /// one redacted line the email carries.
+    ///
+    /// <para>Never throws and never touches the exit code: persistence and email are
+    /// independent, and exit 1 still means only "nobody was told". Bounded by
+    /// <see cref="WatchdogSettings.PersistTimeoutSeconds"/>, because it runs before the
+    /// email and must not hold an alert hostage.</para>
+    /// </summary>
+    private async Task<string?> PersistAsync(
+        Func<WatchdogPassRecord> buildPass, int budgetSeconds, CancellationToken cancellationToken)
+    {
+        if (!_settings.PersistFindings) return null;
+
+        var budget = TimeSpan.FromSeconds(Math.Max(MinPersistBudgetSeconds, budgetSeconds));
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(budget);
+
+        Task<WatchdogPersistResult>? recording = null;
+        try
+        {
+            var pass = buildPass();
+            recording = _findingSink.RecordPassAsync(pass, cts.Token);
+
+            // ⚠ WaitAsync makes the budget a HARD bound. The token alone is not one:
+            // SqlConnection.OpenAsync reacts slowly to cancellation during TCP/login, so a
+            // DB-down connect could otherwise hold the alert well past the budget. On
+            // expiry the email goes out; the abandoned call finishes or faults on its own
+            // (an interrupted proc call rolls back — it is one transaction).
+            var result = await recording.WaitAsync(budget, cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Watchdog pass {PassId} persisted: status {Status}, {Findings} finding(s) detected",
+                result.PassId, pass.Status, pass.Findings.Count);
+
+            if (!string.IsNullOrEmpty(result.RetentionError))
+                _logger.LogWarning("Watchdog findings retention sweep failed (the pass itself was recorded): {Error}",
+                    ErrorTextRedactor.Clean(result.RetentionError, MaxDegradedReasonChars));
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            // Never leave a faulted task unobserved after we stopped waiting for it.
+            if (recording is { IsCompleted: false })
+                _ = recording.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+
+            string reason;
+            if (cancellationToken.IsCancellationRequested)
+                reason = "the watchdog was cancelled";
+            else if (ex is TimeoutException || (ex is OperationCanceledException && cts.IsCancellationRequested))
+                reason = $"timed out after {budget.TotalSeconds:F0}s";
+            else
+                reason = $"{ex.GetType().Name}: {ErrorTextRedactor.Clean(ex.Message, MaxDegradedReasonChars)}";
+
+            _logger.LogError(ex, "Watchdog findings were NOT persisted: {Reason}", reason);
+            return $"Findings were NOT persisted: {reason}";
+        }
+    }
 
     /// <summary>
     /// ⚠ Central, not UTC. <c>core.LoaderRun_Summary.StartTime</c> is stored

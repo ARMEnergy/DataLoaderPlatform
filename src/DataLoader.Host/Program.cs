@@ -380,6 +380,10 @@ internal static class Program
         // Watchdog.
         services.Configure<WatchdogSettings>(configuration.GetSection(WatchdogSettings.SectionName));
         services.AddSingleton<IWatchdogRepository, SqlWatchdogRepository>();
+        // Findings persistence (sql/Core/007). Always registered; WatchdogRunner checks
+        // Platform:Watchdog:PersistFindings, so it can be switched off without a redeploy.
+        services.AddSingleton<IWatchdogFindingStore, SqlWatchdogFindingStore>();
+        services.AddSingleton<IWatchdogFindingSink, WatchdogFindingSink>();
         services.AddSingleton<WatchdogRunner>();
 
         // Every discovered module gets to register its services. The host

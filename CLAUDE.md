@@ -757,6 +757,40 @@ produce a database it can read. Nothing sweeps `core.LoaderRun` either (the
 rows accumulate forever; the watchdog's stuck-run query is bounded by
 `StuckLookbackDays` and this host for that reason.
 
+**The watchdog persists its findings (added 2026-11-12, for the DBA Agent).** Each pass
+records itself in `core.WatchdogPass` (one row per pass; `MAX(StartedAtUtc)` is the
+heartbeat the off-box check reads) and its findings in `core.WatchdogFinding` (one row
+per finding from first detection to resolution, read through
+`core.vw_WatchdogFinding_Open`), via `core.usp_RecordWatchdogPass` — `sql/Core/007`.
+It is an ADDITIONAL sink fed from the same `WatchdogReport`: detection, email and exit
+codes are unchanged, persistence runs **before** the email (bounded by
+`PersistTimeoutSeconds`) so a failure adds one line, `Findings were NOT persisted: …`,
+and `Platform:Watchdog:PersistFindings=false` turns it off without a redeploy. Detection
+only — ack/notification state belongs to the DBA Agent. Four rules are silent if you get
+them wrong:
+- ⚠ **A degraded check never resolves anything.** A finding closes only if its signal is
+  in `SignalsChecked`; each stable degraded code blinds specific signals
+  (`WatchdogDegradedCodes.SignalsBlindedBy`). `NO_LOADERS_CONFIGURED` must blind OVERDUE
+  and MISCONFIGURED, or an empty `Loaders` section would close every open OVERDUE as
+  fixed; a `HISTORY_QUERY` failure checks nothing and is recorded as a `Failed` pass that
+  closes nothing.
+- ⚠ **Ageing out is not being fixed.** A STUCK run still open in `core.LoaderRun`, or a
+  FAILED run with no confirmed recovery, closes as `AgedOutUnresolved`, never
+  `NotDetected`. FAILED's verdict reuses `WatchdogFailureResolver` without the window
+  (passed as `@ResolvedHints`) so resolution is never re-implemented in T-SQL; if that
+  read fails, FAILED is treated as degraded for the pass (`DEGRADED|FAILURE_RESOLUTION`).
+- ⚠ **A self-healed failure stays in the 2h window for ~2 passes**, so a suppressed row is
+  inserted already resolved only if NO row with its key exists, and one arriving for an
+  OPEN key closes that row as `SelfHealed` — otherwise trend history double-counts.
+- ⚠ **`HoursSinceLastRun` is `+∞` for a never-run loader** and `System.Text.Json` throws on
+  it; `DetailJson` writes it as `null` with `neverRun: true`.
+The proc uses table variables, not `#temp` tables, because this database's collation
+(`Latin1_General_CI_AS_KS_WS`) differs from the server's. Deploy order is **SQL first,
+then the release**, and the deploy's own `--watchdog` smoke test records a real pass.
+Its closure rules are tested by `sql/Core/tests/007_WatchdogFindings.Tests.sql`
+(rollback-only, single transaction — still a write, so DEV only). See
+`docs/runbooks/watchdog-findings.md`.
+
 See `docs/superpowers/specs/2026-10-24-failure-notifications-design.md`.
 
 ## Log rotation

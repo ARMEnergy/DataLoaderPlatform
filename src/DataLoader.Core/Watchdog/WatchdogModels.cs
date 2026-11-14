@@ -25,9 +25,13 @@ public sealed record StuckRun(Guid RunId, DateTime StartedAtUtc, string? HostNam
 /// <see cref="WatchdogSettings.SkipAlertIfResolved"/> is off, nothing is evaluated and
 /// this equals <see cref="UnitsFailed"/> — "unresolved" here means "not checked", not
 /// "confirmed still broken", which is exactly the pre-feature behaviour.</para>
+///
+/// <para><see cref="RunId"/> is the <c>core.LoaderRun</c> GUID — the identity of the
+/// persisted <c>FAILED|&lt;RunId&gt;</c> finding (see <see cref="WatchdogFindingMapper"/>).
+/// Not shown in the email.</para>
 /// </summary>
 public sealed record RecentFailure(
-    string LoaderName, DateTime StartTimeCentral, int UnitsFailed, int UnitsTotal, int UnresolvedUnits);
+    Guid RunId, string LoaderName, DateTime StartTimeCentral, int UnitsFailed, int UnitsTotal, int UnresolvedUnits);
 
 /// <summary>A loader that has not run recently enough.</summary>
 public sealed record OverdueLoader(
@@ -80,3 +84,120 @@ public sealed record SuccessfulWorkUnit(
 /// </summary>
 public sealed record RecentFailuresResult(
     IReadOnlyList<RecentFailure> Failures, IReadOnlyList<RecentFailure> Suppressed);
+
+// ------------------------------------------------------------------------------------
+// Persistence (core.WatchdogPass / core.WatchdogFinding — sql/Core/007). These describe
+// what a pass RECORDS, which is detection only: acknowledgement and notification state
+// belong to the DBA Agent, never here.
+// ------------------------------------------------------------------------------------
+
+/// <summary>
+/// Signal codes, exactly as the <c>CK_WatchdogFinding_Signal</c> CHECK constraint and
+/// <c>core.WatchdogPass.SignalsChecked</c> spell them. Part of the persisted contract —
+/// the DBA Agent keys on these, so never rename one.
+/// </summary>
+public static class WatchdogSignals
+{
+    public const string Overdue = "OVERDUE";
+    public const string Stuck = "STUCK";
+    public const string Failed = "FAILED";
+    public const string Misconfigured = "MISCONFIGURED";
+    public const string Degraded = "DEGRADED";
+
+    /// <summary>Every signal a normal pass evaluates, in the order they are listed.</summary>
+    public static readonly IReadOnlyList<string> All = new[] { Overdue, Misconfigured, Stuck, Failed, Degraded };
+}
+
+/// <summary>
+/// Stable codes for a check that could not run. The human reason changes with every
+/// exception; the code does not, so it is what <c>DEGRADED|&lt;code&gt;</c> keys on.
+/// </summary>
+public static class WatchdogDegradedCodes
+{
+    /// <summary>The primary history query failed — the pass knows nothing.</summary>
+    public const string HistoryQuery = "HISTORY_QUERY";
+    public const string StuckQuery = "STUCK_QUERY";
+    public const string FailuresQuery = "FAILURES_QUERY";
+    public const string NoLoadersConfigured = "NO_LOADERS_CONFIGURED";
+
+    /// <summary>
+    /// Persistence-only: the sink could not work out whether an open FAILED finding that
+    /// left the look-back window had self-healed. FAILED is then treated as degraded for
+    /// this pass, so nothing closes on a guess. Never appears in the email.
+    /// </summary>
+    public const string FailureResolution = "FAILURE_RESOLUTION";
+
+    /// <summary>
+    /// Which signals each code blinds. A code not listed here blinds nothing extra.
+    ///
+    /// <para>⚠ NO_LOADERS_CONFIGURED must blind OVERDUE and MISCONFIGURED: with an empty
+    /// <c>Loaders</c> section the evaluator reports nothing, and treating that as "checked"
+    /// would close every open OVERDUE finding — silence mistaken for health.</para>
+    /// </summary>
+    public static IReadOnlyList<string> SignalsBlindedBy(string code) => code switch
+    {
+        HistoryQuery => WatchdogSignals.All,
+        NoLoadersConfigured => new[] { WatchdogSignals.Overdue, WatchdogSignals.Misconfigured },
+        StuckQuery => new[] { WatchdogSignals.Stuck },
+        FailuresQuery or FailureResolution => new[] { WatchdogSignals.Failed },
+        _ => Array.Empty<string>()
+    };
+}
+
+/// <summary>
+/// One check that could not run. <see cref="EmailLine"/> is exactly the string the email
+/// has always shown under COULD NOT CHECK; <see cref="Reason"/> is the short redacted
+/// exception text persisted in <c>DetailJson.reason</c>.
+/// </summary>
+public sealed record DegradedCheck(string Code, string EmailLine, string Reason);
+
+/// <summary>Pass-level status, as the <c>CK_WatchdogPass_Status</c> constraint spells it.</summary>
+public enum WatchdogPassStatus
+{
+    Complete,
+    Degraded,
+
+    /// <summary>The primary history query failed.</summary>
+    Failed
+}
+
+/// <summary>
+/// One row of <c>core.WatchdogFindingType</c>. Property ORDER mirrors the TVP's column
+/// order, which <c>SqlWatchdogFindingSink.BuildFindingsTable</c> must match by name,
+/// order and type.
+/// </summary>
+public sealed record WatchdogFindingRow(
+    string FindingKey,
+    string Signal,
+    string? LoaderName,
+    Guid? RunId,
+    string Severity,
+    string Summary,
+    string DetailJson,
+    bool IsSuppressed);
+
+/// <summary>What one pass hands the sink.</summary>
+public sealed record WatchdogPassRecord(
+    DateTime StartedAtUtc,
+    string HostName,
+    WatchdogPassStatus Status,
+    IReadOnlyList<string> SignalsChecked,
+    IReadOnlyList<string> SignalsDegraded,
+    IReadOnlyList<WatchdogFindingRow> Findings,
+    string? AppVersion);
+
+/// <summary>One currently-open finding, as read back from <c>core.vw_WatchdogFinding_Open</c>.</summary>
+public sealed record OpenWatchdogFinding(string FindingKey, string Signal, string? LoaderName, Guid? RunId);
+
+/// <summary>One row of <c>core.WatchdogResolutionHintType</c>.</summary>
+public sealed record WatchdogResolutionHint(string FindingKey, string ResolutionReason);
+
+/// <summary>Resolution reasons, as the <c>CK_WatchdogFinding_ResolutionReason</c> constraint spells them.</summary>
+public static class WatchdogResolutionReasons
+{
+    public const string NotDetected = "NotDetected";
+    public const string SelfHealed = "SelfHealed";
+    public const string AgedOutUnresolved = "AgedOutUnresolved";
+    public const string LoaderDisabled = "LoaderDisabled";
+    public const string ConfigRemoved = "ConfigRemoved";
+}

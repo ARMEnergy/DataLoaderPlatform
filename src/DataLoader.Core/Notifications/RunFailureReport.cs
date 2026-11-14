@@ -40,6 +40,13 @@ public sealed class RunFailureReport : INotificationPayload
     /// </summary>
     public string? FailedStage { get; init; }
 
+    /// <summary>
+    /// One extra line rendered just above "Full output" — today only the watchdog's
+    /// "Findings were NOT persisted: …" when its history read failed. Redacted again on
+    /// render. Does not affect <see cref="ShouldNotify"/>.
+    /// </summary>
+    public string? Footnote { get; init; }
+
     private const int MaxErrorChars = 2000;
 
     /// <summary>
@@ -230,6 +237,12 @@ public sealed class RunFailureReport : INotificationPayload
 
                 AppendFailedUnits(sb, r);
             }
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrEmpty(Footnote))
+        {
+            sb.AppendLine(ErrorTextRedactor.Clean(Footnote, MaxErrorChars));
             sb.AppendLine();
         }
 

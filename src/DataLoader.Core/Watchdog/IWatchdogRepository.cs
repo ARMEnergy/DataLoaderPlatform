@@ -1,8 +1,9 @@
 namespace DataLoader.Core.Watchdog;
 
 /// <summary>
-/// Reads the run history the watchdog evaluates. Read-only by construction —
-/// the watchdog adds no SQL objects and writes nothing.
+/// Reads the run history the watchdog evaluates. Read-only by construction.
+/// The watchdog's only write is <see cref="IWatchdogFindingSink"/>, a separate
+/// component with its own objects (<c>sql/Core/007</c>).
 /// </summary>
 public interface IWatchdogRepository
 {
@@ -29,4 +30,14 @@ public interface IWatchdogRepository
     /// </summary>
     Task<RecentFailuresResult> GetRecentFailuresAsync(
         int lookbackHours, DateTime nowCentral, bool skipAlertIfResolved, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs <see cref="WatchdogFailureResolver"/> for the given failed runs with NO time
+    /// window — used by the findings sink to decide whether an open FAILED finding that
+    /// has left the look-back window self-healed (<see cref="RecentFailuresResult.Suppressed"/>)
+    /// or aged out still broken (<see cref="RecentFailuresResult.Failures"/>). A RunId with
+    /// no <c>Success = 0</c> summary row is absent from both lists.
+    /// </summary>
+    Task<RecentFailuresResult> ResolveFailuresByRunIdAsync(
+        IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken);
 }

@@ -54,6 +54,11 @@ public class WatchdogRunnerTests
                 ? Task.FromException<RecentFailuresResult>(ThrowOnFailures)
                 : Task.FromResult(new RecentFailuresResult(Failures, Suppressed));
         }
+
+        public RecentFailuresResult ResolvedByRunId = new(Array.Empty<RecentFailure>(), Array.Empty<RecentFailure>());
+
+        public Task<RecentFailuresResult> ResolveFailuresByRunIdAsync(IReadOnlyCollection<Guid> runIds, CancellationToken ct) =>
+            Task.FromResult(ResolvedByRunId);
     }
 
     /// <summary>Captures formatted log lines so a test can assert on their content,
@@ -88,6 +93,14 @@ public class WatchdogRunnerTests
     /// interface's doc comment — matching PlatformHost.ReportRunOutcomeAsync's
     /// identical defensive wrap around the same call.
     /// </summary>
+    /// <summary>Persistence is covered by WatchdogRunnerPersistenceTests; these tests pin
+    /// the pre-existing detection and email behaviour, which must not change.</summary>
+    private sealed class NoopSink : IWatchdogFindingSink
+    {
+        public Task<WatchdogPersistResult> RecordPassAsync(WatchdogPassRecord pass, CancellationToken ct) =>
+            Task.FromResult(new WatchdogPersistResult(1, null));
+    }
+
     private sealed class ThrowingNotifier : IFailureNotifier
     {
         public Task<NotificationOutcome> NotifyAsync(INotificationPayload payload, CancellationToken ct) =>
@@ -106,12 +119,12 @@ public class WatchdogRunnerTests
             settings.Loaders[loader] = new WatchdogLoaderSettings { MaxGapHours = gap };
 
         return new WatchdogRunner(
-            repo, notifier, Options.Create(settings), NullLogger<WatchdogRunner>.Instance);
+            repo, notifier, new NoopSink(), Options.Create(settings), NullLogger<WatchdogRunner>.Instance);
     }
 
     private static WatchdogRunner Build(
         FakeRepository repo, IFailureNotifier notifier, WatchdogSettings settings, ILogger<WatchdogRunner> logger) =>
-        new(repo, notifier, Options.Create(settings), logger);
+        new(repo, notifier, new NoopSink(), Options.Create(settings), logger);
 
     [Fact]
     public async Task ExitsZeroAndSendsNothing_WhenEverythingIsHealthy()
@@ -341,8 +354,8 @@ public class WatchdogRunnerTests
             LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) },
             Failures =
             {
-                new RecentFailure("Platts", DateTime.Now.AddHours(-2), 3, 14, 3),
-                new RecentFailure("EnergyAspects", DateTime.Now.AddHours(-1), 1, 7, 1)
+                new RecentFailure(Guid.NewGuid(), "Platts", DateTime.Now.AddHours(-2), 3, 14, 3),
+                new RecentFailure(Guid.NewGuid(), "EnergyAspects", DateTime.Now.AddHours(-1), 1, 7, 1)
             }
         };
         var settings = new WatchdogSettings { SkipAlertIfResolved = false };
@@ -365,7 +378,7 @@ public class WatchdogRunnerTests
         var repo = new FakeRepository
         {
             LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) },
-            Suppressed = { new RecentFailure("Platts", DateTime.Now.AddHours(-2), 3, 14, 0) }
+            Suppressed = { new RecentFailure(Guid.NewGuid(), "Platts", DateTime.Now.AddHours(-2), 3, 14, 0) }
         };
         var notifier = new FakeNotifier();
 
@@ -386,8 +399,8 @@ public class WatchdogRunnerTests
             LastRuns = { new LoaderLastRun("Platts", DateTime.Now.AddHours(-1)) },
             Suppressed =
             {
-                new RecentFailure("Platts", DateTime.Now.AddHours(-2), 3, 14, 0),
-                new RecentFailure("AGSI", DateTime.Now.AddHours(-3), 25, 2630, 0)
+                new RecentFailure(Guid.NewGuid(), "Platts", DateTime.Now.AddHours(-2), 3, 14, 0),
+                new RecentFailure(Guid.NewGuid(), "AGSI", DateTime.Now.AddHours(-3), 25, 2630, 0)
             }
         };
         var notifier = new FakeNotifier();

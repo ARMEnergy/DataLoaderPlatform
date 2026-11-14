@@ -41,6 +41,17 @@ public sealed class WatchdogReport : INotificationPayload
     /// </summary>
     public IReadOnlyList<string> Degraded { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// One line — <c>Findings were NOT persisted: &lt;redacted reason&gt;</c> — when the
+    /// findings sink failed this pass; null otherwise.
+    ///
+    /// <para>⚠ Deliberately NOT part of <see cref="ShouldNotify"/>: persistence is an
+    /// additional sink, and the email's "when to send" rules stay exactly as they were.
+    /// A persistence failure on an all-clear pass is logged at Error and shows up as a
+    /// missing <c>core.WatchdogPass</c> row, which the off-box heartbeat check watches.</para>
+    /// </summary>
+    public string? PersistenceWarning { get; init; }
+
     public bool ShouldNotify =>
         Overdue.Count > 0 || Stuck.Count > 0 || RecentFailures.Count > 0 ||
         Misconfigured.Count > 0 || Degraded.Count > 0;
@@ -85,12 +96,7 @@ public sealed class WatchdogReport : INotificationPayload
             sb.AppendLine("OVERDUE — expected to have run by now");
             sb.AppendLine(new string('-', 60));
             foreach (var o in Overdue.OrderByDescending(o => o.HoursSinceLastRun))
-            {
-                sb.AppendLine(o.LastStartCentral is null
-                    ? $"  {o.LoaderName}: has NEVER run (threshold {o.MaxGapHours}h)"
-                    : $"  {o.LoaderName}: last started {o.LastStartCentral:yyyy-MM-dd HH:mm} Central, " +
-                      $"{o.HoursSinceLastRun:F1}h ago (threshold {o.MaxGapHours}h)");
-            }
+                sb.AppendLine($"  {OverdueLine(o)}");
             sb.AppendLine();
         }
 
@@ -99,7 +105,7 @@ public sealed class WatchdogReport : INotificationPayload
             sb.AppendLine("STUCK — a run row that never closed, i.e. the process was killed");
             sb.AppendLine(new string('-', 60));
             foreach (var s in Stuck.OrderBy(s => s.StartedAtUtc))
-                sb.AppendLine($"  {s.RunId} started {s.StartedAtUtc:yyyy-MM-dd HH:mm} UTC on {s.HostName ?? "unknown host"}");
+                sb.AppendLine($"  {StuckLine(s)}");
             sb.AppendLine();
         }
 
@@ -108,18 +114,7 @@ public sealed class WatchdogReport : INotificationPayload
             sb.AppendLine("RECENT FAILURES");
             sb.AppendLine(new string('-', 60));
             foreach (var f in RecentFailures.OrderByDescending(f => f.StartTimeCentral))
-            {
-                // Shown only when it adds information: if UnresolvedUnits == UnitsFailed,
-                // either nothing resolved yet or resolution was never evaluated
-                // (SkipAlertIfResolved = false) — either way the plain count already says
-                // everything there is to say, and this keeps that path's text identical to
-                // before this feature existed.
-                var unresolvedSuffix = f.UnresolvedUnits < f.UnitsFailed
-                    ? $" ({f.UnresolvedUnits} unresolved)"
-                    : string.Empty;
-                sb.AppendLine($"  {f.LoaderName}: {f.StartTimeCentral:yyyy-MM-dd HH:mm} Central, " +
-                              $"{f.UnitsFailed}/{f.UnitsTotal} units failed{unresolvedSuffix}");
-            }
+                sb.AppendLine($"  {FailureLine(f)}");
             sb.AppendLine();
         }
 
@@ -128,8 +123,7 @@ public sealed class WatchdogReport : INotificationPayload
             sb.AppendLine("MISCONFIGURED — threshold missing or invalid, neither healthy nor overdue");
             sb.AppendLine(new string('-', 60));
             foreach (var name in Misconfigured.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
-                sb.AppendLine($"  {name}: MaxGapHours is missing or <= 0 " +
-                              $"(Platform:Watchdog:Loaders:{name}:MaxGapHours)");
+                sb.AppendLine($"  {MisconfiguredLine(name)}");
             sb.AppendLine();
         }
 
@@ -147,7 +141,62 @@ public sealed class WatchdogReport : INotificationPayload
         // reads the alert. It is its own scheduled task with its own log, at
         // Log\Watchdog.log, once IT wires the \DLP\Watchdog task to redirect
         // its console output there the same way every other `.cmd` launcher does.
+        if (!string.IsNullOrEmpty(PersistenceWarning))
+        {
+            sb.AppendLine(PersistenceWarning);
+            sb.AppendLine();
+        }
+
         sb.AppendLine(@"Full output: C:\ETL_Tools\DataLoaderPlatform\Log\Watchdog.log");
         return sb.ToString();
     }
+
+    // ---------------------------------------------------------------------------------
+    // One line per finding, shared with WatchdogFindingMapper so the persisted Summary is
+    // the SAME text as the email line and the two cannot drift. The email indents each
+    // line by two spaces; these return it unindented.
+    // ---------------------------------------------------------------------------------
+
+    internal static string OverdueLine(OverdueLoader o) =>
+        o.LastStartCentral is null
+            ? $"{o.LoaderName}: has NEVER run (threshold {o.MaxGapHours}h)"
+            : $"{o.LoaderName}: last started {o.LastStartCentral:yyyy-MM-dd HH:mm} Central, " +
+              $"{o.HoursSinceLastRun:F1}h ago (threshold {o.MaxGapHours}h)";
+
+    internal static string StuckLine(StuckRun s) =>
+        $"{s.RunId} started {s.StartedAtUtc:yyyy-MM-dd HH:mm} UTC on {s.HostName ?? "unknown host"}";
+
+    internal static string FailureLine(RecentFailure f)
+    {
+        // Shown only when it adds information: if UnresolvedUnits == UnitsFailed,
+        // either nothing resolved yet or resolution was never evaluated
+        // (SkipAlertIfResolved = false) — either way the plain count already says
+        // everything there is to say, and this keeps that path's text identical to
+        // before this feature existed.
+        var unresolvedSuffix = f.UnresolvedUnits < f.UnitsFailed
+            ? $" ({f.UnresolvedUnits} unresolved)"
+            : string.Empty;
+        return $"{f.LoaderName}: {f.StartTimeCentral:yyyy-MM-dd HH:mm} Central, " +
+               $"{f.UnitsFailed}/{f.UnitsTotal} units failed{unresolvedSuffix}";
+    }
+
+    internal static string MisconfiguredLine(string name) =>
+        $"{name}: MaxGapHours is missing or <= 0 (Platform:Watchdog:Loaders:{name}:MaxGapHours)";
+
+    /// <summary>
+    /// A copy of this report carrying <paramref name="warning"/> as
+    /// <see cref="PersistenceWarning"/>. The report is otherwise immutable, and the
+    /// warning is only known after the evaluator built it.
+    /// </summary>
+    public WatchdogReport WithPersistenceWarning(string? warning) => new()
+    {
+        HostName = HostName,
+        GeneratedAtCentral = GeneratedAtCentral,
+        Overdue = Overdue,
+        Stuck = Stuck,
+        RecentFailures = RecentFailures,
+        Misconfigured = Misconfigured,
+        Degraded = Degraded,
+        PersistenceWarning = warning
+    };
 }

@@ -272,7 +272,7 @@ public class WatchdogEvaluatorTests
         var report = Evaluate(
             Settings(("Platts", 26)),
             new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-1)) },
-            failures: new[] { new RecentFailure("Platts", NowCentral.AddHours(-2), 3, 14, 3) });
+            failures: new[] { new RecentFailure(Guid.NewGuid(), "Platts", NowCentral.AddHours(-2), 3, 14, 3) });
 
         Assert.True(report.ShouldNotify);
     }
@@ -332,7 +332,7 @@ public class WatchdogEvaluatorTests
             Settings(("Platts", 26)),
             new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-30)) },
             stuck: new[] { new StuckRun(Guid.NewGuid(), DateTime.UtcNow.AddHours(-20), "ARMH-OPSDB01") },
-            failures: new[] { new RecentFailure("EnergyAspects", NowCentral.AddHours(-2), 3, 14, 3) });
+            failures: new[] { new RecentFailure(Guid.NewGuid(), "EnergyAspects", NowCentral.AddHours(-2), 3, 14, 3) });
 
         var message = report.BuildMessage();
 
@@ -352,7 +352,7 @@ public class WatchdogEvaluatorTests
         var report = Evaluate(
             Settings(("AGSI", 26)),
             new[] { new LoaderLastRun("AGSI", NowCentral.AddHours(-1)) },
-            failures: new[] { new RecentFailure("AGSI", NowCentral.AddHours(-2), 3, 2630, 1) });
+            failures: new[] { new RecentFailure(Guid.NewGuid(), "AGSI", NowCentral.AddHours(-2), 3, 2630, 1) });
 
         var body = report.BuildMessage().Body;
 
@@ -369,7 +369,7 @@ public class WatchdogEvaluatorTests
         var report = Evaluate(
             Settings(("Platts", 26)),
             new[] { new LoaderLastRun("Platts", NowCentral.AddHours(-1)) },
-            failures: new[] { new RecentFailure("Platts", NowCentral.AddHours(-2), 3, 14, 3) });
+            failures: new[] { new RecentFailure(Guid.NewGuid(), "Platts", NowCentral.AddHours(-2), 3, 14, 3) });
 
         var body = report.BuildMessage().Body;
 
