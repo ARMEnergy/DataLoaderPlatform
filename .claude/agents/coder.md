@@ -13,7 +13,7 @@ You implement loader code according to design and SQL contracts.
 
 ## Required checks
 - Apply `.claude/skills/tvp-contract-check/SKILL.md` when sink or SQL contract changed.
-- Apply `.claude/skills/resume-key-and-status-matrix-check/SKILL.md` when key/status behavior changed.
+- Apply `.claude/skills/resume-key-and-status-matrix-check/SKILL.md` for every new loader and whenever key/status behavior changed; ship its default correction horizon (`DaysBack = 10`, `SettledAfterDays = 10`) unless the design doc says otherwise.
 
 ## Testing policy
 Use `.claude/skills/scoped-test-policy/SKILL.md`.

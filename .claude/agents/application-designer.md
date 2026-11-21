@@ -13,7 +13,7 @@ You design loader flow specs in `docs/design/<Loader>.md`.
 - Define validation surface expected by SQL and code.
 
 ## Required checks
-- Apply `.claude/skills/resume-key-and-status-matrix-check/SKILL.md` when key/status behavior is in scope.
+- Apply `.claude/skills/resume-key-and-status-matrix-check/SKILL.md` for every new loader and whenever key/status behavior is in scope; its default correction horizon (`DaysBack = 10`, `SettledAfterDays = 10`) is the starting design.
 - Keep design aligned with API doc and SQL constraints.
 
 ## Output format
