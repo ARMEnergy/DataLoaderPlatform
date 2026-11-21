@@ -59,6 +59,14 @@ public class WatchdogRunnerTests
 
         public Task<RecentFailuresResult> ResolveFailuresByRunIdAsync(IReadOnlyCollection<Guid> runIds, CancellationToken ct) =>
             Task.FromResult(ResolvedByRunId);
+
+        // DATA_VOLUME reads (added with the signal). Never reached while
+        // Platform:Watchdog:DataVolume:Enabled is off, which every test here leaves it.
+        public Task<IReadOnlyList<DailyVolume>> GetDailyVolumesAsync(DateOnly f, DateOnly t, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<DailyVolume>>(Array.Empty<DailyVolume>());
+
+        public Task<IReadOnlyList<VolumeLoaderDay>> GetVolumeExcludedDaysAsync(DateOnly f, DateOnly t, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<VolumeLoaderDay>>(Array.Empty<VolumeLoaderDay>());
     }
 
     /// <summary>Captures formatted log lines so a test can assert on their content,

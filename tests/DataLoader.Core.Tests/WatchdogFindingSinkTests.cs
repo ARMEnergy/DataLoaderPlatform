@@ -49,6 +49,14 @@ public class WatchdogFindingSinkTests
             if (ThrowOnResolve is not null) throw ThrowOnResolve;
             return Resolution;
         }
+
+        // DATA_VOLUME reads (added with the signal). Never reached while
+        // Platform:Watchdog:DataVolume:Enabled is off, which every test here leaves it.
+        public Task<IReadOnlyList<DailyVolume>> GetDailyVolumesAsync(DateOnly f, DateOnly t, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<DailyVolume>>(Array.Empty<DailyVolume>());
+
+        public Task<IReadOnlyList<VolumeLoaderDay>> GetVolumeExcludedDaysAsync(DateOnly f, DateOnly t, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<VolumeLoaderDay>>(Array.Empty<VolumeLoaderDay>());
     }
 
     private static WatchdogFindingSink Sink(FakeStore store, FakeRepository repo, WatchdogSettings? settings = null) =>

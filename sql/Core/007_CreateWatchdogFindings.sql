@@ -45,6 +45,10 @@
 --
 -- Re-runnable: tables/types/indexes are creation-guarded, the proc and view use
 -- CREATE OR ALTER (which keeps their grants), and the grants are idempotent.
+--
+-- ⚠ SUPERSEDED PROC: 008_WatchdogDataVolume.sql replaces core.usp_RecordWatchdogPass
+--   (adds DATA_VOLUME closure hints and 'KeepOpen'). Re-running THIS script
+--   reverts the proc to the body below -- re-run 008 afterwards.
 -- =============================================================================
 
 USE DataLoaderPlatform;

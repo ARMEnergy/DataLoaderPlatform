@@ -31,12 +31,18 @@ public static class WatchdogFindingMapper
     /// flagged <see cref="WatchdogFindingRow.IsSuppressed"/> so the proc records them
     /// already resolved. De-duplicated by key, case-insensitively, because the TVP's
     /// primary key is compared in a case-insensitive collation.
+    ///
+    /// <para><paramref name="volumeAnomalies"/> are passed SEPARATELY from the report: they
+    /// are persisted whether or not they are emailed, and the report only carries them when
+    /// <see cref="WatchdogDataVolumeSettings.Notify"/> is on. Reading them off the report
+    /// would make persistence depend on the email setting.</para>
     /// </summary>
     public static IReadOnlyList<WatchdogFindingRow> BuildFindings(
         WatchdogReport report,
         IReadOnlyList<RecentFailure> suppressed,
         IReadOnlyList<DegradedCheck> degradedChecks,
-        WatchdogSettings settings)
+        WatchdogSettings settings,
+        IReadOnlyList<VolumeAnomaly>? volumeAnomalies = null)
     {
         var rows = new List<WatchdogFindingRow>();
 
@@ -110,6 +116,9 @@ public static class WatchdogFindingMapper
         foreach (var f in suppressed)
             rows.Add(FailureRow(f, settings, isSuppressed: true));
 
+        foreach (var a in volumeAnomalies ?? Array.Empty<VolumeAnomaly>())
+            rows.Add(VolumeRow(a, settings));
+
         foreach (var d in degradedChecks)
             rows.Add(DegradedRow(d));
 
@@ -149,6 +158,127 @@ public static class WatchdogFindingMapper
 
         return (WatchdogSignals.All.Where(s => !blinded.Contains(s)).ToList(),
                 WatchdogSignals.All.Where(blinded.Contains).ToList());
+    }
+
+    /// <summary>
+    /// <see cref="ComputeSignals(IEnumerable{string})"/> plus, when
+    /// <paramref name="includeDataVolume"/>, <c>DATA_VOLUME</c> appended to whichever list
+    /// applies — degraded if <c>VOLUME_QUERY</c>, <c>NO_LOADERS_CONFIGURED</c> or
+    /// <c>HISTORY_QUERY</c> blinds it, else checked.
+    ///
+    /// <para><paramref name="includeDataVolume"/> means "the volume check was in scope this
+    /// pass": <see cref="WatchdogDataVolumeSettings.Enabled"/> and a valid section. With it
+    /// false the result is identical to the one-argument overload, which is what keeps a
+    /// disabled pass byte-for-byte unchanged. The A4 master-switch-off case is added later
+    /// by the sink, which is the component that knows whether anything is open.</para>
+    /// </summary>
+    public static (IReadOnlyList<string> Checked, IReadOnlyList<string> Degraded) ComputeSignals(
+        IEnumerable<string> degradedCodes, bool includeDataVolume)
+    {
+        var codes = degradedCodes.ToList();
+        var (chk, deg) = ComputeSignals(codes);
+        if (!includeDataVolume) return (chk, deg);
+
+        var blinded = codes.SelectMany(WatchdogDegradedCodes.SignalsBlindedBy).Contains(WatchdogSignals.DataVolume);
+        return blinded
+            ? (chk, deg.Append(WatchdogSignals.DataVolume).ToList())
+            : (chk.Append(WatchdogSignals.DataVolume).ToList(), deg);
+    }
+
+    /// <summary>
+    /// Closing hints for open <c>DATA_VOLUME</c> findings NOT re-detected this pass (design
+    /// §A3/§A4). First match wins:
+    /// <list type="number">
+    /// <item><paramref name="masterSwitchOff"/> → <c>LoaderDisabled</c> (§A4).</item>
+    /// <item>Key that does not parse (no day) → <c>AgedOutUnresolved</c>: it can never be judged.</item>
+    /// <item>Loader gone from <c>Platform:Watchdog:Loaders</c> → <c>ConfigRemoved</c>.</item>
+    /// <item>Loader <c>Enabled = false</c> or <c>Volume.Enabled = false</c> → <c>LoaderDisabled</c>.</item>
+    /// <item>Day older than <see cref="WatchdogVolumeResult.WindowStart"/> → <c>AgedOutUnresolved</c>.</item>
+    /// <item>Day judged in range this pass → no hint (the proc closes it <c>NotDetected</c> — the rerun case).</item>
+    /// <item>Loader has <c>BaselineFromCentral</c> ≤ the day → no hint (<c>NotDetected</c>: the owner
+    /// declared that level normal).</item>
+    /// <item>Anything else → <c>KeepOpen</c>: in the window but not judgeable, so neither fixed
+    /// nor aged out.</item>
+    /// </list>
+    ///
+    /// <para>⚠ The caller must only call this when <c>DATA_VOLUME</c> is in
+    /// <c>SignalsChecked</c> (or for the A4 case). With <paramref name="volume"/> null and the
+    /// master switch on — which a correct runner never produces — every finding gets
+    /// <c>KeepOpen</c>: an outcome nobody computed must never close anything.</para>
+    /// </summary>
+    public static IReadOnlyList<WatchdogResolutionHint> BuildVolumeHints(
+        IReadOnlyList<OpenWatchdogFinding> open,
+        IReadOnlyList<WatchdogFindingRow> current,
+        WatchdogSettings settings,
+        WatchdogVolumeResult? volume,
+        bool masterSwitchOff)
+    {
+        var currentKeys = new HashSet<string>(current.Select(c => c.FindingKey), StringComparer.OrdinalIgnoreCase);
+        var loaders = settings.Loaders ?? new Dictionary<string, WatchdogLoaderSettings>(StringComparer.OrdinalIgnoreCase);
+        var judged = new HashSet<(string, DateOnly)>(
+            (volume?.JudgedInRange ?? Array.Empty<VolumeLoaderDay>())
+            .Select(j => (j.LoaderName.ToUpperInvariant(), j.DayCentral)));
+
+        var hints = new List<WatchdogResolutionHint>();
+        foreach (var o in open)
+        {
+            if (o.Signal != WatchdogSignals.DataVolume || currentKeys.Contains(o.FindingKey)) continue;
+
+            if (masterSwitchOff)
+            {
+                hints.Add(new(o.FindingKey, WatchdogResolutionReasons.LoaderDisabled));
+                continue;
+            }
+
+            // A key that does not parse has no day, so it can never be judged or re-detected:
+            // KeepOpen would leave it open forever. Close it as aged out — explicitly NOT fixed.
+            if (SqlWatchdogRepository.ParseVolumeFindingKey(o.FindingKey) is not { } p)
+            {
+                hints.Add(new(o.FindingKey, WatchdogResolutionReasons.AgedOutUnresolved));
+                continue;
+            }
+
+            var entry = loaders.FirstOrDefault(
+                kv => string.Equals(kv.Key, p.LoaderName, StringComparison.OrdinalIgnoreCase));
+            if (entry.Key is null)
+            {
+                hints.Add(new(o.FindingKey, WatchdogResolutionReasons.ConfigRemoved));
+                continue;
+            }
+            if (entry.Value is { Enabled: false } || entry.Value?.Volume is { Enabled: false })
+            {
+                hints.Add(new(o.FindingKey, WatchdogResolutionReasons.LoaderDisabled));
+                continue;
+            }
+
+            // From here on the decision needs this pass's outcome.
+            if (volume is null)
+            {
+                hints.Add(new(o.FindingKey, WatchdogResolutionHints.KeepOpen));
+                continue;
+            }
+
+            // Only OLDER than the window ages out. A day NEWER than the window end — yesterday
+            // on a pass before SettleHours — is simply not judgeable yet and falls through to
+            // KeepOpen below.
+            if (p.DayCentral < volume.WindowStart)
+            {
+                hints.Add(new(o.FindingKey, WatchdogResolutionReasons.AgedOutUnresolved));
+                continue;
+            }
+
+            if (p.DayCentral <= volume.WindowEnd && judged.Contains((p.LoaderName.ToUpperInvariant(), p.DayCentral)))
+                continue; // NotDetected — judged and in range.
+
+            if (p.DayCentral <= volume.WindowEnd &&
+                volume.BaselineFromByLoader.TryGetValue(p.LoaderName, out var baselineFrom) &&
+                p.DayCentral >= baselineFrom)
+                continue; // NotDetected — the owner declared this level normal.
+
+            hints.Add(new(o.FindingKey, WatchdogResolutionHints.KeepOpen));
+        }
+
+        return hints;
     }
 
     /// <summary>
@@ -258,6 +388,59 @@ public static class WatchdogFindingMapper
             isSuppressed);
     }
 
+    /// <summary>At most this many <c>loaderRunIds</c> go into a volume finding's DetailJson.</summary>
+    public const int MaxVolumeLoaderRunIds = 20;
+
+    /// <summary>
+    /// <c>DATA_VOLUME|&lt;Loader&gt;|&lt;yyyy-MM-dd&gt;</c> — one finding per loader per Central day,
+    /// whatever its direction, so a day that flips from Low to High on a rerun is the same
+    /// finding refreshed rather than a second one. <c>RunId</c> is NULL: a day is many runs.
+    /// </summary>
+    public static string VolumeFindingKey(string loaderName, DateOnly dayCentral) =>
+        $"{WatchdogSignals.DataVolume}|{loaderName}|{DayText(dayCentral)}";
+
+    /// <summary>
+    /// One <c>DATA_VOLUME</c> finding. Zero/Low → Warning, High → Info (usually a rerun or a
+    /// backfill). Every date is a CENTRAL calendar day and every field name says so.
+    /// </summary>
+    public static WatchdogFindingRow VolumeRow(VolumeAnomaly a, WatchdogSettings settings)
+    {
+        var name = CanonicalLoaderName(a.LoaderName, settings);
+        var anomaly = name == a.LoaderName ? a : a with { LoaderName = name };
+
+        return new WatchdogFindingRow(
+            VolumeFindingKey(name, a.DayCentral),
+            WatchdogSignals.DataVolume,
+            name,
+            null,
+            a.Direction == VolumeDirection.High ? SeverityInfo : SeverityWarning,
+            Summary(WatchdogReport.VolumeLine(anomaly)),
+            Detail(new Dictionary<string, object?>
+            {
+                ["dayCentral"] = DayText(a.DayCentral),
+                ["weekday"] = a.DayCentral.DayOfWeek.ToString(),
+                ["direction"] = a.Direction.ToString(),
+                ["rows"] = a.Rows,
+                ["successfulRuns"] = a.SuccessfulRuns,
+                ["totalRuns"] = a.TotalRuns,
+                ["medianRows"] = FiniteOrNull(a.MedianRows),
+                ["ratio"] = FiniteOrNull(a.Ratio),
+                ["lowPercent"] = a.LowPercent,
+                // Not rounded: it is a configured threshold, not a measurement, and must read
+                // back exactly as set (2.125 must not become 2.13).
+                ["highMultiple"] = double.IsFinite(a.HighMultiple) ? a.HighMultiple : null,
+                ["samples"] = a.Samples
+                    .Select(s => new Dictionary<string, object?> { ["dayCentral"] = DayText(s.DayCentral), ["rows"] = s.Rows })
+                    .ToList(),
+                ["excludedSampleDays"] = a.ExcludedSampleDays.Select(DayText).ToList(),
+                ["baselineFromCentral"] = a.BaselineFromCentral is { } bf ? DayText(bf) : null,
+                ["loaderRunIds"] = a.LoaderRunIds.Take(MaxVolumeLoaderRunIds).ToList()
+            }),
+            false);
+    }
+
+    private static string DayText(DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
     /// <summary>
     /// The config's own spelling, because config lookup is case-insensitive while the
     /// persisted key is compared as text by consumers. A name not in config (a FAILED
@@ -272,7 +455,27 @@ public static class WatchdogFindingMapper
         return name;
     }
 
-    private static string Summary(string line) => ErrorTextRedactor.Clean(line, MaxSummaryChars);
+    /// <summary>
+    /// Redacted, and never longer than <see cref="MaxSummaryChars"/> — the column and the TVP
+    /// are NVARCHAR(400).
+    ///
+    /// <para>⚠ <see cref="ErrorTextRedactor.Clean"/> cuts at the limit and THEN appends
+    /// <c>… [truncated, N chars total]</c>, so on its own it overshoots. Its behaviour is left
+    /// alone for its other callers; an over-long line is re-cut here so the suffix fits.
+    /// Anything already within the limit is returned exactly as <c>Clean</c> produced it.</para>
+    /// </summary>
+    internal static string Summary(string line)
+    {
+        var cleaned = ErrorTextRedactor.Clean(line, MaxSummaryChars);
+        if (cleaned.Length <= MaxSummaryChars) return cleaned;
+
+        var redacted = ErrorTextRedactor.Redact(line);
+        var suffix = $"… [truncated, {redacted.Length} chars total]";
+        var cut = Math.Max(0, MaxSummaryChars - suffix.Length);
+        if (cut > 0 && char.IsHighSurrogate(redacted[cut - 1])) cut--;
+        var capped = redacted[..cut] + suffix;
+        return capped.Length <= MaxSummaryChars ? capped : capped[..MaxSummaryChars];
+    }
 
     private static string Redact(string text) => ErrorTextRedactor.Redact(text);
 

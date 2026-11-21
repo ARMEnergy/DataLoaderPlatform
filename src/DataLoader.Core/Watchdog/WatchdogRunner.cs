@@ -48,6 +48,13 @@ public sealed class WatchdogRunner
     }
 
     /// <summary>
+    /// Test seam: the US CENTRAL wall clock for this pass. Null (production) reads the real
+    /// clock. Exists because the <c>DATA_VOLUME</c> window depends on the Central time of
+    /// day (<see cref="WatchdogDataVolumeSettings.SettleHours"/>).
+    /// </summary>
+    internal Func<DateTime>? CentralClock { get; init; }
+
+    /// <summary>
     /// Exit code 0 even when loaders are overdue, or when a secondary check
     /// could not run but the alert about that still went out — finding and
     /// reporting problems is the job being done, not failing. 1 is reserved
@@ -57,7 +64,7 @@ public sealed class WatchdogRunner
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
         var startedAtUtc = DateTime.UtcNow;
-        var nowCentral = CentralNow();
+        var nowCentral = CentralClock?.Invoke() ?? CentralNow();
 
         // GetLastRunsAsync is the one query the overdue calculation needs, and
         // it is the cheapest and least likely to fail — a single GROUP BY, no
@@ -196,9 +203,24 @@ public sealed class WatchdogRunner
         //
         // hostName is supplied rather than read inside the report, so
         // WatchdogReport.BuildMessage() stays pure and testable.
+        var (volumeInScope, volume) = await CheckDataVolumeAsync(nowCentral, degraded, cancellationToken)
+            .ConfigureAwait(false);
+        var notifyVolume = volumeInScope && _settings.DataVolume.Notify;
+
+        // ⚠ With Notify off, a VOLUME_QUERY degradation is persisted (DEGRADED|VOLUME_QUERY,
+        // pass Degraded) but kept OUT of the email — "persisted, not emailed" has to hold
+        // for the signal's failures as much as for its findings, or an opt-out signal could
+        // still start mailing people.
+        var emailDegraded = degraded
+            .Where(d => notifyVolume || d.Code != WatchdogDegradedCodes.VolumeQuery)
+            .Select(d => d.EmailLine)
+            .ToList();
+
         var report = WatchdogEvaluator.Evaluate(
-            lastRuns, stuck, failures, _settings, Environment.MachineName, nowCentral,
-            degraded.Select(d => d.EmailLine).ToList());
+            lastRuns, stuck, failures, _settings, Environment.MachineName, nowCentral, emailDegraded);
+
+        if (notifyVolume && volume is { Anomalies.Count: > 0 })
+            report = report.WithVolumeAnomalies(volume.Anomalies);
 
         _logger.LogInformation(
             "Watchdog: {Overdue} overdue, {Stuck} stuck, {Failures} recent failures, " +
@@ -215,15 +237,19 @@ public sealed class WatchdogRunner
             () =>
             {
                 var (signalsChecked, signalsDegraded) =
-                    WatchdogFindingMapper.ComputeSignals(degraded.Select(d => d.Code));
+                    WatchdogFindingMapper.ComputeSignals(degraded.Select(d => d.Code), volumeInScope);
                 return new WatchdogPassRecord(
                     startedAtUtc,
                     Environment.MachineName,
                     degraded.Count > 0 ? WatchdogPassStatus.Degraded : WatchdogPassStatus.Complete,
                     signalsChecked,
                     signalsDegraded,
-                    WatchdogFindingMapper.BuildFindings(reportForPersistence, failuresResult.Suppressed, degraded, _settings),
-                    WatchdogFindingMapper.AppVersionFromBaseDirectory(AppContext.BaseDirectory));
+                    WatchdogFindingMapper.BuildFindings(
+                        reportForPersistence, failuresResult.Suppressed, degraded, _settings, volume?.Anomalies),
+                    WatchdogFindingMapper.AppVersionFromBaseDirectory(AppContext.BaseDirectory))
+                {
+                    Volume = volume
+                };
             },
             _settings.PersistTimeoutSeconds,
             cancellationToken).ConfigureAwait(false);
@@ -295,6 +321,81 @@ public sealed class WatchdogRunner
             // the watchdog instead of returning the exit code that already
             // says "nobody was told".
             _logger.LogError(notifyEx, "Watchdog's fallback notification threw; treating the alert as undelivered");
+        }
+    }
+
+    /// <summary>
+    /// The <c>DATA_VOLUME</c> check (design §D7). Returns whether it was IN SCOPE this pass
+    /// (enabled and a valid section — which decides whether <c>DATA_VOLUME</c> appears in
+    /// the pass's signal lists at all) and the evaluated outcome, null unless both reads
+    /// and the evaluation succeeded.
+    ///
+    /// <list type="bullet">
+    /// <item>Disabled → (false, null) with NO query: the pass is byte-for-byte today's.</item>
+    /// <item>Invalid section → Warning, (false, null): neither checked nor degraded, so
+    /// nothing opens and nothing closes.</item>
+    /// <item>No loaders configured → (true, null) without querying; the
+    /// <c>NO_LOADERS_CONFIGURED</c> code already in <paramref name="degraded"/> blinds it.</item>
+    /// <item>A read or the evaluation throws → <c>VOLUME_QUERY</c> added to
+    /// <paramref name="degraded"/>, (true, null): degraded, so no open volume finding closes.</item>
+    /// </list>
+    /// </summary>
+    private async Task<(bool InScope, WatchdogVolumeResult? Result)> CheckDataVolumeAsync(
+        DateTime nowCentral, List<DegradedCheck> degraded, CancellationToken cancellationToken)
+    {
+        var settings = _settings.DataVolume;
+        if (settings is not { Enabled: true }) return (false, null);
+
+        var invalid = WatchdogVolumeEvaluator.ValidateSection(settings);
+        if (invalid is not null)
+        {
+            _logger.LogWarning(
+                "Watchdog: Platform:Watchdog:DataVolume is invalid ({Problems}); the row-volume check is skipped " +
+                "this pass — nothing is opened or closed", invalid);
+            return (false, null);
+        }
+
+        if (_settings.Loaders is null || _settings.Loaders.Count == 0) return (true, null);
+
+        // ⚠ Central wall clock: LoaderRun_Summary.StartTime is Central, so "yesterday" must
+        // be Central's yesterday, and the time of day decides whether yesterday has settled
+        // (SettleHours) — before that the window ends the day before.
+        var (from, to) = WatchdogVolumeEvaluator.QueryRange(settings, nowCentral);
+
+        try
+        {
+            var volumes = await _repository.GetDailyVolumesAsync(from, to, cancellationToken).ConfigureAwait(false);
+            var excluded = await _repository.GetVolumeExcludedDaysAsync(from, to, cancellationToken).ConfigureAwait(false);
+
+            // Inside the catch on purpose, unlike WatchdogEvaluator.Evaluate: this is an
+            // OPTIONAL signal, and an evaluation bug must degrade just DATA_VOLUME rather
+            // than take the overdue/stuck/failed email down with it.
+            var result = WatchdogVolumeEvaluator.Evaluate(volumes, excluded, _settings, nowCentral);
+
+            foreach (var s in result.SkippedLoaders)
+                _logger.LogWarning(
+                    "Watchdog: row-volume check skipped for {Loader}: {Reason} (Platform:Watchdog:Loaders:{Loader}:Volume); " +
+                    "its open findings are kept open", s.LoaderName, s.Reason, s.LoaderName);
+
+            _logger.LogInformation(
+                "Watchdog: {Anomalies} volume anomalies, {Unjudged} unjudged (window {WindowStart:yyyy-MM-dd}..{WindowEnd:yyyy-MM-dd} Central)",
+                result.Anomalies.Count, result.Unjudged.Count,
+                result.WindowStart.ToDateTime(TimeOnly.MinValue), result.WindowEnd.ToDateTime(TimeOnly.MinValue));
+
+            if (result.Unjudged.Count > 0)
+                _logger.LogInformation("Watchdog: row volume not judged — {Unjudged}",
+                    string.Join("; ", result.Unjudged.Select(u => $"{u.LoaderName} {u.DayCentral:yyyy-MM-dd} ({u.Reason})")));
+
+            return (true, result);
+        }
+        // A plain catch, like the stuck/failures reads: a cancellation here degrades
+        // DATA_VOLUME and lets the rest of the pass (and its email) finish, rather than
+        // aborting it.
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Watchdog could not check row volumes; continuing with the rest of the pass");
+            degraded.Add(DegradedReason(WatchdogDegradedCodes.VolumeQuery, "row volume", ex));
+            return (true, null);
         }
     }
 

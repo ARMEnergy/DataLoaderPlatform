@@ -52,9 +52,17 @@ public sealed class WatchdogReport : INotificationPayload
     /// </summary>
     public string? PersistenceWarning { get; init; }
 
+    /// <summary>
+    /// <c>DATA_VOLUME</c> anomalies to EMAIL. Empty unless
+    /// <see cref="WatchdogDataVolumeSettings.Notify"/> is on — with it off the anomalies are
+    /// persisted (the mapper takes them separately) and this report, its subject, body and
+    /// <see cref="ShouldNotify"/> are exactly what they were before the signal existed.
+    /// </summary>
+    public IReadOnlyList<VolumeAnomaly> VolumeAnomalies { get; init; } = Array.Empty<VolumeAnomaly>();
+
     public bool ShouldNotify =>
         Overdue.Count > 0 || Stuck.Count > 0 || RecentFailures.Count > 0 ||
-        Misconfigured.Count > 0 || Degraded.Count > 0;
+        Misconfigured.Count > 0 || Degraded.Count > 0 || VolumeAnomalies.Count > 0;
 
     /// <summary>
     /// Throws if nothing is worth reporting, matching
@@ -80,6 +88,7 @@ public sealed class WatchdogReport : INotificationPayload
         if (Overdue.Count > 0) parts.Add($"{Overdue.Count} loader{(Overdue.Count == 1 ? "" : "s")} overdue");
         if (Stuck.Count > 0) parts.Add($"{Stuck.Count} run{(Stuck.Count == 1 ? "" : "s")} stuck");
         if (RecentFailures.Count > 0) parts.Add($"{RecentFailures.Count} recent failure{(RecentFailures.Count == 1 ? "" : "s")}");
+        if (VolumeAnomalies.Count > 0) parts.Add($"{VolumeAnomalies.Count} row-volume anomal{(VolumeAnomalies.Count == 1 ? "y" : "ies")}");
         if (Misconfigured.Count > 0) parts.Add($"{Misconfigured.Count} loader{(Misconfigured.Count == 1 ? "" : "s")} misconfigured");
         if (Degraded.Count > 0) parts.Add($"{Degraded.Count} check{(Degraded.Count == 1 ? "" : "s")} degraded");
         return $"WATCHDOG: {string.Join(", ", parts)}";
@@ -115,6 +124,17 @@ public sealed class WatchdogReport : INotificationPayload
             sb.AppendLine(new string('-', 60));
             foreach (var f in RecentFailures.OrderByDescending(f => f.StartTimeCentral))
                 sb.AppendLine($"  {FailureLine(f)}");
+            sb.AppendLine();
+        }
+
+        if (VolumeAnomalies.Count > 0)
+        {
+            sb.AppendLine("ROW VOLUME — ran successfully but wrote an unusual number of rows (rows WRITTEN, not available)");
+            sb.AppendLine(new string('-', 60));
+            foreach (var a in VolumeAnomalies
+                         .OrderBy(a => a.LoaderName, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(a => a.DayCentral))
+                sb.AppendLine($"  {VolumeLine(a)}");
             sb.AppendLine();
         }
 
@@ -184,11 +204,62 @@ public sealed class WatchdogReport : INotificationPayload
         $"{name}: MaxGapHours is missing or <= 0 (Platform:Watchdog:Loaders:{name}:MaxGapHours)";
 
     /// <summary>
+    /// <c>Marex loaded 2,500 rows on Thu 2026-11-19 (Central), 29% of its usual Thursday (8,700).</c>
+    /// / <c>… 3.6x its usual Monday (190,000).</c> — the persisted Summary and the email line.
+    /// InvariantCulture throughout, so the thousands separator does not follow the box's locale.
+    /// </summary>
+    internal static string VolumeLine(VolumeAnomaly a)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var day = a.DayCentral.ToDateTime(TimeOnly.MinValue);
+        var head = string.Format(inv, "{0} loaded {1:N0} rows on {2:ddd yyyy-MM-dd} (Central), ",
+            a.LoaderName, a.Rows, day);
+        var weekday = a.DayCentral.DayOfWeek.ToString();
+        var median = Math.Round(a.MedianRows, MidpointRounding.AwayFromZero).ToString("N0", inv);
+
+        return a.Direction == VolumeDirection.High
+            ? head + string.Format(inv, "{0:0.0}x its usual {1} ({2}).", a.Ratio, weekday, median)
+            : head + string.Format(inv, "{0} of its usual {1} ({2}).", LowPercentText(a), weekday, median);
+    }
+
+    /// <summary>
+    /// The percentage in a Low/Zero line. Whole percent normally (<c>29%</c>), but never text
+    /// that contradicts the verdict: a Low at 49.6% against a 50% threshold would round to
+    /// "50%", and a non-zero day would round to "0%" — so those show one decimal place,
+    /// rounded DOWN (<c>49.6%</c>), or <c>&lt;1%</c> below one percent. A Zero day is <c>0%</c>.
+    /// </summary>
+    internal static string LowPercentText(VolumeAnomaly a)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var pct = a.Ratio * 100;
+        if (a.Rows > 0 && pct < 1) return "<1%";
+
+        var whole = Math.Round(pct, MidpointRounding.AwayFromZero);
+        // (A non-zero day under 1% was handled above, so "0%" can only mean a Zero day here.)
+        if (whole >= a.LowPercent && a.Rows > 0)
+            return (Math.Floor(pct * 10) / 10).ToString("0.0", inv) + "%";
+
+        return whole.ToString("0", inv) + "%";
+    }
+
+    /// <summary>
     /// A copy of this report carrying <paramref name="warning"/> as
     /// <see cref="PersistenceWarning"/>. The report is otherwise immutable, and the
     /// warning is only known after the evaluator built it.
     /// </summary>
-    public WatchdogReport WithPersistenceWarning(string? warning) => new()
+    public WatchdogReport WithPersistenceWarning(string? warning) => Copy(warning, VolumeAnomalies);
+
+    /// <summary>
+    /// A copy carrying <paramref name="anomalies"/> as <see cref="VolumeAnomalies"/>. Only
+    /// called with <see cref="WatchdogDataVolumeSettings.Notify"/> on; the volume check runs
+    /// beside <see cref="WatchdogEvaluator.Evaluate"/>, not inside it, so its signature and
+    /// every existing report stay as they were.
+    /// </summary>
+    public WatchdogReport WithVolumeAnomalies(IReadOnlyList<VolumeAnomaly> anomalies) =>
+        Copy(PersistenceWarning, anomalies);
+
+    // ⚠ Every init-only member must be listed here, or one With* call silently drops it.
+    private WatchdogReport Copy(string? persistenceWarning, IReadOnlyList<VolumeAnomaly> volumeAnomalies) => new()
     {
         HostName = HostName,
         GeneratedAtCentral = GeneratedAtCentral,
@@ -197,6 +268,7 @@ public sealed class WatchdogReport : INotificationPayload
         RecentFailures = RecentFailures,
         Misconfigured = Misconfigured,
         Degraded = Degraded,
-        PersistenceWarning = warning
+        PersistenceWarning = persistenceWarning,
+        VolumeAnomalies = volumeAnomalies
     };
 }

@@ -110,6 +110,145 @@ public sealed class WatchdogSettings
     /// </summary>
     public Dictionary<string, WatchdogLoaderSettings> Loaders { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The <c>DATA_VOLUME</c> signal — "ran successfully but wrote an unusual number of
+    /// rows". Binds <c>Platform:Watchdog:DataVolume</c>. OFF by default; see
+    /// <see cref="WatchdogDataVolumeSettings"/> and
+    /// <c>docs/superpowers/specs/2026-11-20-watchdog-data-volume-design.md</c>.
+    /// </summary>
+    public WatchdogDataVolumeSettings DataVolume { get; set; } = new();
+}
+
+/// <summary>
+/// Platform-wide settings for the <c>DATA_VOLUME</c> signal
+/// (<see cref="WatchdogVolumeEvaluator"/>).
+///
+/// <para>Unlike every other watchdog threshold this one IS learned from history — a
+/// same-weekday median — because "how many rows is normal" differs by orders of
+/// magnitude between loaders and nobody can hand-seed it. The learned-goalposts trap the
+/// comment on <see cref="WatchdogSettings"/> warns about is closed by EXCLUSION: a day
+/// that was ever reported (and not later confirmed normal by a rerun) never becomes a
+/// baseline sample. A legitimate level change is DECLARED, not learned — see
+/// <see cref="WatchdogLoaderVolumeSettings.BaselineFromCentral"/>.</para>
+///
+/// <para>⚠ It measures rows WRITTEN (<c>core.LoaderRun_Summary.TotalRecords</c>), not rows
+/// available: a merge/hash loader counts only changed rows and a settled unit counts 0. A
+/// code change that stops needless re-writes (ICE 2026-11-11, AGSI 2026-11-17) is a real,
+/// permanent drop that needs a <c>BaselineFromCentral</c>.</para>
+///
+/// <para>⚠ An invalid section (see <see cref="WatchdogVolumeEvaluator.ValidateSection"/>)
+/// skips the WHOLE check with a Warning: no query, <c>DATA_VOLUME</c> neither checked nor
+/// degraded, so nothing opens and nothing closes. It is never a MISCONFIGURED finding —
+/// that signal means "a loader's cadence threshold is unusable".</para>
+/// </summary>
+public sealed class WatchdogDataVolumeSettings
+{
+    /// <summary>
+    /// Master switch. With it off and no open <c>DATA_VOLUME</c> findings, a pass is
+    /// byte-for-byte what it was before this signal existed. With it off and findings left
+    /// open, the sink closes them as <c>LoaderDisabled</c> (design §A4).
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Also EMAIL anomalies (a "ROW VOLUME" section, part of the subject and of
+    /// <see cref="WatchdogReport.ShouldNotify"/>). Off by default: findings are persisted
+    /// for the DBA Agent and the email is unchanged — including a <c>VOLUME_QUERY</c>
+    /// degradation, which is persisted but not mailed while this is off.
+    /// </summary>
+    public bool Notify { get; set; }
+
+    /// <summary>
+    /// How many completed Central days to judge: <c>today − WindowDays … today − 1</c>
+    /// (shifted back one day before <see cref="SettleHours"/>). Today is never judged — it is
+    /// not over. A finding whose day leaves this window closes as <c>AgedOutUnresolved</c>,
+    /// never as fixed. Must be in [1, 7]: a wider window would judge a day against samples
+    /// that overlap the window itself.
+    /// </summary>
+    public int WindowDays { get; set; } = 3;
+
+    /// <summary>
+    /// Yesterday joins the window only once the Central time of day is at least this many
+    /// hours; before that the window ends at <c>today − 2</c> (still <see cref="WindowDays"/>
+    /// days long). Must be in [0, 23].
+    ///
+    /// <para>⚠ Why: a <c>core.LoaderRun_Summary</c> row is written only when its run
+    /// COMPLETES, and production runs start as late as 23:00 Central and last up to 126
+    /// minutes. A pass at 00:05 would otherwise judge a yesterday still missing its last
+    /// runs and raise a false Low. An open finding for a day newer than the window end is
+    /// kept open (<c>KeepOpen</c>), never aged out.</para>
+    /// </summary>
+    public int SettleHours { get; set; } = 3;
+
+    /// <summary>How many same-weekday samples make a baseline (the most recent qualifying ones).</summary>
+    public int BaselineWeeks { get; set; } = 6;
+
+    /// <summary>
+    /// How far back the sample walk may go, in weeks, stepping over excluded and missing
+    /// days. Must be ≥ <see cref="BaselineWeeks"/>. Default 18 = 3 × 6.
+    ///
+    /// <para>⚠ Why not a fixed 6-week set: after a drop that never recovers, all 6 samples
+    /// are themselves excluded (reported) days, the loader drops to "not enough history"
+    /// and goes SILENT — the opposite of reporting a persistent problem. Walking further
+    /// back keeps the pre-drop level as the baseline for up to 18 weeks, until the owner
+    /// sets <c>BaselineFromCentral</c>.</para>
+    ///
+    /// <para>⚠ <c>WindowDays + 7 × MaxBaselineLookbackWeeks</c> must stay below 180, the
+    /// resolved-finding retention in <c>core.usp_RecordWatchdogPass</c> (<c>sql/Core/007</c>).
+    /// Exclusion reads the findings table: once a reported day's finding is purged, that
+    /// day silently turns back into a "normal" baseline sample — the goalposts move.</para>
+    /// </summary>
+    public int MaxBaselineLookbackWeeks { get; set; } = 18;
+
+    /// <summary>Fewer qualifying samples than this → the day is not judged (an open finding for it stays open).</summary>
+    public int MinSamples { get; set; } = 4;
+
+    /// <summary>
+    /// A median below this many rows is too small to judge (a 12-row loader halving is
+    /// noise). Applies to the DAILY total, not to individual runs.
+    /// </summary>
+    public int MinMedianRows { get; set; } = 100;
+
+    /// <summary>Report Low when rows &lt; median × LowPercent / 100. Must be in [1, 99].</summary>
+    public int LowPercent { get; set; } = 50;
+
+    /// <summary>
+    /// Report High when rows &gt; median × HighMultiple. Must be &gt; 1. Default 3 rather than
+    /// 2 because an ordinary manual rerun doubles a day.
+    /// </summary>
+    public double HighMultiple { get; set; } = 3;
+}
+
+/// <summary>
+/// One loader's overrides for the <c>DATA_VOLUME</c> signal
+/// (<c>Platform:Watchdog:Loaders:&lt;Loader&gt;:Volume</c>). Every override is optional;
+/// null means "use the platform value".
+///
+/// <para>An invalid effective value (or an unparseable <see cref="BaselineFromCentral"/>)
+/// skips THAT loader with a Warning; its open findings are kept open (<c>KeepOpen</c>),
+/// never closed, and never reported as MISCONFIGURED.</para>
+/// </summary>
+public sealed class WatchdogLoaderVolumeSettings
+{
+    /// <summary>Set false to mute this loader's volume check only. Its open findings close as <c>LoaderDisabled</c>.</summary>
+    public bool Enabled { get; set; } = true;
+
+    public int? LowPercent { get; set; }
+    public double? HighMultiple { get; set; }
+    public int? MinMedianRows { get; set; }
+
+    /// <summary>
+    /// <c>yyyy-MM-dd</c>, a CENTRAL date. Samples before it are ignored: the owner declares
+    /// "from this day on, this level is normal". The loader is then silent until
+    /// <c>MinSamples</c> new same-weekday samples exist, and an open finding on or after
+    /// this day closes as <c>NotDetected</c>.
+    ///
+    /// <para>A STRING parsed exactly with InvariantCulture, not a <c>DateTime</c>: the
+    /// config binder would accept <c>11/12/2026</c> in whatever culture the box runs, and a
+    /// date that silently means the wrong day is worse than one that fails validation.</para>
+    /// </summary>
+    public string? BaselineFromCentral { get; set; }
 }
 
 /// <summary>One loader's expected cadence.</summary>
@@ -142,4 +281,10 @@ public sealed class WatchdogLoaderSettings
     /// unreported until Thursday.</para>
     /// </summary>
     public bool SkipWeekends { get; set; }
+
+    /// <summary>
+    /// <c>DATA_VOLUME</c> overrides for this loader; null means "platform values,
+    /// enabled". Only consulted when <see cref="WatchdogDataVolumeSettings.Enabled"/> is on.
+    /// </summary>
+    public WatchdogLoaderVolumeSettings? Volume { get; set; }
 }

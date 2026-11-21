@@ -6,7 +6,8 @@ using Microsoft.Extensions.Options;
 namespace DataLoader.Core.Watchdog;
 
 /// <summary>
-/// Reads <c>core.LoaderRun_Summary</c> and <c>core.LoaderRun</c>.
+/// Reads <c>core.LoaderRun_Summary</c> and <c>core.LoaderRun</c> — and, for the
+/// <c>DATA_VOLUME</c> exclusion set only, the watchdog's own <c>core.WatchdogFinding</c>.
 ///
 /// <para>⚠ Inline SELECTs rather than stored procedures, unlike the rest of
 /// this platform. The READ side adds no SQL objects, because
@@ -170,6 +171,133 @@ WHERE frs.Success = 0
         var failedUnits = await GetFailedWorkUnitsAsync(candidates, cancellationToken).ConfigureAwait(false);
         var laterSuccesses = await GetLaterSuccessesAsync(failedUnits, cancellationToken).ConfigureAwait(false);
         return WatchdogFailureResolver.Resolve(candidates, failedUnits, laterSuccesses);
+    }
+
+    public async Task<IReadOnlyList<DailyVolume>> GetDailyVolumesAsync(
+        DateOnly fromCentral, DateOnly toCentralInclusive, CancellationToken cancellationToken)
+    {
+        // One row per RUN, aggregated per (loader, day) in AggregateDailyVolumes rather than
+        // with a SQL GROUP BY, because the finding lists the day's LoaderRunIds and this must
+        // not depend on STRING_AGG being available. The volume is small: production holds
+        // ~4,000 summary rows in total since 2026-07, and the span here is ~129 days.
+        //
+        // StartTime is CENTRAL (see the class comment), so the date parameters are Central
+        // too. Half-open range on the raw column so the predicate stays sargable.
+        // ⚠ ISNULL + BIGINT: TotalRecords is INT NULL, and one busy loader-day (ICE wrote
+        // ~16.6M rows/day before 2026-11-11) summed with reruns can approach INT's ceiling.
+        const string Sql = @"
+SELECT LoaderRunId,
+       LoaderName,
+       CAST(StartTime AS date)                  AS DayCentral,
+       CAST(ISNULL(TotalRecords, 0) AS BIGINT)  AS TotalRecords,
+       CASE WHEN Success = 1 THEN 1 ELSE 0 END  AS Succeeded
+FROM core.LoaderRun_Summary
+WHERE LoaderName IS NOT NULL AND LTRIM(RTRIM(LoaderName)) <> ''
+  AND StartTime >= @FromCentral
+  AND StartTime <  DATEADD(day, 1, @ToCentral);";
+
+        await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = Command(conn, Sql);
+        cmd.Parameters.Add("@FromCentral", System.Data.SqlDbType.Date).Value = fromCentral.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@ToCentral", System.Data.SqlDbType.Date).Value = toCentralInclusive.ToDateTime(TimeOnly.MinValue);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var runs = new List<VolumeRunRow>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            runs.Add(new VolumeRunRow(
+                // Convert rather than GetInt32: the summary's LoaderRunId type is production's,
+                // and the repo DDL has drifted from it (see CLAUDE.md).
+                Convert.ToInt32(reader.GetValue(0), System.Globalization.CultureInfo.InvariantCulture),
+                reader.GetString(1),
+                DateOnly.FromDateTime(reader.GetDateTime(2)),
+                reader.GetInt64(3),
+                reader.GetInt32(4) == 1));
+        }
+
+        return AggregateDailyVolumes(runs);
+    }
+
+    /// <summary>One <c>core.LoaderRun_Summary</c> row, as <see cref="GetDailyVolumesAsync"/> reads it.</summary>
+    internal readonly record struct VolumeRunRow(int LoaderRunId, string LoaderName, DateOnly DayCentral, long Rows, bool Succeeded);
+
+    /// <summary>
+    /// Sums rows over EVERY run of a (loader, day) — failed ones included — and keeps only
+    /// days with at least one successful run (design §A1; see <see cref="DailyVolume"/>).
+    /// Loader names group case-insensitively, keeping the first spelling met.
+    /// </summary>
+    internal static IReadOnlyList<DailyVolume> AggregateDailyVolumes(IEnumerable<VolumeRunRow> runs) =>
+        runs
+            .Where(r => !string.IsNullOrWhiteSpace(r.LoaderName))
+            .GroupBy(r => (Name: r.LoaderName.Trim().ToUpperInvariant(), r.DayCentral))
+            .Where(g => g.Any(r => r.Succeeded))
+            .Select(g => new DailyVolume(
+                g.First().LoaderName.Trim(),
+                g.Key.DayCentral,
+                g.Sum(r => r.Rows),
+                g.Count(r => r.Succeeded),
+                g.Count(),
+                g.Select(r => r.LoaderRunId).Distinct().OrderBy(i => i).ToList()))
+            .OrderBy(v => v.LoaderName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(v => v.DayCentral)
+            .ToList();
+
+    public async Task<IReadOnlyList<VolumeLoaderDay>> GetVolumeExcludedDaysAsync(
+        DateOnly fromCentral, DateOnly toCentralInclusive, CancellationToken cancellationToken)
+    {
+        // Open, or closed with anything but NotDetected (design §A5): AgedOutUnresolved,
+        // LoaderDisabled and ConfigRemoved were never confirmed normal either. Only a rerun
+        // that brought the day back into range makes it a sample again.
+        //
+        // The LastDetectedAtUtc bound is safe: a finding for day D can only be detected
+        // after D has ended in Central, which is later still in UTC, so it never drops a
+        // finding whose day is in range. Retention keeps resolved rows 180 days, longer than
+        // the ~129-day span at the defaults.
+        const string Sql = @"
+SELECT FindingKey
+FROM core.WatchdogFinding
+WHERE Signal = 'DATA_VOLUME'
+  AND (ResolvedAtUtc IS NULL OR ResolutionReason <> 'NotDetected')
+  AND LastDetectedAtUtc >= @FromCentral;";
+
+        await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
+        await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = Command(conn, Sql);
+        cmd.Parameters.Add("@FromCentral", System.Data.SqlDbType.DateTime2).Value = fromCentral.ToDateTime(TimeOnly.MinValue);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var keys = new List<string>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            keys.Add(reader.GetString(0));
+
+        return keys
+            .Select(ParseVolumeFindingKey)
+            .Where(k => k is { } d && d.DayCentral >= fromCentral && d.DayCentral <= toCentralInclusive)
+            .Select(k => k!.Value)
+            .Distinct()
+            .ToList();
+    }
+
+    /// <summary>
+    /// <c>DATA_VOLUME|&lt;Loader&gt;|&lt;yyyy-MM-dd&gt;</c> → (loader, day), or null when the key
+    /// is not one. The day is the LAST <c>|</c> segment and the loader everything between
+    /// the first and the last, so the parse never depends on what a loader is called.
+    /// </summary>
+    public static VolumeLoaderDay? ParseVolumeFindingKey(string? key)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+        var first = key.IndexOf('|');
+        var last = key.LastIndexOf('|');
+        if (first < 0 || last <= first + 1) return null;
+        if (!string.Equals(key[..first], WatchdogSignals.DataVolume, StringComparison.OrdinalIgnoreCase)) return null;
+
+        var loader = key[(first + 1)..last];
+        if (string.IsNullOrWhiteSpace(loader)) return null;
+        if (!DateOnly.TryParseExact(key[(last + 1)..], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var day))
+            return null;
+        return new VolumeLoaderDay(loader, day);
     }
 
     /// <summary>

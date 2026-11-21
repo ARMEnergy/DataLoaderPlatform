@@ -40,4 +40,25 @@ public interface IWatchdogRepository
     /// </summary>
     Task<RecentFailuresResult> ResolveFailuresByRunIdAsync(
         IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <c>DATA_VOLUME</c>: rows written per (loader, CENTRAL day) for days in
+    /// [<paramref name="fromCentral"/>, <paramref name="toCentralInclusive"/>], summed over
+    /// EVERY run that day, returning only days with at least one successful run — see
+    /// <see cref="DailyVolume"/> for why both halves of that matter. Blank loader names are
+    /// ignored, as in <see cref="GetLastRunsAsync"/>. Only called when the volume check is
+    /// enabled; a disabled pass issues no extra query.
+    /// </summary>
+    Task<IReadOnlyList<DailyVolume>> GetDailyVolumesAsync(
+        DateOnly fromCentral, DateOnly toCentralInclusive, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <c>DATA_VOLUME</c>: the (loader, day) of every volume finding in
+    /// <c>core.WatchdogFinding</c> that is OPEN or was resolved with any reason other than
+    /// <c>NotDetected</c>, for days in the range — the days that must never be baseline
+    /// samples (design §A5). Day and loader come from the finding key
+    /// <c>DATA_VOLUME|&lt;Loader&gt;|&lt;yyyy-MM-dd&gt;</c>; an unparseable key is ignored.
+    /// </summary>
+    Task<IReadOnlyList<VolumeLoaderDay>> GetVolumeExcludedDaysAsync(
+        DateOnly fromCentral, DateOnly toCentralInclusive, CancellationToken cancellationToken);
 }

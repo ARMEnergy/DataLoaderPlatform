@@ -18,6 +18,11 @@ namespace DataLoader.Core.Watchdog;
 /// (a <c>DEGRADED|FAILURE_RESOLUTION</c> finding, FAILED moved out of the checked
 /// set) so no FAILED finding closes on a guess. The proc would otherwise default to
 /// AgedOutUnresolved, which is safe, but would still be a closure nobody confirmed.</para>
+///
+/// <para><c>DATA_VOLUME</c> hints come from <see cref="WatchdogFindingMapper.BuildVolumeHints"/>
+/// using the outcome the runner attached as <see cref="WatchdogPassRecord.Volume"/>. The one
+/// volume decision made HERE is design §A4 (master switch off with findings still open),
+/// because only the sink reads the open view.</para>
 /// </summary>
 public sealed class WatchdogFindingSink : IWatchdogFindingSink
 {
@@ -108,8 +113,57 @@ public sealed class WatchdogFindingSink : IWatchdogFindingSink
                 }
             }
 
+            // Same idea for DEGRADED|VOLUME_QUERY: on a pass where the volume reads never ran
+            // (invalid section, empty Loaders section) the code is simply absent, which would
+            // close it NotDetected while DEGRADED is checked — "fixed" by not trying. Carry it
+            // forward until a pass actually reads successfully (pass.Volume set) or fails
+            // again (the runner adds a fresh one). The one exception is the master switch
+            // turned OFF: nobody is asking for this check any more, so let it close.
+            if (pass.Volume is null &&
+                _settings.DataVolume is { Enabled: true } &&
+                !signalsDegraded.Contains(WatchdogSignals.DataVolume))
+            {
+                const string key = WatchdogSignals.Degraded + "|" + WatchdogDegradedCodes.VolumeQuery;
+                if (open.Any(o => string.Equals(o.FindingKey, key, StringComparison.OrdinalIgnoreCase)) &&
+                    !findings.Any(f => string.Equals(f.FindingKey, key, StringComparison.OrdinalIgnoreCase)))
+                {
+                    const string carried = "not re-attempted: the row-volume check did not run this pass";
+                    findings.Add(WatchdogFindingMapper.DegradedRow(new DegradedCheck(
+                        WatchdogDegradedCodes.VolumeQuery, $"row volume ({carried})", carried)));
+                }
+            }
+
             hints = WatchdogFindingMapper.BuildHints(open, findings, _settings, resolution);
+
+            // DATA_VOLUME (design §A3/§A4). The runner put it in SignalsChecked only if the
+            // check ran and its reads succeeded, and attached the outcome as pass.Volume.
+            var masterSwitchOff = MasterSwitchOffWithLeftovers(open, signalsChecked);
+            if (masterSwitchOff)
+                signalsChecked.Add(WatchdogSignals.DataVolume);
+
+            if (signalsChecked.Contains(WatchdogSignals.DataVolume))
+            {
+                var volumeHints = WatchdogFindingMapper.BuildVolumeHints(
+                    open, findings, _settings, pass.Volume, masterSwitchOff);
+                if (volumeHints.Count > 0)
+                    hints = hints.Concat(volumeHints).ToList();
+            }
         }
+
+        // §A4: the master switch is off but findings it opened are still open. Close them as
+        // LoaderDisabled by declaring DATA_VOLUME checked for this pass. When none are open
+        // this is false and the pass is byte-for-byte what it was before the signal existed.
+        //
+        // ⚠ Not when the Loaders section is empty: that is the same binding failure
+        // NO_LOADERS_CONFIGURED reports, and a section that failed to bind leaves
+        // DataVolume.Enabled at its default (false) too — so "switched off" cannot be told
+        // apart from "config did not load", and nothing closes on a guess.
+        bool MasterSwitchOffWithLeftovers(IReadOnlyList<OpenWatchdogFinding> open, List<string> checkedSoFar) =>
+            _settings.DataVolume is not { Enabled: true } &&
+            _settings.Loaders is { Count: > 0 } &&
+            !checkedSoFar.Contains(WatchdogSignals.DataVolume) &&
+            !signalsDegraded.Contains(WatchdogSignals.DataVolume) &&
+            open.Any(o => o.Signal == WatchdogSignals.DataVolume);
 
         void DegradeFailed()
         {

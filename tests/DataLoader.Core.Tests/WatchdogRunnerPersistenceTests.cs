@@ -34,6 +34,14 @@ public class WatchdogRunnerPersistenceTests
 
         public Task<RecentFailuresResult> ResolveFailuresByRunIdAsync(IReadOnlyCollection<Guid> runIds, CancellationToken ct) =>
             Task.FromResult(new RecentFailuresResult(Array.Empty<RecentFailure>(), Array.Empty<RecentFailure>()));
+
+        // DATA_VOLUME reads (added with the signal). Never reached while
+        // Platform:Watchdog:DataVolume:Enabled is off, which every test here leaves it.
+        public Task<IReadOnlyList<DailyVolume>> GetDailyVolumesAsync(DateOnly f, DateOnly t, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<DailyVolume>>(Array.Empty<DailyVolume>());
+
+        public Task<IReadOnlyList<VolumeLoaderDay>> GetVolumeExcludedDaysAsync(DateOnly f, DateOnly t, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<VolumeLoaderDay>>(Array.Empty<VolumeLoaderDay>());
     }
 
     private sealed class Sink : IWatchdogFindingSink

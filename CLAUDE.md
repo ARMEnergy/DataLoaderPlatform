@@ -791,6 +791,25 @@ Its closure rules are tested by `sql/Core/tests/007_WatchdogFindings.Tests.sql`
 (rollback-only, single transaction — still a write, so DEV only). See
 `docs/runbooks/watchdog-findings.md`.
 
+**`DATA_VOLUME` (added 2026-11-20, OFF by default, `sql/Core/008`)** flags a loader-day that
+succeeded but wrote unusually few or many rows. `WatchdogVolumeEvaluator` compares the day
+with the same-weekday median: Zero/Low are Warning, below `LowPercent`%; High is Info, above
+`HighMultiple`×. Findings are keyed `DATA_VOLUME|<Loader>|<yyyy-MM-dd>` (Central) and are
+persisted only unless `Notify=true`. With `Enabled=false` and nothing open, a pass is
+byte-for-byte unchanged; it is deliberately absent from `WatchdogSignals.All`. Four traps:
+- ⚠ It counts rows **WRITTEN** (`TotalRecords`), not available. A fix that stops re-writes
+  is a real permanent drop. ICE (2026-11-11) and AGSI (2026-11-17) need
+  `Volume:BaselineFromCentral` when it is enabled.
+- ⚠ A day sums **ALL** its runs and is judged only if ≥ 1 succeeded. A success-only sum
+  read every AGSI retry day as −98%.
+- ⚠ The baseline must not raise its own goalposts. Reported days (open, or closed with
+  anything but `NotDetected`) never become samples, and the walk reaches back 18 weeks.
+- ⚠ An open finding that can't be judged gets the `KeepOpen` hint, never `NotDetected`.
+  Re-running 007 after 008 reverts the proc.
+- ⚠ Yesterday is judged only after `SettleHours` (3) Central. Summary rows are written at run
+  COMPLETION, and runs start up to 23:00 and last up to 126 min, so a 00:05 pass would read a
+  partial day as Low.
+
 See `docs/superpowers/specs/2026-10-24-failure-notifications-design.md`.
 
 ## Log rotation
