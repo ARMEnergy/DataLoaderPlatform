@@ -30,4 +30,14 @@ public sealed class LoaderRunContext
     /// Loaders must observe this.
     /// </summary>
     public required CancellationToken CancellationToken { get; init; }
+
+    /// <summary>
+    /// Cancelled only when this loader's run deadline
+    /// (<c>Platform:RunDeadlineMinutes</c>) fired. <see cref="CancellationToken"/> is
+    /// cancelled too in that case, so a loader never needs to observe this one; it exists
+    /// so a pipeline can SAY why it was stopped ("run deadline reached" rather than
+    /// "run cancelled") when it closes the in-flight unit's load-log row.
+    /// <see cref="System.Threading.CancellationToken.None"/> when no deadline is configured.
+    /// </summary>
+    public CancellationToken RunDeadlineToken { get; init; }
 }

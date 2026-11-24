@@ -118,4 +118,44 @@ public sealed class PlatformSettings
     /// immediately regardless of this. Default 24 hours.
     /// </summary>
     public int AbandonStaleAfterHours { get; set; } = 24;
+
+    /// <summary>
+    /// Per-loader run deadline in minutes, keyed by loader id
+    /// (<c>Platform:RunDeadlineMinutes:IHSPointLogic = 50</c>). Measured from the start of
+    /// the host run. A loader with no entry, or an entry ≤ 0, has no deadline — the class
+    /// default is EMPTY, so nothing changes for a loader that is not listed.
+    ///
+    /// <para><b>Why it exists.</b> Each loader runs from a scheduled task whose trigger has
+    /// an <c>ExecutionTimeLimit</c>. When the vendor is slow, Task Scheduler KILLS the
+    /// process at that limit, and a killed process closes nothing: <c>core.LoaderRun</c>
+    /// keeps <c>CompletedAtUtc</c> NULL forever, no failure email goes out, and the
+    /// watchdog can only report the run as STUCK until it ages out. That happened to
+    /// IHSPointLogic twice on 2026-11-21 (task limit <c>PT1H</c>, API not answering). With
+    /// a deadline the host cancels the loader itself, and the run ends as an ordinary,
+    /// CLOSED failure: <c>Success = 0</c>, the failure email, and the watchdog's FAILED
+    /// signal.</para>
+    ///
+    /// <para>⚠ Keep it BELOW the task's time limit by enough to close the run and to run
+    /// whatever the task does after the loader (IHSPointLogic's task runs
+    /// <c>Mako.dlp.merge_ihs_pointlogic</c> as a second action inside the same limit). The
+    /// in-flight work unit is cancelled AT the deadline, not left to reach its own
+    /// <c>WorkUnitTimeoutSeconds</c>, so the unit budget does not need to be added.
+    /// Keep it ABOVE the slowest healthy run, too, or a good run is cut short.</para>
+    /// </summary>
+    public Dictionary<string, double> RunDeadlineMinutes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The deadline configured for <paramref name="loaderId"/>, or null when it has none.
+    /// Matched case-insensitively whatever comparer the configuration binder left on the
+    /// dictionary.
+    /// </summary>
+    public TimeSpan? RunDeadlineFor(string loaderId)
+    {
+        foreach (var (key, minutes) in RunDeadlineMinutes)
+        {
+            if (string.Equals(key, loaderId, StringComparison.OrdinalIgnoreCase))
+                return minutes > 0 ? TimeSpan.FromMinutes(minutes) : null;
+        }
+        return null;
+    }
 }

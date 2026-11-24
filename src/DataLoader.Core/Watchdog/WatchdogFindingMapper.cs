@@ -95,9 +95,10 @@ public static class WatchdogFindingMapper
             rows.Add(new WatchdogFindingRow(
                 $"{WatchdogSignals.Stuck}|{RunIdText(s.RunId)}",
                 WatchdogSignals.Stuck,
-                // core.LoaderRun carries no loader name, and a stuck run never reached
-                // usp_CompleteLoaderRun, so core.LoaderRun_Summary has no row for it either.
-                null,
+                // From core.LoaderRun_Summary / core.LoadLog (see StuckRun); null only for
+                // a run killed before its first unit. Capped to the column's NVARCHAR(128) —
+                // only a multi-loader run's joined list could reach it.
+                StuckLoaderName(s.LoaderName, settings),
                 s.RunId,
                 SeverityWarning,
                 Summary(WatchdogReport.StuckLine(s)),
@@ -453,6 +454,21 @@ public static class WatchdogFindingMapper
             if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
                 return key;
         return name;
+    }
+
+    /// <summary><c>core.WatchdogFinding.LoaderName</c> is NVARCHAR(128).</summary>
+    public const int MaxLoaderNameChars = 128;
+
+    /// <summary>
+    /// A STUCK finding's loader name: a single name takes the config's spelling, like every
+    /// other signal's, so consumers can match it; a multi-loader run's joined list is kept as
+    /// is and cut to <see cref="MaxLoaderNameChars"/>. Null stays null.
+    /// </summary>
+    internal static string? StuckLoaderName(string? name, WatchdogSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var value = name.Contains(',') ? name : CanonicalLoaderName(name, settings);
+        return value.Length <= MaxLoaderNameChars ? value : value[..MaxLoaderNameChars];
     }
 
     /// <summary>

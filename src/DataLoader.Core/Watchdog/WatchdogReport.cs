@@ -184,7 +184,8 @@ public sealed class WatchdogReport : INotificationPayload
               $"{o.HoursSinceLastRun:F1}h ago (threshold {o.MaxGapHours}h)";
 
     internal static string StuckLine(StuckRun s) =>
-        $"{s.RunId} started {s.StartedAtUtc:yyyy-MM-dd HH:mm} UTC on {s.HostName ?? "unknown host"}";
+        $"{s.LoaderName ?? "Unknown loader"} run {s.RunId} started {s.StartedAtUtc:yyyy-MM-dd HH:mm} UTC " +
+        $"on {s.HostName ?? "unknown host"}";
 
     internal static string FailureLine(RecentFailure f)
     {

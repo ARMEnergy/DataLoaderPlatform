@@ -77,14 +77,33 @@ GROUP BY LoaderName;";
         // re-reported on every pass forever, and the optional host filter keeps
         // a dev box pointed at this database from showing up as a production
         // incident (see WatchdogSettings.RestrictStuckRunsToThisHost).
+        //
+        // The loader name: core.LoaderRun has none, so it comes from the run's
+        // core.LoaderRun_Summary row — which production's usp_BeginLoadLog inserts when the
+        // run's FIRST unit begins, not at completion, so a killed run has it. That table is
+        // keyed on LoaderRunId alone, so it holds ONE name per run (the first loader to begin
+        // a unit); production runs one loader per invocation, so that is the loader.
+        // Fallback, only when there is no summary name: the run's first core.LoadLog row.
+        // The `s.LoaderRunId IS NULL` inside the APPLY is load-bearing for cost, not logic —
+        // an unconditional LoadLog lookup made this query 3.4 s instead of ~60 ms on
+        // production (2026-11-23, 5 open runs). A run killed before its first unit has
+        // neither and comes back with a NULL name.
         const string Sql = @"
-SELECT RunId, StartedAtUtc, HostName
-FROM core.LoaderRun
-WHERE CompletedAtUtc IS NULL
-  AND StartedAtUtc <  DATEADD(hour, -@StuckAfterHours, SYSUTCDATETIME())
-  AND StartedAtUtc >= DATEADD(day,  -@LookbackDays,    SYSUTCDATETIME())
-  AND (@HostName IS NULL OR HostName = @HostName)
-ORDER BY StartedAtUtc;";
+SELECT r.RunId, r.StartedAtUtc, r.HostName, COALESCE(s.LoaderName, l.LoaderId) AS LoaderName
+FROM core.LoaderRun r
+LEFT JOIN core.LoaderRun_Summary s
+       ON s.LoaderRunId = r.LoaderRunId AND LTRIM(RTRIM(s.LoaderName)) <> ''
+OUTER APPLY (
+    SELECT TOP (1) ll.LoaderId
+    FROM core.LoadLog ll
+    WHERE ll.RunId = r.RunId AND s.LoaderRunId IS NULL
+    ORDER BY ll.LoadLogId
+) l
+WHERE r.CompletedAtUtc IS NULL
+  AND r.StartedAtUtc <  DATEADD(hour, -@StuckAfterHours, SYSUTCDATETIME())
+  AND r.StartedAtUtc >= DATEADD(day,  -@LookbackDays,    SYSUTCDATETIME())
+  AND (@HostName IS NULL OR r.HostName = @HostName)
+ORDER BY r.StartedAtUtc, r.RunId;";
 
         await using var conn = new SqlConnection(_settings.LoadLogConnectionString);
         await conn.OpenWithRetryAsync(cancellationToken).ConfigureAwait(false);
@@ -94,16 +113,42 @@ ORDER BY StartedAtUtc;";
         cmd.Parameters.AddWithValue("@HostName", (object?)hostName ?? DBNull.Value);
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-        var rows = new List<StuckRun>();
+        var rows = new List<StuckRunRow>();
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            rows.Add(new StuckRun(
+            rows.Add(new StuckRunRow(
                 reader.GetGuid(0),
                 reader.GetDateTime(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2)));
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3)));
         }
-        return rows;
+        return GroupStuckRuns(rows);
     }
+
+    internal readonly record struct StuckRunRow(Guid RunId, DateTime StartedAtUtc, string? HostName, string? LoaderName);
+
+    /// <summary>
+    /// Folds the stuck-run query's rows into one <see cref="StuckRun"/> per run, names
+    /// de-duplicated case-insensitively, sorted and joined with ", " (null when the run has
+    /// none), keeping the query's run order. Production's summary key makes the query return
+    /// one row per run today; this stays so a schema where it does not (a summary keyed per
+    /// loader, as the repo's own DDL would allow) cannot report one run twice.
+    /// </summary>
+    internal static IReadOnlyList<StuckRun> GroupStuckRuns(IEnumerable<StuckRunRow> rows) =>
+        rows.GroupBy(r => r.RunId)
+            .Select(g =>
+            {
+                var first = g.First();
+                var names = g.Select(r => r.LoaderName)
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => n!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                return new StuckRun(first.RunId, first.StartedAtUtc, first.HostName,
+                    names.Count == 0 ? null : string.Join(", ", names));
+            })
+            .ToList();
 
     public async Task<RecentFailuresResult> GetRecentFailuresAsync(
         int lookbackHours, DateTime nowCentral, bool skipAlertIfResolved, CancellationToken cancellationToken)

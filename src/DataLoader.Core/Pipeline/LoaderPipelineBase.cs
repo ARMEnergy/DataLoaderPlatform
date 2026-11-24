@@ -186,8 +186,13 @@ public class LoaderPipelineBase<TUnit, TItem, TRow> : ILoaderPipeline
         }
         catch (OperationCanceledException)
         {
-            // Whole-run cancellation — record as failure but bubble up
-            await TryCompleteFailureAsync(handle, "Run cancelled").ConfigureAwait(false);
+            // Whole-run cancellation — record as failure but bubble up. The run deadline
+            // (Platform:RunDeadlineMinutes) arrives here too; name it, so the load-log row
+            // says why the unit stopped rather than implying someone pressed Ctrl+C.
+            var reason = context.RunDeadlineToken.IsCancellationRequested
+                ? "Run deadline reached (Platform:RunDeadlineMinutes); unit cancelled"
+                : "Run cancelled";
+            await TryCompleteFailureAsync(handle, reason).ConfigureAwait(false);
             throw;
         }
         catch (Exception ex)

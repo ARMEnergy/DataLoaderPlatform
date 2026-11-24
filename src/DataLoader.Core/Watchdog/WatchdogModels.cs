@@ -13,8 +13,17 @@ public sealed record LoaderLastRun(string LoaderName, DateTime LastStartCentral)
 /// <summary>
 /// A <c>core.LoaderRun</c> row that never closed. Its timestamp IS UTC — a
 /// different table with a different convention from <see cref="LoaderLastRun"/>.
+///
+/// <para><see cref="LoaderName"/> is the loader the run was for, or null when that
+/// cannot be known. <c>core.LoaderRun</c> has no name column; production's
+/// <c>usp_BeginLoadLog</c> inserts the <c>core.LoaderRun_Summary</c> row (with
+/// <c>LoaderName</c>) when the run's FIRST work unit begins, long before
+/// <c>usp_CompleteLoaderRun</c>, so a killed run normally has one; the run's first
+/// <c>core.LoadLog</c> row is the fallback. A run killed before its first unit has
+/// neither and stays nameless. That summary row is one per run, so a multi-loader run
+/// (never scheduled in production) is named after its first loader only.</para>
 /// </summary>
-public sealed record StuckRun(Guid RunId, DateTime StartedAtUtc, string? HostName);
+public sealed record StuckRun(Guid RunId, DateTime StartedAtUtc, string? HostName, string? LoaderName = null);
 
 /// <summary>
 /// A run that recorded <c>Success = 0</c>. Timestamp is Central.

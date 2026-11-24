@@ -124,15 +124,6 @@ public sealed class PlatformHost
                 _settings.MaxConcurrentLoaders,
                 async (module, ct) =>
                 {
-                    var ctx = new LoaderRunContext
-                    {
-                        RunId = runId,
-                        StartedAtUtc = startedAt,
-                        DateFrom = context.DateFrom,
-                        DateTo = context.DateTo,
-                        CancellationToken = ct
-                    };
-
                     // Seeded, not left unassigned: this is what gets recorded if anything
                     // below throws before producing a real result (TryAcquireAsync, or the
                     // lock's own disposal). A loader must never silently vanish from
@@ -161,15 +152,8 @@ public sealed class PlatformHost
                             return;   // the finally below still records `result`
                         }
 
-                        try
-                        {
-                            result = await module.RunAsync(_services, ctx).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Loader {Loader} threw out of RunAsync", module.LoaderId);
-                            result = LoaderRunResult.Failed(module.LoaderId, ex.Message, TimeSpan.Zero);
-                        }
+                        result = await RunModuleAsync(module, runId, startedAt, context, sw, ct)
+                            .ConfigureAwait(false);
 
                         // Post-run hook: core.usp_RunAdditionalProcesses(@LoaderName, @RunId).
                         //
@@ -181,9 +165,12 @@ public sealed class PlatformHost
                         // itself) nor when the run is cancelled: the operator asked to stop,
                         // and the hook is new work, not cleanup.
                         //
-                        // Note the explicit cancellation check. `catch (Exception)` above
-                        // swallows OperationCanceledException too, so a cancelled module
-                        // arrives here looking merely failed.
+                        // Note the explicit cancellation check. RunModuleAsync swallows
+                        // OperationCanceledException too, so a cancelled module arrives
+                        // here looking merely failed. `ct` is the OPERATOR's token, not the
+                        // loader's deadline: a loader stopped by its run deadline is a
+                        // failure like any other, its partial data still landed, so the
+                        // hook still runs for it.
                         if (!ct.IsCancellationRequested)
                             await _additionalProcesses
                                 .RunAsync(module.LoaderId, runId, ct).ConfigureAwait(false);
@@ -211,6 +198,99 @@ public sealed class PlatformHost
         await ReportRunOutcomeAsync(runId, startedAt, elapsed, results, staleRowsClosed).ConfigureAwait(false);
         return allSucceeded ? 0 : 1;
     }
+
+    /// <summary>
+    /// Runs one loader under its run deadline (<see cref="PlatformSettings.RunDeadlineMinutes"/>)
+    /// and always returns a result — it never throws. An OPERATOR's cancellation
+    /// (<paramref name="operatorCt"/>) arrives as an ordinary failure, as it always has; the
+    /// caller tells the two apart by checking that token.
+    ///
+    /// <para>The deadline is measured from the start of the host run (<paramref name="runClock"/>),
+    /// because that is what the scheduled task's time limit measures too. A loader that only gets
+    /// a slot after its deadline has passed is cancelled at once and recorded as failed.</para>
+    ///
+    /// <para>When the deadline fires, the loader's token is cancelled: the in-flight work unit is
+    /// cancelled and closes its load-log row as a failure, units not yet started are never
+    /// attempted, and the loader's whole result becomes a failure naming the deadline. The run
+    /// then closes normally (<c>usp_CompleteLoaderRun</c> with <c>Success = 0</c>), sends the
+    /// failure email, and the process exits 1 — instead of being killed by Task Scheduler with
+    /// its run row left open.</para>
+    /// </summary>
+    private async Task<LoaderRunResult> RunModuleAsync(
+        ILoaderModule module, Guid runId, DateTime startedAt, LoaderRunContext runContext,
+        Stopwatch runClock, CancellationToken operatorCt)
+    {
+        var deadline = _settings.RunDeadlineFor(module.LoaderId);
+        var moduleClock = Stopwatch.StartNew();
+
+        using var deadlineCts = new CancellationTokenSource();
+        using var loaderCts = CancellationTokenSource.CreateLinkedTokenSource(operatorCt, deadlineCts.Token);
+
+        // The log line is the point: without it, a stopped run's log just ends, which is
+        // exactly what made the 2026-11-21 IHSPointLogic kills hard to read.
+        using var onDeadline = deadline is { } logged
+            ? deadlineCts.Token.Register(() => _logger.LogWarning(
+                "Loader {Loader} reached its run deadline of {Minutes:0} min (Platform:RunDeadlineMinutes) — " +
+                "cancelling it; units not yet started will not be attempted this run",
+                module.LoaderId, logged.TotalMinutes))
+            : default;
+
+        if (deadline is { } limit)
+        {
+            var remaining = limit - runClock.Elapsed;
+            if (remaining <= TimeSpan.Zero) deadlineCts.Cancel();
+            else deadlineCts.CancelAfter(remaining);
+        }
+
+        var ctx = new LoaderRunContext
+        {
+            RunId = runId,
+            StartedAtUtc = startedAt,
+            DateFrom = runContext.DateFrom,
+            DateTo = runContext.DateTo,
+            CancellationToken = loaderCts.Token,
+            RunDeadlineToken = deadline is null ? CancellationToken.None : deadlineCts.Token
+        };
+
+        LoaderRunResult result;
+        try
+        {
+            result = await module.RunAsync(_services, ctx).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (deadlineCts.IsCancellationRequested && !operatorCt.IsCancellationRequested)
+        {
+            // Expected: this is how a loader leaves when its deadline cancels it. Logged
+            // without the stack — the deadline line above already says what happened.
+            _logger.LogWarning("Loader {Loader} stopped by its run deadline ({Type}: {Message})",
+                module.LoaderId, ex.GetType().Name, ex.Message);
+            return LoaderRunResult.Failed(module.LoaderId, DeadlineMessage(module.LoaderId, deadline!.Value), moduleClock.Elapsed);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Loader {Loader} threw out of RunAsync", module.LoaderId);
+            return LoaderRunResult.Failed(module.LoaderId, ex.Message, TimeSpan.Zero);
+        }
+
+        // A loader that swallowed the cancellation and RETURNED after its deadline fired must
+        // still not report success: its remaining units were not attempted. Sampled here, before
+        // the CTS is disposed, so a deadline firing during the post-run hook cannot mislabel a
+        // finished run. (A loader that finishes within microseconds of its deadline can still
+        // be labelled stopped — and a real fault thrown just as it fires is reported as the
+        // deadline by the filter above. Both are accepted: the run is a failure either way.)
+        if (deadlineCts.IsCancellationRequested && !operatorCt.IsCancellationRequested)
+        {
+            return LoaderRunResult.Aggregate(
+                module.LoaderId,
+                new[] { result, LoaderRunResult.Failed(module.LoaderId, DeadlineMessage(module.LoaderId, deadline!.Value), TimeSpan.Zero) },
+                result.Duration);
+        }
+
+        return result;
+    }
+
+    internal static string DeadlineMessage(string loaderId, TimeSpan deadline) =>
+        $"Run deadline of {deadline.TotalMinutes:0} min reached (Platform:RunDeadlineMinutes:{loaderId}); " +
+        "the loader was stopped and its remaining work units were not attempted this run";
 
     private IReadOnlyList<ILoaderModule> SelectEnabledModules()
     {

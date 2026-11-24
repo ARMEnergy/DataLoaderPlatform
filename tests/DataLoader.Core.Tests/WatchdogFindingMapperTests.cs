@@ -217,7 +217,7 @@ public class WatchdogFindingMapperTests
 
         Assert.Contains("  OilX: has NEVER run (threshold 39h)", body);
         Assert.Contains("  Platts: last started 2026-11-11 07:05 Central, 25.9h ago (threshold 24h)", body);
-        Assert.Contains("  3f2a0000-0000-0000-0000-000000000001 started 2026-11-12 01:02 UTC on unknown host", body);
+        Assert.Contains("  Unknown loader run 3f2a0000-0000-0000-0000-000000000001 started 2026-11-12 01:02 UTC on unknown host", body);
         Assert.Contains("  AGSI: 2026-11-12 08:00 Central, 3/14 units failed (1 unresolved)", body);
         Assert.Contains("  ICE: 2026-11-12 07:00 Central, 2/9 units failed" + Environment.NewLine, body);
         Assert.Contains("  Vulcan: MaxGapHours is missing or <= 0 (Platform:Watchdog:Loaders:Vulcan:MaxGapHours)", body);
