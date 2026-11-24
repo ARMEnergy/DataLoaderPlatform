@@ -51,6 +51,8 @@
     <ProjectReference Include="..\DataLoader.OilX\DataLoader.OilX.csproj" />
     <ProjectReference Include="..\DataLoader.EIA\DataLoader.EIA.csproj" />
     <ProjectReference Include="..\DataLoader.NUCORE\DataLoader.NUCORE.csproj" />
+    <ProjectReference Include="..\DataLoader.PJM\DataLoader.PJM.csproj" />
+    <ProjectReference Include="..\DataLoader.MISO\DataLoader.MISO.csproj" />
   </ItemGroup>
 
   <ItemGroup>
